@@ -2,6 +2,7 @@
 #include "../Common/BufferUtils.h"
 #include "../Program/GLSLCommon.h"
 #include "../rsx_methods.h"
+#include "../Capture/rsx_stereo_inspector.h"
 
 #include "VKAsyncScheduler.h"
 #include "VKGSRender.h"
@@ -1154,6 +1155,32 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// Bind the new set of descriptors for use with this draw call
 	m_frame_stats.setup_time += m_profiler.duration();
 
+	// VR fork: capture per-draw stereo evidence. This is the last point at which
+	// program, constants, framebuffer layout and subdraw state all correspond to
+	// the draw that is about to execute. Placing this at the constant-upload site
+	// instead would miss draws that reuse an unchanged constant allocation.
+	// No-op unless RPCS3_STEREO_INSPECT is set and the frame is armed.
+	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
+	{
+		rsx::vr::draw_capture_input capture_in;
+		capture_in.subdraw_index       = sub_index;
+		capture_in.vertex_draw_count   = upload_info.vertex_draw_count;
+		capture_in.indexed             = !!upload_info.index_info;
+		capture_in.pass_count          = draw_call.pass_count();
+		capture_in.vertex_program      = &current_vertex_program;
+		capture_in.fragment_program    = &current_fragment_program;
+		capture_in.framebuffer         = &m_framebuffer_layout;
+
+		if (m_vertex_prog)
+		{
+			capture_in.constant_ids          = &m_vertex_prog->constant_ids;
+			capture_in.has_indexed_constants = m_vertex_prog->has_indexed_constants;
+			capture_in.vp_session_id         = m_vertex_prog->id;
+		}
+
+		inspector.record_draw(capture_in);
+	}
+
 	if (!upload_info.index_info)
 	{
 		if (draw_call.is_trivial_instanced_draw)
@@ -1382,6 +1409,11 @@ void VKGSRender::end()
 	{
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	}
+
+	// VR fork: advance the logical RSX draw ordinal for the stereo inspector.
+	// One logical clause can produce several emitted subdraws, so the ordinal is
+	// assigned here and the subdraw index is recorded separately.
+	rsx::vr::stereo_inspector::get().begin_draw_clause();
 
 	auto& draw_call = rsx::method_registers.current_draw_clause;
 	draw_call.begin();

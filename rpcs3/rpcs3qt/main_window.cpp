@@ -212,7 +212,7 @@ void main_window::Init()
 	CreateConnects();
 
 	setMinimumSize(350, minimumSizeHint().height());    // seems fine on win 10
-	setWindowTitle(QString::fromStdString("RPCS3 " + rpcs3::get_verbose_version()));
+	setWindowTitle(QString::fromStdString("RPCS3 " + rpcs3::get_verbose_version() + " [VR DEV]"));
 
 	Q_EMIT RequestGlobalStylesheetChange();
 	ConfigureGuiFromSettings();
