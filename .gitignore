@@ -56,6 +56,9 @@
 /bin/GuiConfigs/*.dat
 /bin/GuiConfigs/*.dat.*
 
+# VR fork: per-title camera/stereo profiles
+!/bin/vr_profiles/
+
 # Visual Studio Files
 .vs/*
 .vscode/*

@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "title_id": "BCES00664",
+  "title": "WipEout HD Fury",
+  "requires_app_version": "02.51",
+  "note": "Proven in Gate 4 on the 2D/60-fps route. Every value below was either fitted from, or scored against, the game's own native-3D output (Gate 3 capture). Do not hand-edit without re-running tools/fit_stereo.py.",
+
+  "provenance": {
+    "rpcs3_branch": "openxr",
+    "scene": "Racebox > Speed Lap > Venom > Vineta K (forward) > FEISAR, stationary on the start line",
+    "native_capture": "plans/evidence/gate3/capture-3d-vinetak-grid.jsonl",
+    "flat_capture": "plans/evidence/gate3/capture-2d-vinetak-grid.jsonl",
+    "probe_evidence": "plans/evidence/gate4/"
+  },
+
+  "constant_slots": {
+    "index_space": "rsx-vp-c0-c467 (original guest indices, not compacted host offsets)",
+    "camera_position": { "slot": 465, "w": 1.0, "role": "camera world position; global per frame" },
+    "camera_blocks": [
+      {
+        "route": "single_matrix",
+        "slots": [256, 257, 258, 259],
+        "role": "world-view-projection, perspective",
+        "native_per_eye_draws": 485
+      },
+      {
+        "route": "two_matrix",
+        "slots": [260, 261, 262, 263],
+        "role": "view-projection, perspective; c[256..259] is an affine world matrix on this route",
+        "native_per_eye_draws": 156
+      }
+    ],
+    "matrix_convention": "row-vector: clip = v.x*c[b] + v.y*c[b+1] + v.z*c[b+2] + c[b+3]; column 0 -> clip.x, column 3 -> clip.w"
+  },
+
+  "camera_position_policy": {
+    "slot": 465,
+    "policy": "per_eye on EVERY draw that reads it, independent of the matrix classifier",
+    "native_evidence": "differs between eyes on 682 of 699 paired draws across 40 programs, always the same single left/right value pair - it is per-eye global camera state, not per-object data",
+    "native_eye_baseline_world_units": 0.240004,
+    "per_eye_offset": "+/-0.120002 along the camera right axis",
+    "why_separate_from_matrix": "the 512x256 cascade passes read c[465] and the game DOES change it per eye there, but leaves their matrices identical. So the matrix shear and the camera-position update have different draw sets. The probe applies only the matrix shear; Gate 5 must apply both.",
+    "status": "policy measured from the oracle; not yet applied by the probe"
+  },
+
+  "keying_rules": [
+    "Never key on render-target addresses: the world pass was 0xc0f50000 in 2D but 0xc1680000 in native 3D.",
+    "Never key on shader hash alone: one screen-space program (8a3e5582d07b849) serves both post-process and the HUD.",
+    "Key on what the draw carries: render-target aspect and whether its camera block is perspective."
+  ],
+
+  "draw_classification": {
+    "per_eye_if_all": [
+      "render target aspect equals output aspect (within 2%)",
+      "program carries a PERSPECTIVE camera block: column 3 != (0,0,0,1); pick c[256..259] if perspective, else c[260..263]"
+    ],
+    "score_vs_native_oracle": { "paired_draws": 740, "true_positive": 641, "false_positive": 0, "false_negative": 0, "true_negative": 99 },
+    "why_both_rules": "the perspective test alone excludes the HUD (orthographic) but not the five 512x256 cascade passes, whose c[260..263] is perspective yet shared between eyes; the aspect test excludes those 58 draws",
+    "passes": [
+      { "target": "1280x720 world colour",      "policy": "per_eye" },
+      { "target": "640x360 half-res colour",    "policy": "per_eye" },
+      { "target": "512x256 x5 (cascades)",      "policy": "matrix shared, c[465] per eye", "draws_2d": 58 },
+      { "target": "512x512",                    "policy": "shared", "draws_2d": 37 },
+      { "target": "256x256",                    "policy": "shared", "draws_2d": 4 },
+      { "target": "1280x720 display (HUD)",     "policy": "shared", "draws_2d": 32, "reason": "orthographic screen-space matrix, c[259] = [-0.96, 0.96, 0, 1]" },
+      { "target": "320x180 / 160x90 post chain", "policy": "shared", "reason": "no camera matrix" }
+    ]
+  },
+
+  "stereo": {
+    "transform_route": "clip-space shear on the selected camera block: clip.x += sep * (clip.w - conv). Implemented as col0 += sep*col3, then c[b+3].x -= sep*conv. Independent of any world matrix folded into the block.",
+    "fit": { "draws": 641, "max_residual": 3.81e-06, "columns_1_to_3_unchanged": true },
+    "native_parameters": {
+      "separation_between_eyes": 0.08125,
+      "convergence": 2.878,
+      "per_eye_sep": [-0.040625, 0.040625],
+      "mono_camera": "the 2D camera is the midpoint of the two native eyes (|2D - mid| = 0.046 of a 0.240 baseline)"
+    },
+    "variants_seen": [
+      { "sep": 0.08125, "conv": 2.878, "draws": 619, "where": "1280x720 world" },
+      { "sep": 0.06094, "conv": 2.878, "draws": 10,  "where": "640x360 pass (0.75 x sep)" },
+      { "sep": 0.08125, "conv": 0.0,   "draws": 6,   "where": "layers at infinity (sky/skyline)" },
+      { "sep": 0.06094, "conv": 0.0,   "draws": 6,   "where": "infinity layers on the 640x360 pass" }
+    ],
+    "validated_disparity_px_1280": [
+      { "feature": "ship (near)",          "generated": 23, "native": 24 },
+      { "feature": "left barrier",         "generated": 42, "native": 46 },
+      { "feature": "harimau sign",         "generated": 49, "native": 50 },
+      { "feature": "right building",       "generated": 48, "native": 48 },
+      { "feature": "track far",            "generated": 50, "native": 50 }
+    ]
+  },
+
+  "hazards_for_gate5": [
+    "RPCS3 refills transform constants only on guest constant writes, vertex-program ucode change, or interpreter/recompiler swap - NOT on a render-target change. The probe classifies at fill time. In this scene 0 of 827 draws inherit a stale classification, but the Gate 5 renderer must classify per draw, not per fill.",
+    "The 640x360 pass and infinity layers use different sep/conv. Gate 5 should either reproduce the four variants or derive them per draw.",
+    "Rotation probes pivot on c[465] in world space; on the two-matrix route the space between the world matrix and c[260..263] may be camera-relative. Stereo does not need rotations; the clip-space shear has no pivot."
+  ]
+}

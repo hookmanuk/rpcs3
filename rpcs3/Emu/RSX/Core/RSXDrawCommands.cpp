@@ -8,6 +8,7 @@
 #include "Emu/RSX/Program/GLSLCommon.h"
 #include "Emu/RSX/rsx_methods.h"
 #include "Emu/RSX/RSXThread.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 
 #include "Emu/Memory/vm.h"
 
@@ -659,6 +660,17 @@ namespace rsx
 		else
 		{
 			memcpy(buffer, REGS(m_ctx)->transform_constants.data(), 468 * 4 * sizeof(float));
+		}
+
+		// VR fork: perturb the TRANSIENT copy only. The guest register bank above
+		// is never modified, so this is invisible to guest simulation and is fully
+		// reversible by unsetting the environment variable.
+		// No-op unless RPCS3_VR_PROBE or RPCS3_VR_PROBE_FILE configures a probe.
+		if (auto& probe = rsx::vr::camera_probe::get(); probe.enabled())
+		{
+			probe.apply(buffer, reloc_table.data(), reloc_table.size(),
+				REGS(m_ctx)->transform_constants.data(),
+				REGS(m_ctx)->surface_clip_width(), REGS(m_ctx)->surface_clip_height());
 		}
 	}
 
