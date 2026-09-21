@@ -374,6 +374,13 @@ namespace rsx::vr
 		// perspective projection but its clip-X column is not camera right
 		// (native capture dot=+0.007); use the most recent real camera view for
 		// that global axis. Output-aspect camera draws establish/refresh it.
+		// Head rotation first, so camera right and the eye offsets below follow
+		// the rotated view.
+		if (output_aspect_match && m_vr_view)
+		{
+			apply_vr_rotation(rows);
+		}
+
 		if (output_aspect_match)
 		{
 			m_render_camera_right = { rows[0][0], rows[1][0], rows[2][0] };
@@ -389,7 +396,7 @@ namespace rsx::vr
 
 		if (f32* cam = find_slot(buffer, reloc, reloc_size, m_cam_slot); cam && m_render_camera_right_valid)
 		{
-			constexpr f32 half_eye_baseline = 0.120002f;
+			const f32 half_eye_baseline = 0.120002f * (m_vr_view ? m_vr_eye_scale : 1.f);
 			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];
 			cam[1] += eye_sign * half_eye_baseline * m_render_camera_right[1];
 			cam[2] += eye_sign * half_eye_baseline * m_render_camera_right[2];
@@ -408,12 +415,138 @@ namespace rsx::vr
 		const f32 per_eye_sep = surface_w * 2u == eye.width ? 0.03047f : 0.040625f;
 		constexpr f32 convergence = 2.878f;
 		const f32 sep = eye_sign * per_eye_sep;
+
+		if (m_vr_view)
+		{
+			// Headset eyes are parallel: keep the formula's eye translation
+			// (clip.x -= sep*conv, the same 0.120-unit offset as c[465]) and drop
+			// its convergence image shift (clip.x += sep*clip.w).
+			rows[3][0] -= sep * m_vr_eye_scale * convergence;
+
+			if (m_vr_fov_scale != 1.f)
+			{
+				const f32 zoom = 1.f / m_vr_fov_scale;
+				for (u32 r = 0; r < 4; ++r)
+				{
+					rows[r][0] *= zoom;
+					rows[r][1] *= zoom;
+				}
+			}
+			return true;
+		}
+
 		for (u32 r = 0; r < 4; ++r)
 		{
 			rows[r][0] += sep * rows[r][3];
 		}
 		rows[3][0] -= sep * convergence;
 		return true;
+	}
+
+	void camera_probe::set_vr_view(const f32 q[4], f32 eye_scale, f32 fov_scale, bool flip_y)
+	{
+		// OpenXR rotation matrix (right, up, back basis) from the quaternion.
+		const f32 x = q[0], y = q[1], z = q[2], w = q[3];
+		const f32 r[3][3] =
+		{
+			{ 1 - 2 * (y * y + z * z), 2 * (x * y - z * w),     2 * (x * z + y * w) },
+			{ 2 * (x * y + z * w),     1 - 2 * (x * x + z * z), 2 * (y * z - x * w) },
+			{ 2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y) },
+		};
+
+		// The draw's clip basis is (NDC x = right, NDC y = up unless flip_y,
+		// clip w = forward). Conjugate by S = diag(1, sy, -1), which is its own
+		// inverse, and transpose: a camera turned by R sees view vectors by R^T.
+		const f32 s[3] = { 1.f, flip_y ? -1.f : 1.f, -1.f };
+		for (u32 i = 0; i < 3; ++i)
+		{
+			for (u32 j = 0; j < 3; ++j)
+			{
+				m_vr_rot[i * 3 + j] = s[j] * r[j][i] * s[i];
+			}
+		}
+
+		m_vr_eye_scale = eye_scale;
+		m_vr_fov_scale = fov_scale;
+		m_vr_view = true;
+	}
+
+	void camera_probe::clear_vr_view()
+	{
+		m_vr_view = false;
+	}
+
+	bool camera_probe::get_vr_fov(f32& tan_half_x, f32& tan_half_y) const
+	{
+		if (!m_vr_proj_valid)
+		{
+			return false;
+		}
+		tan_half_x = m_vr_fov_scale / m_vr_proj_x;
+		tan_half_y = m_vr_fov_scale / m_vr_proj_y;
+		return true;
+	}
+
+	void camera_probe::apply_vr_rotation(f32* const rows[4]) const
+	{
+		// Row-vector camera block M (clip = v * M). For M = L * P with L affine and
+		// P a perspective projection (x' = a*x, y' = b*y, z' = c*z + d, w' = e*z):
+		//   col0 = a*L.col0, col1 = b*L.col1, col2 = c*L.col2 (+ d in row 3), col3 = e*L.col2
+		// so for rows 0..2, c/e = col2.col3 / col3.col3 exactly, for any affine L.
+		// When L is rigid (orthogonal columns, uniform scale), |col0|/|col3| = a/|e|
+		// and |col1|/|col3| = b/|e|; those are cached from such blocks and reused
+		// for non-rigid ones. The view rotation is then applied in clip space:
+		//   u = (X/A, Y/B, W),  u' = R^T u,  X' = A*u'x,  Y' = B*u'y,  W' = u'z,
+		//   Z' = Z + (c/e) * (W' - W)
+		const auto dot = [&](u32 i, u32 j)
+		{
+			return rows[0][i] * rows[0][j] + rows[1][i] * rows[1][j] + rows[2][i] * rows[2][j];
+		};
+
+		const f32 n0 = std::sqrt(dot(0, 0));
+		const f32 n1 = std::sqrt(dot(1, 1));
+		const f32 d33 = dot(3, 3);
+		const f32 n3 = std::sqrt(d33);
+		if (n0 < 1e-8f || n1 < 1e-8f || n3 < 1e-8f)
+		{
+			return;
+		}
+
+		constexpr f32 tol = 1e-3f;
+		if (std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
+			std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
+			std::fabs(dot(1, 3)) <= tol * n1 * n3)
+		{
+			m_vr_proj_x = n0 / n3;
+			m_vr_proj_y = n1 / n3;
+			m_vr_proj_valid = true;
+		}
+
+		if (!m_vr_proj_valid)
+		{
+			return;
+		}
+
+		const f32 k = dot(2, 3) / d33;
+		const f32 A = m_vr_proj_x;
+		const f32 B = m_vr_proj_y;
+		const auto& R = m_vr_rot;
+
+		for (u32 r = 0; r < 4; ++r)
+		{
+			const f32 u0 = rows[r][0] / A;
+			const f32 u1 = rows[r][1] / B;
+			const f32 u2 = rows[r][3];
+
+			const f32 v0 = R[0] * u0 + R[1] * u1 + R[2] * u2;
+			const f32 v1 = R[3] * u0 + R[4] * u1 + R[5] * u2;
+			const f32 v2 = R[6] * u0 + R[7] * u1 + R[8] * u2;
+
+			rows[r][2] += k * (v2 - rows[r][3]);
+			rows[r][0] = A * v0;
+			rows[r][1] = B * v1;
+			rows[r][3] = v2;
+		}
 	}
 
 	void camera_probe::apply(void* buffer, const u16* reloc, usz reloc_size, const void* guest_constants, u16 surface_w, u16 surface_h) const

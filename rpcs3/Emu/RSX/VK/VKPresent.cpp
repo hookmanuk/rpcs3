@@ -1045,7 +1045,26 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			// The flip submit may still be queued on the offload thread.
 			g_fxo->get<rsx::dma_manager>().sync();
 		}
-		vk::xr::end_frame();
+		f32 tan_x = 0.f, tan_y = 0.f;
+		const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
+		vk::xr::end_frame(have_fov, tan_x, tan_y);
+
+		// Head pose for the next game frame: its camera draws are rotated by it,
+		// and it is declared with that frame at the next flip.
+		f32 head[4];
+		if (vk::xr::projection_mode() && vk::xr::locate_render_pose(head))
+		{
+			rsx::vr::camera_probe::get().set_vr_view(head, vk::xr::eye_scale(), vk::xr::fov_scale(), vk::xr::flip_y());
+		}
+		else
+		{
+			rsx::vr::camera_probe::get().clear_vr_view();
+		}
+	}
+	else
+	{
+		// No headset frame (session idle or absent): back to the game's camera.
+		rsx::vr::camera_probe::get().clear_vr_view();
 	}
 
 	m_frame_stats.flip_time = m_profiler.duration();

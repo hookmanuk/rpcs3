@@ -58,5 +58,19 @@ namespace vk::xr
 	bool record_eye_copies(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
 
 	// Call after the command buffer holding the copies was submitted to the queue.
-	void end_frame();
+	// With projection mode and a valid render pose and FOV, the eyes are submitted
+	// as a projection layer (declaring the pose/FOV they were rendered with);
+	// otherwise as the stereo quad.
+	void end_frame(bool have_fov, f32 tan_half_x, f32 tan_half_y);
+
+	// Projection mode (default; RPCS3_OPENXR_MODE=quad selects the virtual screen).
+	bool projection_mode();
+	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
+	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, default 1 (the game's own FOV)
+	bool flip_y();    // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
+
+	// Locate the head for the next game frame (predicted one 60 Hz frame after
+	// this flip's display time). It becomes the pose declared for that frame at
+	// the next end_frame(). Returns false if tracking is unavailable.
+	bool locate_render_pose(f32 quat_xyzw[4]);
 }

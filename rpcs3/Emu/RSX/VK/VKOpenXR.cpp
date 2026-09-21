@@ -42,6 +42,7 @@ namespace vk::xr
 			XrSystemId system = XR_NULL_SYSTEM_ID;
 			XrSession session = XR_NULL_HANDLE;
 			XrSpace space = XR_NULL_HANDLE;
+			XrSpace view_space = XR_NULL_HANDLE;
 			XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
 			bool session_running = false;
 			bool lost = false;
@@ -64,6 +65,17 @@ namespace vk::xr
 			f32 screen_distance = 2.0f;
 			f32 screen_width = 3.0f;
 
+			// Projection mode
+			bool projection = true;
+			f32 eye_scale = 1.f;
+			f32 fov_scale = 1.f;
+			bool flip_y = false;
+			XrTime last_display_time = 0;
+			// Pose the pending game frame is rendered with; declared at the next flip.
+			bool render_pose_valid = false;
+			XrQuaternionf render_orientation{ 0.f, 0.f, 0.f, 1.f };
+			XrVector3f render_eye_position[2]{};
+
 #define XR_FN(name) PFN_##name name = nullptr
 			XR_FN(xrCreateInstance);
 			XR_FN(xrDestroyInstance);
@@ -83,6 +95,8 @@ namespace vk::xr
 			XR_FN(xrWaitFrame);
 			XR_FN(xrBeginFrame);
 			XR_FN(xrEndFrame);
+			XR_FN(xrLocateSpace);
+			XR_FN(xrLocateViews);
 			XR_FN(xrEnumerateSwapchainFormats);
 			XR_FN(xrCreateSwapchain);
 			XR_FN(xrDestroySwapchain);
@@ -408,6 +422,8 @@ namespace vk::xr
 		XR_LOAD(xrWaitFrame);
 		XR_LOAD(xrBeginFrame);
 		XR_LOAD(xrEndFrame);
+		XR_LOAD(xrLocateSpace);
+		XR_LOAD(xrLocateViews);
 		XR_LOAD(xrEnumerateSwapchainFormats);
 		XR_LOAD(xrCreateSwapchain);
 		XR_LOAD(xrDestroySwapchain);
@@ -453,6 +469,10 @@ namespace vk::xr
 
 		g_xr.screen_distance = env_float("RPCS3_OPENXR_DISTANCE", 2.0f);
 		g_xr.screen_width = env_float("RPCS3_OPENXR_WIDTH", 3.0f);
+		g_xr.projection = read_env("RPCS3_OPENXR_MODE") != "quad";
+		g_xr.eye_scale = env_float("RPCS3_OPENXR_EYE_SCALE", 1.0f);
+		g_xr.fov_scale = env_float("RPCS3_OPENXR_FOV_SCALE", 1.0f);
+		g_xr.flip_y = read_env("RPCS3_OPENXR_FLIP_Y") == "1";
 
 		xr_log.success("Headset '%s' found. Vulkan instance extensions: %u, device extensions: %u",
 			props.systemName, ::size32(g_xr.instance_exts), ::size32(g_xr.device_exts));
@@ -527,13 +547,27 @@ namespace vk::xr
 			return false;
 		}
 
+		space.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+		if (!check(g_xr.xrCreateReferenceSpace(g_xr.session, &space, &g_xr.view_space), "xrCreateReferenceSpace(VIEW)"))
+		{
+			return false;
+		}
+
 		u32 count = 0;
 		g_xr.xrEnumerateSwapchainFormats(g_xr.session, 0, &count, nullptr);
 		g_xr.swapchain_formats.resize(count);
 		g_xr.xrEnumerateSwapchainFormats(g_xr.session, count, &count, g_xr.swapchain_formats.data());
 
-		xr_log.success("Session created (queue family %u, index %u). Virtual screen %.2fm wide at %.2fm.",
-			queue_family, queue_index, g_xr.screen_width, g_xr.screen_distance);
+		if (g_xr.projection)
+		{
+			xr_log.success("Session created (queue family %u, index %u). Projection mode: eye scale %.2f, FOV scale %.2f%s.",
+				queue_family, queue_index, g_xr.eye_scale, g_xr.fov_scale, g_xr.flip_y ? ", Y flipped" : "");
+		}
+		else
+		{
+			xr_log.success("Session created (queue family %u, index %u). Virtual screen %.2fm wide at %.2fm.",
+				queue_family, queue_index, g_xr.screen_width, g_xr.screen_distance);
+		}
 		return true;
 	}
 
@@ -542,6 +576,7 @@ namespace vk::xr
 		if (g_xr.instance)
 		{
 			destroy_swapchains();
+			if (g_xr.view_space) g_xr.xrDestroySpace(g_xr.view_space);
 			if (g_xr.space) g_xr.xrDestroySpace(g_xr.space);
 			if (g_xr.session)
 			{
@@ -588,6 +623,7 @@ namespace vk::xr
 		g_xr.frame_begun = true;
 		g_xr.layers_ready = false;
 		g_xr.display_time = frame_state.predictedDisplayTime;
+		g_xr.last_display_time = frame_state.predictedDisplayTime;
 		return true;
 	}
 
@@ -649,7 +685,7 @@ namespace vk::xr
 		return true;
 	}
 
-	void end_frame()
+	void end_frame(bool have_fov, f32 tan_half_x, f32 tan_half_y)
 	{
 		if (!g_xr.frame_begun)
 		{
@@ -671,10 +707,43 @@ namespace vk::xr
 		}
 
 		XrCompositionLayerQuad quads[2]{};
+		XrCompositionLayerProjectionView views[2]{};
+		XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
 		const XrCompositionLayerBaseHeader* layers[2]{};
 		u32 layer_count = 0;
 
-		if (g_xr.layers_ready && released)
+		if (g_xr.layers_ready && released && g_xr.projection && g_xr.render_pose_valid && have_fov)
+		{
+			// Declare exactly how the eyes were rendered: the head orientation the
+			// camera was rotated by, the located eye positions, and the game's own
+			// (symmetric, parallel-eye) field of view. The compositor reprojects
+			// the remaining head motion at the headset's rate.
+			const f32 half_x = std::atan(tan_half_x);
+			const f32 half_y = std::atan(tan_half_y);
+			for (u32 i = 0; i < 2; ++i)
+			{
+				auto& view = views[i];
+				view.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+				view.pose.orientation = g_xr.render_orientation;
+				view.pose.position = g_xr.render_eye_position[i];
+				view.fov = { -half_x, half_x, half_y, -half_y };
+				view.subImage.swapchain = g_xr.eyes[i].handle;
+				view.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
+				view.subImage.imageArrayIndex = 0;
+			}
+			projection.space = g_xr.space;
+			projection.viewCount = 2;
+			projection.views = views;
+			layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
+
+			static bool s_reported_projection = false;
+			if (!std::exchange(s_reported_projection, true))
+			{
+				xr_log.success("Projection layer: game FOV %.1f x %.1f degrees.",
+					2.f * half_x * 57.29578f, 2.f * half_y * 57.29578f);
+			}
+		}
+		else if (g_xr.layers_ready && released)
 		{
 			const f32 height = g_xr.screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
 			for (u32 i = 0; i < 2; ++i)
@@ -707,5 +776,55 @@ namespace vk::xr
 		{
 			xr_log.success("First stereo frame submitted to the headset.");
 		}
+	}
+
+	bool projection_mode() { return g_xr.projection; }
+	f32 eye_scale() { return g_xr.eye_scale; }
+	f32 fov_scale() { return g_xr.fov_scale; }
+	bool flip_y() { return g_xr.flip_y; }
+
+	bool locate_render_pose(f32 quat_xyzw[4])
+	{
+		// A frame rendered without a located pose must not be declared with an old one.
+		g_xr.render_pose_valid = false;
+
+		if (!g_xr.session_running || !g_xr.view_space || !g_xr.last_display_time)
+		{
+			return false;
+		}
+
+		// The next game frame is presented at the next guest flip, one 60 Hz
+		// frame after this one. The compositor corrects any prediction error.
+		const XrTime time = g_xr.last_display_time + 16666667;
+
+		XrSpaceLocation head{ XR_TYPE_SPACE_LOCATION };
+		if (!XR_SUCCEEDED(g_xr.xrLocateSpace(g_xr.view_space, g_xr.space, time, &head)) ||
+			!(head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
+		{
+			return false;
+		}
+
+		XrViewLocateInfo info{ XR_TYPE_VIEW_LOCATE_INFO };
+		info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+		info.displayTime = time;
+		info.space = g_xr.space;
+		XrViewState state{ XR_TYPE_VIEW_STATE };
+		XrView located[2]{ { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+		u32 count = 0;
+		if (!XR_SUCCEEDED(g_xr.xrLocateViews(g_xr.session, &info, &state, 2, &count, located)) || count != 2)
+		{
+			return false;
+		}
+
+		g_xr.render_orientation = head.pose.orientation;
+		g_xr.render_eye_position[0] = located[0].pose.position;
+		g_xr.render_eye_position[1] = located[1].pose.position;
+		g_xr.render_pose_valid = true;
+
+		quat_xyzw[0] = head.pose.orientation.x;
+		quat_xyzw[1] = head.pose.orientation.y;
+		quat_xyzw[2] = head.pose.orientation.z;
+		quat_xyzw[3] = head.pose.orientation.w;
+		return true;
 	}
 }

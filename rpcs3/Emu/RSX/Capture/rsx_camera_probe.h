@@ -114,10 +114,23 @@ namespace rsx::vr
 		// Human-readable description of the active probe, for logging.
 		const std::string& description() const { return m_description; }
 
+		// Gate 6 headset view. quat_xyzw is the OpenXR head orientation (LOCAL
+		// space) the next frame is rendered with. While set, output-aspect camera
+		// draws are rotated by it and the stereo becomes parallel (translation
+		// term only). eye_scale multiplies the game's eye separation, fov_scale
+		// widens the rendered field of view. flip_y if NDC +Y is screen-down.
+		void set_vr_view(const f32 quat_xyzw[4], f32 eye_scale, f32 fov_scale, bool flip_y);
+		void clear_vr_view();
+
+		// tan of the rendered half-angles, measured from the camera draws
+		// (including fov_scale). False until a rigid camera block has been seen.
+		bool get_vr_fov(f32& tan_half_x, f32& tan_half_y) const;
+
 	private:
 		camera_probe();
 		void parse(const std::string& cfg);
 		void reset_params();
+		void apply_vr_rotation(f32* const rows[4]) const;
 
 		bool m_enabled = false;          // subsystem on (default render path or probe config)
 		atomic_t<bool> m_active{false};  // a perturbation is configured right now
@@ -145,6 +158,17 @@ namespace rsx::vr
 		// RSX draw processing is serialized on the renderer thread.
 		mutable std::array<f32, 3> m_render_camera_right{};
 		mutable bool m_render_camera_right_valid = false;
+
+		// Gate 6 headset view (see set_vr_view). m_vr_rot is the head rotation
+		// transposed, expressed in the draw's clip basis (NDC x, NDC y, clip w).
+		bool m_vr_view = false;
+		std::array<f32, 9> m_vr_rot{};
+		f32 m_vr_eye_scale = 1.f;
+		f32 m_vr_fov_scale = 1.f;
+		// Projection x/y scales relative to w, from the latest rigid camera block.
+		mutable f32 m_vr_proj_x = 0.f;
+		mutable f32 m_vr_proj_y = 0.f;
+		mutable bool m_vr_proj_valid = false;
 
 		bool m_have_xform = false;
 		bool m_require_cam = false;
