@@ -28,6 +28,7 @@
     <ClInclude Include="Emu\RSX\VK\VKGSRenderTypes.hpp" />
     <ClInclude Include="Emu\RSX\VK\VKHelpers.h" />
     <ClInclude Include="Emu\RSX\VK\VKOverlays.h" />
+    <ClInclude Include="Emu\RSX\VK\VKOpenXR.h" />
     <ClInclude Include="Emu\RSX\VK\VKPipelineCompiler.h" />
     <ClInclude Include="Emu\RSX\VK\VKProcTable.h" />
     <ClInclude Include="Emu\RSX\VK\VKProgramBuffer.h" />
@@ -89,6 +90,7 @@
     <ClCompile Include="Emu\RSX\VK\VKOverlays.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKPipelineCompiler.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKPresent.cpp" />
+    <ClCompile Include="Emu\RSX\VK\VKOpenXR.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKProgramPipeline.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKQueryPool.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKRenderPass.cpp" />

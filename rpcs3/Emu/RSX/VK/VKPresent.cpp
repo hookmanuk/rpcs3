@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "VKGSRender.h"
 #include "../Capture/rsx_camera_probe.h"
+#include "VKOpenXR.h"
+#include "Emu/RSX/RSXOffload.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/memory.h"
 #include "Emu/RSX/Overlays/overlay_manager.h"
@@ -544,6 +546,8 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	vk::viewable_image* image_to_flip = nullptr;
 	vk::viewable_image* image_to_flip2 = nullptr;
 	bool generated_stereo = false;
+	u32 xr_eye_width = 0;
+	u32 xr_eye_height = 0;
 
 	if (info.buffer < display_buffers_count && buffer_width && buffer_height)
 	{
@@ -557,6 +561,9 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			.eye = 0
 		};
 		image_to_flip = get_present_source(&present_info, avconfig);
+		// Resolution-scaled eye size, as rewritten by get_present_source().
+		xr_eye_width = present_info.width;
+		xr_eye_height = present_info.height;
 
 		if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled())
 		{
@@ -1020,7 +1027,26 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		vk::change_image_layout(*m_current_command_buffer, target_image, target_layout, present_layout, subresource_range);
 	}
 
+	// Gate 6: copy the eyes into the headset swapchains inside this frame's
+	// command buffer; the XR frame ends only after RPCS3 has submitted it.
+	const bool xr_frame = vk::xr::begin_frame();
+	if (xr_frame && image_to_flip)
+	{
+		vk::xr::record_eye_copies(*m_current_command_buffer, image_to_flip,
+			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
+	}
+
 	queue_swap_request();
+
+	if (xr_frame)
+	{
+		if (g_cfg.video.multithreaded_rsx)
+		{
+			// The flip submit may still be queued on the offload thread.
+			g_fxo->get<rsx::dma_manager>().sync();
+		}
+		vk::xr::end_frame();
+	}
 
 	m_frame_stats.flip_time = m_profiler.duration();
 
@@ -1045,6 +1071,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 		// Then apply the change
 		m_rtts.sync_scaling_config(*m_current_command_buffer, active_res_scaling_config);
+		m_vr_right_rtts.sync_scaling_config(*m_current_command_buffer, active_res_scaling_config);
 		this->resolution_scaling_config = active_res_scaling_config;
 
 		// Finally reclaim any unused resources

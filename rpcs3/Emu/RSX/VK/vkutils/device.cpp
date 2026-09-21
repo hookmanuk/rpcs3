@@ -1,4 +1,5 @@
 #include "device.h"
+#include "../VKOpenXR.h"
 #include "instance.h"
 #include "util/logs.hpp"
 #include "Emu/system_config.h"
@@ -704,6 +705,20 @@ namespace vk
 		{
 			rsx_log.error("Your GPU does not support framebuffer logical operations. Graphics may not render correctly.");
 			enabled_features.logicOp = VK_FALSE;
+		}
+
+		// OpenXR (XR_KHR_vulkan_enable) requires these on the app's own device.
+		if (const auto& xr_extensions = vk::xr::device_extensions(); !xr_extensions.empty())
+		{
+			const supported_extensions device_support(supported_extensions::device, nullptr, *pgpu);
+			for (const auto& ext : xr_extensions)
+			{
+				if (device_support.is_supported(ext) &&
+					std::none_of(requested_extensions.begin(), requested_extensions.end(), [&](const char* e) { return ext == e; }))
+				{
+					requested_extensions.push_back(ext.c_str());
+				}
+			}
 		}
 
 		VkDeviceCreateInfo device = {};

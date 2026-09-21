@@ -9,6 +9,7 @@
 #include "VKCompute.h"
 #include "VKGSRender.h"
 #include "../Capture/rsx_camera_probe.h"
+#include "VKOpenXR.h"
 #include "VKHelpers.h"
 #include "VKRenderPass.h"
 #include "VKResourceManager.h"
@@ -411,6 +412,14 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	g_fxo->need<rsx::dma_manager>();
 	g_fxo->need<vk::driver_manager_thread>();
 
+	// Gate 6: OpenXR must be initialised before the Vulkan instance so the
+	// runtime's required extensions can be enabled on it. Only for the armed
+	// stereo title; everything else never touches the OpenXR runtime.
+	if (rsx::vr::camera_probe::get().render_enabled())
+	{
+		vk::xr::prepare();
+	}
+
 	if (!m_instance.create("RPCS3"))
 	{
 		rsx_log.fatal("Could not find a Vulkan compatible GPU driver. Your GPU(s) may not support Vulkan, or you need to install the Vulkan runtime and drivers");
@@ -434,6 +443,19 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 
 	bool gpu_found = false;
 	std::string adapter_name = g_cfg.video.vk.adapter;
+
+	// The headset must be driven by the GPU the OpenXR runtime names.
+	if (const VkPhysicalDevice xr_gpu = vk::xr::get_physical_device(m_instance.handle()))
+	{
+		for (auto& gpu : gpus)
+		{
+			if (static_cast<VkPhysicalDevice>(gpu) == xr_gpu)
+			{
+				adapter_name = gpu.get_name();
+				break;
+			}
+		}
+	}
 
 	display_handle_t display = m_frame->handle();
 
@@ -472,6 +494,13 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	m_device = const_cast<vk::render_device*>(&m_swapchain->get_device());
 	vk::set_current_renderer(m_swapchain->get_device());
 	vk::init();
+
+	if (vk::xr::is_prepared())
+	{
+		// RPCS3 submits graphics work to queue 0 of the graphics family.
+		vk::xr::create_session(m_instance.handle(), m_device->gpu(), *m_device,
+			m_device->get_graphics_queue_family(), 0);
+	}
 
 	m_swapchain_dims.width = m_frame->client_width();
 	m_swapchain_dims.height = m_frame->client_height();
@@ -807,6 +836,9 @@ VKGSRender::~VKGSRender()
 
 	//Wait for device to finish up with resources
 	vkDeviceWaitIdle(*m_device);
+
+	// The OpenXR session references the device; end it before any teardown.
+	vk::xr::destroy();
 
 	// Globals. TODO: Refactor lifetime management
 	if (auto async_scheduler = g_fxo->try_get<vk::AsyncTaskScheduler>())

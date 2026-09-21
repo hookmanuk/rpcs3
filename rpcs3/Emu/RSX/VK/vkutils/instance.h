@@ -57,6 +57,8 @@ namespace vk
 
 		void bind();
 
+		VkInstance handle() const { return m_instance; }
+
 		std::vector<physical_device>& enumerate_devices();
 
 		swapchain_base* create_swapchain(display_handle_t window_handle, vk::physical_device& dev);

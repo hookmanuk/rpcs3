@@ -657,6 +657,7 @@ if(TARGET 3rdparty_vulkan)
         RSX/VK/VKMemAlloc.cpp
         RSX/VK/VKOverlays.cpp
         RSX/VK/VKPipelineCompiler.cpp
+        RSX/VK/VKOpenXR.cpp
         RSX/VK/VKPresent.cpp
         RSX/VK/VKProgramPipeline.cpp
         RSX/VK/VKQueryPool.cpp

@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "../VKOpenXR.h"
 #include "instance.h"
 
 #include "Emu/system_config.h"
@@ -189,6 +190,16 @@ namespace vk
 #endif //(WIN32, __APPLE__)
 			if (g_cfg.video.debug_output)
 				layers.push_back("VK_LAYER_KHRONOS_validation");
+
+			// OpenXR (XR_KHR_vulkan_enable) requires these on the app's own instance.
+			for (const auto& ext : vk::xr::instance_extensions())
+			{
+				if (support.is_supported(ext) &&
+					std::none_of(extensions.begin(), extensions.end(), [&](const char* e) { return ext == e; }))
+				{
+					extensions.push_back(ext.c_str());
+				}
+			}
 		}
 #ifdef __APPLE__ 
 		// MoltenVK's ICD will not be detected without these extensions enabled.
