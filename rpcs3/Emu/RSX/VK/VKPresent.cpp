@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "VKGSRender.h"
+#include "../Capture/rsx_camera_probe.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/memory.h"
 #include "Emu/RSX/Overlays/overlay_manager.h"
@@ -542,6 +543,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// Scan memory for required data. This is done early to optimize waiting for the driver image acquire below.
 	vk::viewable_image* image_to_flip = nullptr;
 	vk::viewable_image* image_to_flip2 = nullptr;
+	bool generated_stereo = false;
 
 	if (info.buffer < display_buffers_count && buffer_width && buffer_height)
 	{
@@ -555,6 +557,51 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			.eye = 0
 		};
 		image_to_flip = get_present_source(&present_info, avconfig);
+
+		if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled())
+		{
+			// The display target is normally still bound at flip. Prefer that exact
+			// surface: resolving it through the cache merge path can reject a valid
+			// right eye whose inherited memory range is larger than the display.
+			// Compare in guest pixels: get_present_source() has already rewritten
+			// present_info.width/height to the resolution-scaled size.
+			for (const auto& [address, surface] : m_vr_right_rtts.m_bound_render_targets)
+			{
+				if (address == present_info.address && surface &&
+					surface->get_surface_width<rsx::surface_metrics::samples>() >= buffer_width &&
+					surface->get_surface_height<rsx::surface_metrics::samples>() >= buffer_height)
+				{
+					image_to_flip2 = surface->get_surface(rsx::surface_access::transfer_read);
+					break;
+				}
+			}
+
+			if (!image_to_flip2)
+			{
+				const auto format_bpp = rsx::get_format_block_size_in_bytes(present_info.format);
+				auto right_overlap = m_vr_right_rtts.get_merged_texture_memory_region(*m_current_command_buffer,
+					present_info.address, buffer_width, buffer_height, present_info.pitch,
+					format_bpp, rsx::surface_access::transfer_read);
+				if (!right_overlap.empty())
+				{
+					const auto& section = right_overlap.back();
+					auto* surface = vk::as_rtt(section.surface);
+					if (section.base_address == present_info.address &&
+						surface->get_surface_width<rsx::surface_metrics::samples>() >= buffer_width &&
+						surface->get_surface_height<rsx::surface_metrics::samples>() >= buffer_height)
+					{
+						image_to_flip2 = section.surface->get_surface(rsx::surface_access::transfer_read);
+					}
+				}
+			}
+
+			generated_stereo = image_to_flip2 != nullptr;
+			static bool s_reported_generated_stereo = false;
+			if (generated_stereo && !std::exchange(s_reported_generated_stereo, true))
+			{
+				rsx_log.success("Gate 5: presenting generated stereo as side-by-side.");
+			}
+		}
 
 		if (avconfig.stereo_enabled) [[unlikely]]
 		{
@@ -817,12 +864,12 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	{
 		const bool use_full_rgb_range_output = g_cfg.video.full_rgb_range_output.get();
 
-		if (!use_full_rgb_range_output || !rsx::fcmp(avconfig.gamma, 1.f) || avconfig.stereo_enabled) [[unlikely]]
+		if (!use_full_rgb_range_output || !rsx::fcmp(avconfig.gamma, 1.f) || avconfig.stereo_enabled || generated_stereo) [[unlikely]]
 		{
 			if (image_to_flip) calibration_src.push_back(image_to_flip);
 			if (image_to_flip2) calibration_src.push_back(image_to_flip2);
 
-			if (m_output_scaling == output_scaling_mode::fsr && !avconfig.stereo_enabled) // 3D will be implemented later
+			if (m_output_scaling == output_scaling_mode::fsr && !avconfig.stereo_enabled && !generated_stereo) // 3D will be implemented later
 			{
 				// Run upscaling pass before the rest of the output effects pipeline
 				// This can be done with all upscalers but we already get bilinear upscaling for free if we just out the filters directly
@@ -853,7 +900,8 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 			vk::get_overlay_pass<vk::video_out_calibration_pass>()->run(
 				*m_current_command_buffer, areau(aspect_ratio), direct_fbo, calibration_src,
-				avconfig.gamma, !use_full_rgb_range_output, avconfig.stereo_enabled, single_target_pass);
+				avconfig.gamma, !use_full_rgb_range_output, avconfig.stereo_enabled || generated_stereo,
+				single_target_pass, generated_stereo);
 
 			direct_fbo->release();
 		}

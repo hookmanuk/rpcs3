@@ -135,6 +135,10 @@ namespace rsx::vr
 
 		if (cfg.empty() && m_config_path.empty())
 		{
+			// Gate 5 development default: render WipEout's profiled title in
+			// stereo without requiring the launcher to inject an environment
+			// variable. Explicit probe configuration still overrides this.
+			parse("render=1");
 			return;
 		}
 
@@ -152,6 +156,18 @@ namespace rsx::vr
 		}
 	}
 
+	bool camera_probe::render_enabled() const
+	{
+		if (!m_active.load() || !m_render_enabled)
+		{
+			return false;
+		}
+
+		// Do not allocate/replay right-eye resources for unrelated titles merely
+		// because the development default is armed.
+		return m_title.empty() || Emu.GetTitleID() == m_title;
+	}
+
 	void camera_probe::reset_params()
 	{
 		m_base = 256;
@@ -164,6 +180,9 @@ namespace rsx::vr
 		m_stereo_sep = 0.f;
 		m_stereo_conv = 0.f;
 		m_have_stereo = false;
+		m_render_enabled = false;
+		m_render_camera_right = {};
+		m_render_camera_right_valid = false;
 		m_have_raw = false;
 		m_raw_slot = 0;
 		m_raw_comp = 0;
@@ -265,10 +284,11 @@ namespace rsx::vr
 			else if (k == "reqcam") m_require_cam = (as_u() != 0);
 			else if (k == "stereo") { m_stereo_sep = as_f(); m_have_stereo = true; }
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
+			else if (k == "render") { m_render_enabled = (as_u() != 0); }
 			else if (k == "title") m_title = v;
 		}
 
-		if (!m_have_xform && !m_have_raw && !m_have_stereo)
+		if (!m_have_xform && !m_have_raw && !m_have_stereo && !m_render_enabled)
 		{
 			m_active = false;
 			m_description.clear();
@@ -288,6 +308,112 @@ namespace rsx::vr
 		vr_probe_log.success("Camera probe ARMED for title '%s': %s", m_title, cfg);
 		vr_probe_log.warning("This modifies the transient per-draw constant copy only. "
 			"Guest state is untouched.");
+	}
+
+	bool camera_probe::apply_render_eye(void* buffer, const u16* reloc, usz reloc_size,
+		u16 surface_w, u16 surface_h, f32 eye_sign) const
+	{
+		if (!render_enabled() || !buffer || (eye_sign != -1.f && eye_sign != 1.f))
+		{
+			return false;
+		}
+
+		if (!m_title.empty() && Emu.GetTitleID() != m_title)
+		{
+			return false;
+		}
+
+		const auto is_perspective = [](f32* const r[4])
+		{
+			constexpr f32 eps = 1e-6f;
+			return !(std::fabs(r[0][3]) < eps && std::fabs(r[1][3]) < eps &&
+				std::fabs(r[2][3]) < eps && std::fabs(r[3][3] - 1.f) < eps);
+		};
+
+		// The position policy has a wider domain than the matrix policy. Locate a
+		// perspective block first so c[465]'s offset follows the exact camera
+		// right axis used by this draw (not a global axis or a stale prior draw).
+		f32* rows[4] = {};
+		bool have_perspective = false;
+		for (const u32 candidate : { m_base, m_base + 4 })
+		{
+			f32* r[4];
+			bool present = true;
+			for (u32 k = 0; k < 4 && present; ++k)
+			{
+				r[k] = find_slot(buffer, reloc, reloc_size, candidate + k);
+				present = r[k] != nullptr;
+			}
+
+			if (present && is_perspective(r))
+			{
+				for (u32 k = 0; k < 4; ++k) rows[k] = r[k];
+				have_perspective = true;
+				break;
+			}
+		}
+
+		if (!have_perspective)
+		{
+			return false;
+		}
+
+		const auto& avconf = g_fxo->get<rsx::avconf>();
+		const size2u eye = avconf.video_frame_size();
+		if (!surface_w || !surface_h || !eye.width || !eye.height)
+		{
+			return false;
+		}
+
+		const f32 target_aspect = static_cast<f32>(surface_w) / surface_h;
+		const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
+		const bool output_aspect_match = std::fabs(target_aspect / output_aspect - 1.f) <= 0.02f;
+
+		// c[465] is a camera-world point in the native oracle. Unlike the
+		// matrix it changes on the cascade route too. A cascade's c[260] is a
+		// perspective projection but its clip-X column is not camera right
+		// (native capture dot=+0.007); use the most recent real camera view for
+		// that global axis. Output-aspect camera draws establish/refresh it.
+		if (output_aspect_match)
+		{
+			m_render_camera_right = { rows[0][0], rows[1][0], rows[2][0] };
+			const f32 length = std::sqrt(m_render_camera_right[0] * m_render_camera_right[0] +
+				m_render_camera_right[1] * m_render_camera_right[1] +
+				m_render_camera_right[2] * m_render_camera_right[2]);
+			if (length > 1e-8f)
+			{
+				for (f32& v : m_render_camera_right) v /= length;
+				m_render_camera_right_valid = true;
+			}
+		}
+
+		if (f32* cam = find_slot(buffer, reloc, reloc_size, m_cam_slot); cam && m_render_camera_right_valid)
+		{
+			constexpr f32 half_eye_baseline = 0.120002f;
+			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];
+			cam[1] += eye_sign * half_eye_baseline * m_render_camera_right[1];
+			cam[2] += eye_sign * half_eye_baseline * m_render_camera_right[2];
+		}
+
+		if (!output_aspect_match)
+		{
+			return false;
+		}
+
+		// Gate 4 fitted two resolution families. The half-resolution pass uses
+		// 75% of the full-resolution shear, not 50%, so select the measured
+		// value by target width. Infinity layers are deliberately left on the
+		// converged path until their six program/pass keys are made profile data;
+		// guessing them would turn a measured policy into a heuristic.
+		const f32 per_eye_sep = surface_w * 2u == eye.width ? 0.03047f : 0.040625f;
+		constexpr f32 convergence = 2.878f;
+		const f32 sep = eye_sign * per_eye_sep;
+		for (u32 r = 0; r < 4; ++r)
+		{
+			rows[r][0] += sep * rows[r][3];
+		}
+		rows[3][0] -= sep * convergence;
+		return true;
 	}
 
 	void camera_probe::apply(void* buffer, const u16* reloc, usz reloc_size, const void* guest_constants, u16 surface_w, u16 surface_h) const

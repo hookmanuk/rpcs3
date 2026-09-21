@@ -8,6 +8,7 @@
 #include "VKCommonPipelineLayout.h"
 #include "VKCompute.h"
 #include "VKGSRender.h"
+#include "../Capture/rsx_camera_probe.h"
 #include "VKHelpers.h"
 #include "VKRenderPass.h"
 #include "VKResourceManager.h"
@@ -861,6 +862,12 @@ VKGSRender::~VKGSRender()
 	m_frame_context_storage.clear();
 
 	// Textures
+	if (m_vr_right_draw_fbo)
+	{
+		m_vr_right_draw_fbo->release();
+		m_vr_right_draw_fbo = nullptr;
+	}
+	m_vr_right_rtts.destroy();
 	m_rtts.destroy();
 	m_texture_cache.destroy();
 
@@ -1523,6 +1530,24 @@ void VKGSRender::clear_surface(u32 mask)
 	{
 		begin_render_pass();
 		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
+	}
+
+	// A full guest clear defines identical initial contents for both eyes. Copy
+	// the completed authoritative attachments into the isolated right cache;
+	// subsequent eye-specific draws diverge them. Partial clears require their
+	// own mirrored command and are deliberately left fail-closed for now.
+	if (full_frame && (update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() &&
+		m_vr_right_fbo_images.size() == m_fbo_images.size())
+	{
+		for (usz i = 0; i < m_fbo_images.size(); ++i)
+		{
+			auto* src = m_fbo_images[i];
+			auto* dst = m_vr_right_fbo_images[i];
+			const areai rect{0, 0, static_cast<int>(src->width()), static_cast<int>(src->height())};
+			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect);
+		}
+		m_vr_right_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
+		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	}
 }
 
@@ -2235,6 +2260,7 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 
 	if (transform_constants_size)
 	{
+		m_xform_constants_data_size = transform_constants_size;
 		buffer.reserve(transform_constants_size);
 		auto buf = buffer.data();
 
@@ -2243,6 +2269,43 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 			: std::span<const u16>(m_vertex_prog->constant_ids);
 		m_draw_processor.fill_vertex_program_constants_data(buf, constant_ids);
 	}
+	else
+	{
+		m_xform_constants_data_size = 0;
+	}
+}
+
+bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size)
+{
+	if (!source_size || !m_program || m_vs_binding_table->cbuf_location == umax)
+	{
+		return false;
+	}
+
+	std::vector<u8> source(source_size);
+	const void* source_ptr = m_transform_constants_ring_info.map(source_offset, source_size);
+	std::memcpy(source.data(), source_ptr, source_size);
+	m_transform_constants_ring_info.unmap();
+
+	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
+	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(source_size, alignment));
+	void* destination = m_transform_constants_ring_info.map(allocation, source_size);
+	std::memcpy(destination, source.data(), source_size);
+
+	const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || (m_vertex_prog && m_vertex_prog->has_indexed_constants);
+	const u16* reloc = (!full_bank && m_vertex_prog) ? m_vertex_prog->constant_ids.data() : nullptr;
+	const usz reloc_size = (!full_bank && m_vertex_prog) ? m_vertex_prog->constant_ids.size() : 0;
+	const bool classified_world = rsx::vr::camera_probe::get().apply_render_eye(destination, reloc, reloc_size,
+		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
+	m_transform_constants_ring_info.unmap();
+
+	m_xform_constants_dynamic_offset = allocation;
+	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, source_size,
+		m_device->gpu().get_limits().maxUniformBufferRange);
+	m_xform_constants_dynamic_offset -= m_vertex_constants_buffer_info.offset;
+	m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
+		m_vs_binding_table->cbuf_location);
+	return classified_world;
 }
 
 void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info)
@@ -2515,6 +2578,61 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_framebuffer_layout.color_addresses, m_framebuffer_layout.zeta_address,
 		m_framebuffer_layout.actual_color_pitch, m_framebuffer_layout.actual_zeta_pitch,
 		resolution_scaling_config);
+
+	// Gate 5: bind an isomorphic, host-only target set for the right eye. This
+	// deliberately uses a separate surface cache: guest addresses remain the
+	// semantic key, but no right-eye image is ever exposed to guest memory or
+	// the ordinary texture cache. The path is inert unless render=1 is armed.
+	if (rsx::vr::camera_probe::get().render_enabled())
+	{
+		m_vr_right_rtts.prepare_render_target(*m_current_command_buffer,
+			m_framebuffer_layout.color_format, m_framebuffer_layout.depth_format,
+			m_framebuffer_layout.width, m_framebuffer_layout.height,
+			m_framebuffer_layout.target, m_framebuffer_layout.aa_mode, m_framebuffer_layout.raster_type,
+			m_framebuffer_layout.color_addresses, m_framebuffer_layout.zeta_address,
+			m_framebuffer_layout.actual_color_pitch, m_framebuffer_layout.actual_zeta_pitch,
+			resolution_scaling_config);
+
+		// These lists are hooks for synchronizing the ordinary cache with guest
+		// memory. The right-eye cache is intentionally host-only, so retaining
+		// their raw surface pointers would only accumulate stale bookkeeping.
+		m_vr_right_rtts.superseded_surfaces.clear();
+		m_vr_right_rtts.orphaned_surfaces.clear();
+
+		m_vr_right_fbo_images.clear();
+		for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+		{
+			if (auto surface = std::get<1>(m_vr_right_rtts.m_bound_render_targets[index]))
+			{
+				m_vr_right_fbo_images.push_back(surface);
+			}
+		}
+		if (auto depth = std::get<1>(m_vr_right_rtts.m_bound_depth_stencil))
+		{
+			m_vr_right_fbo_images.push_back(depth);
+		}
+
+		std::vector<u8> vr_input_attachments{};
+		if ((current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
+			!m_graphics_state.test(rsx::pipeline_state::fragment_program_state_dirty))
+		{
+			vr_input_attachments.resize(rsx::utility::get_rtt_indexes(m_framebuffer_layout.target).size());
+			std::iota(vr_input_attachments.begin(), vr_input_attachments.end(), 0);
+		}
+
+		const u64 vr_renderpass_key = vk::get_renderpass_key(m_vr_right_fbo_images, vr_input_attachments);
+		const VkRenderPass vr_renderpass = vk::get_renderpass(*m_device, vr_renderpass_key);
+		const auto [vr_width, vr_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config,
+			m_framebuffer_layout.width, m_framebuffer_layout.height);
+
+		if (m_vr_right_draw_fbo)
+		{
+			m_vr_right_draw_fbo->release();
+		}
+		m_vr_right_draw_fbo = vk::get_framebuffer(*m_device, vr_width, vr_height,
+			vk::to_bool32(!vr_input_attachments.empty()), vr_renderpass, m_vr_right_fbo_images);
+		m_vr_right_draw_fbo->add_ref();
+	}
 
 	// Reset framebuffer information
 	const auto color_bpp = get_format_block_size_in_bytes(m_framebuffer_layout.color_format);

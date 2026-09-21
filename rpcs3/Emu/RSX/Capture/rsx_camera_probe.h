@@ -59,6 +59,14 @@
 //
 //   title=<id>      only act on this title id (default BCES00664)
 //
+//   render=1         enable the Gate 5 renderer interface. The renderer calls
+//                    apply_render_eye() twice on two *new* host constant
+//                    allocations; it never reuses this probe's in-place
+//                    experiment path. eye_sign is -1 for the native left eye
+//                    and +1 for the native right eye. This applies both
+//                    camera policies measured in Gate 4: the per-eye clip-X
+//                    shear and the c[465] camera-position offset.
+//
 // Convention: RSX vertex programs emit clip position as
 //     o = v.x*c[base] + v.y*c[base+1] + v.z*c[base+2] + c[base+3]
 // i.e. a row-vector convention where c[base..base+3] are the ROWS of the
@@ -81,6 +89,7 @@ namespace rsx::vr
 
 		// Hot-path gate. False unless a perturbation is currently configured.
 		bool enabled() const { return m_active.load(); }
+		bool render_enabled() const;
 
 		// Frame boundary: re-read RPCS3_VR_PROBE_FILE if it changed.
 		void poll();
@@ -94,6 +103,14 @@ namespace rsx::vr
 		void apply(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			const void* guest_constants, u16 surface_w, u16 surface_h) const;
 
+		// Apply WipEout's profiled native-eye transform to a freshly cloned
+		// constant buffer. Returns true only when this is a perspective,
+		// output-aspect world draw and its camera matrix was sheared. c[465]
+		// is adjusted independently whenever the draw carries both it and a
+		// usable perspective camera block (including the shared shadow route).
+		bool apply_render_eye(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
+			u16 surface_w, u16 surface_h, f32 eye_sign) const;
+
 		// Human-readable description of the active probe, for logging.
 		const std::string& description() const { return m_description; }
 
@@ -102,7 +119,7 @@ namespace rsx::vr
 		void parse(const std::string& cfg);
 		void reset_params();
 
-		bool m_enabled = false;          // subsystem on (env set)
+		bool m_enabled = false;          // subsystem on (default render path or probe config)
 		atomic_t<bool> m_active{false};  // a perturbation is configured right now
 
 		std::string m_config_path;
@@ -120,6 +137,14 @@ namespace rsx::vr
 		f32 m_stereo_sep = 0.f;
 		f32 m_stereo_conv = 0.f;
 		bool m_have_stereo = false;
+		bool m_render_enabled = false;
+
+		// c[465] is global camera state. Shadow cascades carry a perspective
+		// c[260] block whose clip-X axis is *not* camera right, so retain the
+		// most recent output-aspect camera-right axis for their c[465] policy.
+		// RSX draw processing is serialized on the renderer thread.
+		mutable std::array<f32, 3> m_render_camera_right{};
+		mutable bool m_render_camera_right_valid = false;
 
 		bool m_have_xform = false;
 		bool m_require_cam = false;

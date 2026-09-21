@@ -3,6 +3,7 @@
 #include "../Program/GLSLCommon.h"
 #include "../rsx_methods.h"
 #include "../Capture/rsx_stereo_inspector.h"
+#include "../Capture/rsx_camera_probe.h"
 
 #include "VKAsyncScheduler.h"
 #include "VKGSRender.h"
@@ -645,7 +646,7 @@ void VKGSRender::load_texture_env()
 	}
 }
 
-bool VKGSRender::bind_texture_env()
+bool VKGSRender::bind_texture_env(bool vr_right_eye)
 {
 	bool out_of_memory = false;
 
@@ -669,7 +670,38 @@ bool VKGSRender::bind_texture_env()
 		if (rsx::method_registers.fragment_textures[i].enabled() &&
 			sampler_state->validate())
 		{
-			if (view = sampler_state->image_handle; !view)
+			// Gate 5 render-target feedback: the ordinary texture cache resolves
+			// guest addresses to the authoritative left-eye surface. During the
+			// right replay, substitute the isomorphic host-only surface at the
+			// same guest address so post-processing does not collapse both eyes
+			// back to the left intermediate.
+			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
+			{
+				if (auto* right_surface = m_vr_right_rtts.get_surface_at(sampler_state->ref_address))
+				{
+					if (sampler_state->is_cyclic_reference)
+					{
+						right_surface->texture_barrier(*m_current_command_buffer);
+					}
+					else
+					{
+						right_surface->read_barrier(*m_current_command_buffer);
+					}
+
+					auto* right_image = right_surface->get_surface(rsx::surface_access::shader_read);
+					const auto aspect = sampler_state->image_handle
+						? sampler_state->image_handle->info.subresourceRange.aspectMask
+						: right_image->aspect();
+					view = right_image->get_view(rsx::method_registers.fragment_textures[i].decoded_remap(), aspect);
+				}
+			}
+
+			if (!view)
+			{
+				view = sampler_state->image_handle;
+			}
+
+			if (!view)
 			{
 				//Requires update, copy subresource
 				if (!(view = m_texture_cache.create_temporary_subresource(*m_current_command_buffer, sampler_state->external_subresource_desc)))
@@ -754,6 +786,16 @@ bool VKGSRender::bind_texture_env()
 
 		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(vs_sampler_state[i].get());
 		auto image_ptr = sampler_state->image_handle;
+		if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
+		{
+			if (auto* right_surface = m_vr_right_rtts.get_surface_at(sampler_state->ref_address))
+			{
+				right_surface->read_barrier(*m_current_command_buffer);
+				auto* right_image = right_surface->get_surface(rsx::surface_access::shader_read);
+				const auto aspect = image_ptr ? image_ptr->info.subresourceRange.aspectMask : right_image->aspect();
+				image_ptr = right_image->get_view(rsx::method_registers.vertex_textures[i].decoded_remap(), aspect);
+			}
+		}
 
 		if (!image_ptr && sampler_state->validate())
 		{
@@ -784,7 +826,9 @@ bool VKGSRender::bind_texture_env()
 
 	if (current_fragment_program.ctrl & RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE)
 	{
-		auto ds = ensure(m_rtts.m_bound_depth_stencil.second);
+		auto ds = ensure(vr_right_eye
+			? m_vr_right_rtts.m_bound_depth_stencil.second
+			: m_rtts.m_bound_depth_stencil.second);
 		auto view = ds->get_view(rsx::default_remap_vector, VK_IMAGE_ASPECT_DEPTH_BIT);
 		m_program->bind_uniform({ *view, vk::null_sampler() }, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_depth_input_location);
 	}
@@ -1069,18 +1113,44 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	VkDescriptorBufferViewEx persistent_buffer = m_persistent_attribute_storage ? *m_persistent_attribute_storage : *null_buffer_view;
 	VkDescriptorBufferViewEx volatile_buffer = m_volatile_attribute_storage ? *m_volatile_attribute_storage : *null_buffer_view;
 	bool update_descriptors = false;
+	bool vr_render = rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
+		!draw_call.is_trivial_instanced_draw;
+	u32 vr_query_continuation = umax;
+	const bool vr_suspend_query = vr_render &&
+		(m_current_command_buffer->flags & vk::command_buffer::cb_has_open_query);
+	if (vr_suspend_query)
+	{
+		// A right-eye replay must not contribute samples to the guest's occlusion
+		// result. Reserve another slot now so the guest query can be split into
+		// two left-eye-only segments around the host draw.
+		vr_query_continuation = m_occlusion_query_manager->allocate_query(*m_current_command_buffer);
+		if (vr_query_continuation == umax)
+		{
+			// Query slots are finite. Preserve guest semantics and omit stereo for
+			// this draw rather than allowing the right eye to alter its result.
+			vr_render = false;
+		}
+	}
+	const VkDescriptorBufferInfoEx guest_constants_info = m_vertex_constants_buffer_info;
+	const u64 guest_constants_dynamic_offset = m_xform_constants_dynamic_offset;
+	const u64 guest_constants_source_offset = guest_constants_info.offset + guest_constants_dynamic_offset;
 
 	if (m_current_draw.subdraw_id == 0)
 	{
 		update_descriptors = true;
 
 		// Allocate stream layout memory for this batch
-		const u64 alloc_size = rsx::method_registers.current_draw_clause.pass_count() * 168;
+		const u64 alloc_size = rsx::method_registers.current_draw_clause.pass_count() * 168 * (vr_render ? 2 : 1);
 		m_vertex_layout_dynamic_offset = m_vertex_layout_ring_info.alloc<8>(alloc_size);
 	}
 
+	if (vr_render)
+	{
+		bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
+	}
+
 	// Update vertex fetch parameters
-	update_vertex_env(sub_index, upload_info);
+	update_vertex_env(vr_render ? sub_index * 2 : sub_index, upload_info);
 
 	if (update_descriptors)
 	{
@@ -1181,39 +1251,43 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		inspector.record_draw(capture_in);
 	}
 
-	if (!upload_info.index_info)
+	// Keep Vulkan command emission in one host-only callable. Gate 5 invokes it
+	// for the guest-authoritative left target and, when armed, once more for the
+	// isolated right target. Guest draw/FIFO/statistics accounting stays outside.
+	const auto emit_vulkan_draw = [&]()
 	{
-		if (draw_call.is_trivial_instanced_draw)
+		if (!upload_info.index_info)
 		{
-			vkCmdDraw(*m_current_command_buffer, upload_info.vertex_draw_count, draw_call.pass_count(), 0, 0);
-		}
-		else if (draw_call.is_single_draw())
-		{
-			vkCmdDraw(*m_current_command_buffer, upload_info.vertex_draw_count, 1, 0, 0);
-		}
-		else if (m_device->get_multidraw_support())
-		{
-			const auto subranges = draw_call.get_subranges();
-			auto ptr = utils::bless<const VkMultiDrawInfoEXT>(& subranges.front().first);
-			_vkCmdDrawMultiEXT(*m_current_command_buffer, ::size32(subranges), ptr, 1, 0, sizeof(rsx::draw_range_t));
+			if (draw_call.is_trivial_instanced_draw)
+			{
+				vkCmdDraw(*m_current_command_buffer, upload_info.vertex_draw_count, draw_call.pass_count(), 0, 0);
+			}
+			else if (draw_call.is_single_draw())
+			{
+				vkCmdDraw(*m_current_command_buffer, upload_info.vertex_draw_count, 1, 0, 0);
+			}
+			else if (m_device->get_multidraw_support())
+			{
+				const auto subranges = draw_call.get_subranges();
+				auto ptr = utils::bless<const VkMultiDrawInfoEXT>(& subranges.front().first);
+				_vkCmdDrawMultiEXT(*m_current_command_buffer, ::size32(subranges), ptr, 1, 0, sizeof(rsx::draw_range_t));
+			}
+			else
+			{
+				u32 vertex_offset = 0;
+				for (const auto &range : draw_call.get_subranges())
+				{
+					vkCmdDraw(*m_current_command_buffer, range.count, 1, vertex_offset, 0);
+					vertex_offset += range.count;
+				}
+			}
 		}
 		else
 		{
-			u32 vertex_offset = 0;
-			const auto subranges = draw_call.get_subranges();
-			for (const auto &range : subranges)
-			{
-				vkCmdDraw(*m_current_command_buffer, range.count, 1, vertex_offset, 0);
-				vertex_offset += range.count;
-			}
-		}
-	}
-	else
-	{
-		const VkIndexType index_type = std::get<1>(*upload_info.index_info);
-		const VkDeviceSize offset = std::get<0>(*upload_info.index_info);
+			const VkIndexType index_type = std::get<1>(*upload_info.index_info);
+			const VkDeviceSize offset = std::get<0>(*upload_info.index_info);
 
-		vkCmdBindIndexBuffer(*m_current_command_buffer, m_index_buffer_ring_info.heap->value, offset, index_type);
+			vkCmdBindIndexBuffer(*m_current_command_buffer, m_index_buffer_ring_info.heap->value, offset, index_type);
 
 		if (draw_call.is_trivial_instanced_draw)
 		{
@@ -1258,6 +1332,64 @@ void VKGSRender::emit_geometry(u32 sub_index)
 				vertex_offset += count;
 			}
 		}
+		}
+	};
+
+	emit_vulkan_draw();
+
+	if (vr_render)
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+		if (vr_suspend_query)
+		{
+			auto& query_data = m_occlusion_map[m_active_query_info->driver_handle];
+			m_occlusion_query_manager->end_query(*m_current_command_buffer, query_data.indices.back());
+			m_current_command_buffer->flags &= ~vk::command_buffer::cb_has_open_query;
+		}
+
+		auto* const left_fbo = m_draw_fbo;
+		auto left_images = std::move(m_fbo_images);
+		m_draw_fbo = m_vr_right_draw_fbo;
+		m_fbo_images = m_vr_right_fbo_images;
+
+		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
+		update_vertex_env(sub_index * 2 + 1, upload_info);
+		bind_texture_env(true);
+		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+		update_draw_state();
+		begin_render_pass();
+		emit_vulkan_draw();
+		m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
+		vk::end_renderpass(*m_current_command_buffer);
+
+		m_draw_fbo = left_fbo;
+		m_fbo_images = std::move(left_images);
+		// Restore the guest-authored allocation. Pipeline dependency processing
+		// for later RSX draws must never inherit either host eye's constants.
+		m_vertex_constants_buffer_info = guest_constants_info;
+		m_xform_constants_dynamic_offset = guest_constants_dynamic_offset;
+		if (m_vs_binding_table->cbuf_location != umax)
+		{
+			m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
+				m_vs_binding_table->cbuf_location);
+		}
+		bind_texture_env(false);
+
+		if (vr_suspend_query)
+		{
+			// Continue the same guest query after the host-only right-eye draw.
+			// Result collection already sums every slot recorded for the query.
+			m_occlusion_query_manager->begin_query(*m_current_command_buffer, vr_query_continuation);
+			auto& query_data = m_occlusion_map[m_active_query_info->driver_handle];
+			query_data.indices.push_back(vr_query_continuation);
+			query_data.set_sync_command_buffer(m_current_command_buffer);
+			m_current_command_buffer->flags |=
+				(vk::command_buffer::cb_has_occlusion_task | vk::command_buffer::cb_has_open_query);
+		}
+
+		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+		update_draw_state();
+		begin_render_pass();
 	}
 
 	m_frame_stats.draw_exec_time += m_profiler.duration();

@@ -926,10 +926,17 @@ namespace vk
 
 	void video_out_calibration_pass::run(vk::command_buffer& cmd, const areau& viewport, vk::framebuffer* target,
 		const rsx::simple_array<vk::viewable_image*>& src, f32 gamma, bool limited_rgb,
-		bool stereo_enabled, VkRenderPass render_pass)
+		bool stereo_enabled, VkRenderPass render_pass, bool force_side_by_side)
 	{
 		static stereo_config stereo_cfg = stereo_config(true);
-		stereo_cfg.update_from_config(stereo_enabled);
+		if (force_side_by_side)
+		{
+			stereo_cfg.set_stereo_mode(stereo_render_mode_options::side_by_side);
+		}
+		else
+		{
+			stereo_cfg.update_from_config(stereo_enabled);
+		}
 		const auto& matrices = stereo_cfg.matrices();
 
 		config.gamma = gamma;

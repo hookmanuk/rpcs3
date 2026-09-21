@@ -62,6 +62,10 @@ private:
 
 	vk::texture_cache m_texture_cache;
 	vk::surface_cache m_rtts;
+	// Gate 5: host-only mirror of guest render targets. The ordinary cache is
+	// authoritative for guest memory; this cache never participates in guest
+	// readback, queries, or FIFO accounting.
+	vk::surface_cache m_vr_right_rtts;
 
 	std::unique_ptr<vk::buffer> null_buffer;
 	std::unique_ptr<vk::buffer_view> null_buffer_view;
@@ -114,6 +118,8 @@ private:
 
 	std::unique_ptr<vk::buffer> m_host_object_data;
 	vk::framebuffer_holder* m_draw_fbo = nullptr;
+	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
+	std::vector<vk::image*> m_vr_right_fbo_images;
 
 	sizeu m_swapchain_dims{};
 	bool swapchain_unavailable = false;
@@ -154,6 +160,7 @@ private:
 
 	rsx::simple_array<u8> m_multidraw_parameters_buffer;
 	u64 m_xform_constants_dynamic_offset = 0;          // We manage transform_constants dynamic offset manually to alleviate performance penalty of doing a hot-patch of constants.
+	usz m_xform_constants_data_size = 0;               // Exact current upload size; Gate 5 clones this host allocation per eye.
 	u64 m_vertex_env_dynamic_offset = 0;
 	u64 m_vertex_layout_dynamic_offset = 0;
 	u64 m_fragment_constants_dynamic_offset = 0;
@@ -246,9 +253,10 @@ private:
 	void load_program_env();
 	void update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info);
 	void upload_transform_constants(const rsx::io_buffer& buffer);
+	bool bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size);
 
 	void load_texture_env();
-	bool bind_texture_env();
+	bool bind_texture_env(bool vr_right_eye = false);
 	bool bind_interpreter_texture_env();
 
 public:
