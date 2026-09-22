@@ -1115,8 +1115,14 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	bool update_descriptors = false;
 	bool vr_render = rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
 		!draw_call.is_trivial_instanced_draw;
+	// Gate 6: batch the right-eye draw into the current left pass's right-eye batch.
+	// Programmable blending (input attachments) and conditional rendering keep the
+	// per-draw replay: neither carries over into a secondary command buffer here.
+	const bool vr_batch = vr_render && m_vr_batching &&
+		!(current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
+		!cond_render_ctrl.hw_cond_active;
 	u32 vr_query_continuation = umax;
-	const bool vr_suspend_query = vr_render &&
+	const bool vr_suspend_query = vr_render && !vr_batch &&
 		(m_current_command_buffer->flags & vk::command_buffer::cb_has_open_query);
 	if (vr_suspend_query)
 	{
@@ -1337,7 +1343,50 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	emit_vulkan_draw();
 
-	if (vr_render)
+	if (vr_render && vr_batch)
+	{
+		const u64 vr_replay_start = get_system_time();
+		auto* const left_fbo = m_draw_fbo;
+		auto left_images = std::move(m_fbo_images);
+		m_draw_fbo = m_vr_right_draw_fbo;
+		m_fbo_images = m_vr_right_fbo_images;
+
+		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
+		// On the primary: a barrier here ends the left pass, which runs the batch first.
+		bind_texture_env(true);
+
+		if (vr_batch_begin(get_render_pass(), m_vr_right_draw_fbo))
+		{
+			auto* const primary = m_current_command_buffer;
+			m_current_command_buffer = &m_vr_batch_cb;
+			m_vr_batch_cb.flags |= vk::command_buffer::cb_reload_dynamic_state;
+			update_vertex_env(sub_index * 2 + 1, upload_info);
+			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+			update_draw_state();
+			emit_vulkan_draw();
+			m_current_command_buffer = primary;
+			m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
+
+			// A batch stays open only while the left pass is open.
+			if (!vk::is_renderpass_open(*m_current_command_buffer))
+			{
+				vr_batch_execute();
+			}
+		}
+
+		m_draw_fbo = left_fbo;
+		m_fbo_images = std::move(left_images);
+		m_vertex_constants_buffer_info = guest_constants_info;
+		m_xform_constants_dynamic_offset = guest_constants_dynamic_offset;
+		if (m_vs_binding_table->cbuf_location != umax)
+		{
+			m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
+				m_vs_binding_table->cbuf_location);
+		}
+		bind_texture_env(false);
+		m_vr_replay_us += get_system_time() - vr_replay_start;
+	}
+	else if (vr_render)
 	{
 		const u64 vr_replay_start = get_system_time();
 		u64 vr_part_t = vr_replay_start;

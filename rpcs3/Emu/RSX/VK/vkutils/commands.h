@@ -120,6 +120,8 @@ namespace vk
 		bool is_recording() const { return is_open; }
 
 		void clear_flags() { flags = 0; }
+		// After vkCmdExecuteCommands the bound pipeline and descriptor sets are undefined.
+		void invalidate_state_cache() { clear_state_cache(); }
 		void set_flag(command_buffer_data_flag flag) { flags |= flag; }
 
 		operator VkCommandBuffer() const

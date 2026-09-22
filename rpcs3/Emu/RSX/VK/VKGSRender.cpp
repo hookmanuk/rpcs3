@@ -520,6 +520,27 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	m_secondary_command_buffer_pool.create((*m_device), m_device->get_graphics_queue_family());
 	m_secondary_cb_list.create(m_secondary_command_buffer_pool, vk::command_buffer::access_type_hint::all);
 
+	// Gate 6: batched right-eye draws (RPCS3_VR_BATCH=0 keeps the per-draw replay)
+	if (rsx::vr::camera_probe::get().render_enabled())
+	{
+		char* batch_env = nullptr;
+		usz batch_env_size = 0;
+		m_vr_batching = true;
+		if (_dupenv_s(&batch_env, &batch_env_size, "RPCS3_VR_BATCH") == 0 && batch_env)
+		{
+			m_vr_batching = std::string_view(batch_env) != "0";
+			std::free(batch_env);
+		}
+
+		if (m_vr_batching)
+		{
+			m_vr_batch_pool.create((*m_device), m_device->get_graphics_queue_family());
+			s_vr_batch_owner = this;
+			vk::g_end_renderpass_hook = &VKGSRender::vr_on_end_renderpass;
+		}
+		rsx_log.success("Gate 6: right-eye draws %s.", m_vr_batching ? "batched per left render pass" : "replayed per draw");
+	}
+
 	//Occlusion
 	m_occlusion_query_manager = std::make_unique<vk::query_pool_manager>(*m_device, VK_QUERY_TYPE_OCCLUSION, OCCLUSION_MAX_POOL_SIZE);
 	m_occlusion_map.resize(rsx::reports::occlusion_query_count);
@@ -917,6 +938,14 @@ VKGSRender::~VKGSRender()
 
 	m_command_buffer_pool.destroy();
 	m_secondary_command_buffer_pool.destroy();
+
+	if (m_vr_batching)
+	{
+		vk::g_end_renderpass_hook = nullptr;
+		s_vr_batch_owner = nullptr;
+		m_vr_batch_slots.clear();
+		m_vr_batch_pool.destroy(); // frees its secondary command buffers
+	}
 
 	// Descriptors
 	vk::descriptors::flush();
@@ -1572,6 +1601,9 @@ void VKGSRender::clear_surface(u32 mask)
 	if (full_frame && (update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() &&
 		m_vr_right_fbo_images.size() == m_fbo_images.size())
 	{
+		// Batched right-eye draws precede this clear in guest order.
+		vr_batch_flush();
+
 		for (usz i = 0; i < m_fbo_images.size(); ++i)
 		{
 			auto* src = m_fbo_images[i];
@@ -1582,6 +1614,150 @@ void VKGSRender::clear_surface(u32 mask)
 		m_vr_right_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	}
+}
+
+VKGSRender* VKGSRender::s_vr_batch_owner = nullptr;
+
+void VKGSRender::vr_on_end_renderpass(const vk::command_buffer& cmd)
+{
+	VKGSRender* const self = s_vr_batch_owner;
+	if (!self || !self->m_vr_batch_open || self->m_vr_batch_executing ||
+		static_cast<VkCommandBuffer>(cmd) != static_cast<VkCommandBuffer>(*self->m_vr_batch_primary))
+	{
+		return;
+	}
+
+	self->vr_batch_execute();
+}
+
+bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
+{
+	if (m_vr_batch_open)
+	{
+		if (m_vr_batch_primary == m_current_command_buffer && m_vr_batch_pass == pass && m_vr_batch_fbo == fbo)
+		{
+			return true;
+		}
+
+		vr_batch_flush();
+	}
+
+	// A secondary is reusable once the primary it ran in has been reset, which
+	// waits for that submission to complete.
+	usz index = m_vr_batch_slots.size();
+	for (usz i = 0; i < m_vr_batch_slots.size(); ++i)
+	{
+		const auto& slot = m_vr_batch_slots[i];
+		if (!slot.owner || slot.owner->reset_id != slot.owner_reset_id)
+		{
+			index = i;
+			break;
+		}
+	}
+
+	if (index == m_vr_batch_slots.size())
+	{
+		VkCommandBufferAllocateInfo alloc{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		alloc.commandPool = m_vr_batch_pool;
+		alloc.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
+		alloc.commandBufferCount = 1;
+		VkCommandBuffer cb = VK_NULL_HANDLE;
+		if (vkAllocateCommandBuffers(*m_device, &alloc, &cb) != VK_SUCCESS)
+		{
+			return false;
+		}
+		m_vr_batch_slots.push_back({ cb });
+	}
+
+	auto& slot = m_vr_batch_slots[index];
+	VkCommandBufferInheritanceInfo inherit{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+	inherit.renderPass = pass;
+	inherit.subpass = 0;
+	inherit.framebuffer = fbo->value;
+	VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+	begin.pInheritanceInfo = &inherit;
+	if (vkBeginCommandBuffer(slot.cb, &begin) != VK_SUCCESS)
+	{
+		return false;
+	}
+
+	slot.owner = m_current_command_buffer;
+	slot.owner_reset_id = m_current_command_buffer->reset_id;
+	m_vr_batch_slot = index;
+	m_vr_batch_cb.attach(m_vr_batch_pool, slot.cb);
+	m_vr_batch_primary = m_current_command_buffer;
+	m_vr_batch_pass = pass;
+	m_vr_batch_fbo = fbo;
+	m_vr_batch_fbo->add_ref();
+	m_vr_batch_open = true;
+	return true;
+}
+
+void VKGSRender::vr_batch_flush()
+{
+	if (!m_vr_batch_open)
+	{
+		return;
+	}
+
+	if (vk::is_renderpass_open(*m_vr_batch_primary))
+	{
+		vk::end_renderpass(*m_vr_batch_primary); // the hook executes the batch
+	}
+	else
+	{
+		vr_batch_execute();
+	}
+}
+
+void VKGSRender::vr_batch_execute()
+{
+	m_vr_batch_executing = true;
+	m_vr_batch_cb.detach();
+
+	const VkCommandBuffer secondary = m_vr_batch_slots[m_vr_batch_slot].cb;
+	vkEndCommandBuffer(secondary);
+
+	auto& primary = *m_vr_batch_primary;
+
+	// The right eye must not contribute samples to an open guest occlusion query:
+	// split it into left-eye-only segments around the right-eye pass.
+	const bool suspend_query = (primary.flags & vk::command_buffer::cb_has_open_query) && m_active_query_info;
+	u32 continuation = umax;
+	if (suspend_query)
+	{
+		auto& query_data = m_occlusion_map[m_active_query_info->driver_handle];
+		m_occlusion_query_manager->end_query(primary, query_data.indices.back());
+		primary.flags &= ~vk::command_buffer::cb_has_open_query;
+		continuation = m_occlusion_query_manager->allocate_query(primary);
+	}
+
+	VkRenderPassBeginInfo rp_begin{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+	rp_begin.renderPass = m_vr_batch_pass;
+	rp_begin.framebuffer = m_vr_batch_fbo->value;
+	rp_begin.renderArea.extent = { m_vr_batch_fbo->width(), m_vr_batch_fbo->height() };
+	vkCmdBeginRenderPass(primary, &rp_begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+	vkCmdExecuteCommands(primary, 1, &secondary);
+	vkCmdEndRenderPass(primary);
+
+	if (suspend_query && continuation != umax)
+	{
+		m_occlusion_query_manager->begin_query(primary, continuation);
+		auto& query_data = m_occlusion_map[m_active_query_info->driver_handle];
+		query_data.indices.push_back(continuation);
+		query_data.set_sync_command_buffer(&primary);
+		primary.flags |= (vk::command_buffer::cb_has_occlusion_task | vk::command_buffer::cb_has_open_query);
+	}
+
+	// vkCmdExecuteCommands leaves the primary's pipeline, descriptors and dynamic state undefined.
+	primary.invalidate_state_cache();
+	primary.flags |= vk::command_buffer::cb_reload_dynamic_state;
+
+	m_vr_batch_fbo->release();
+	m_vr_batch_fbo = nullptr;
+	m_vr_batch_open = false;
+	m_vr_batch_executing = false;
 }
 
 void VKGSRender::flush_command_queue(bool hard_sync, bool do_not_switch)
@@ -2635,6 +2811,10 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	// the ordinary texture cache. The path is inert unless render=1 is armed.
 	if (rsx::vr::camera_probe::get().render_enabled())
 	{
+		// The pending batch targets the current right-eye framebuffer; run it before
+		// the right-eye surfaces are rebound or the framebuffer is released.
+		vr_batch_flush();
+
 		const u64 vr_prepare_start = get_system_time();
 		m_vr_right_rtts.prepare_render_target(*m_current_command_buffer,
 			m_framebuffer_layout.color_format, m_framebuffer_layout.depth_format,

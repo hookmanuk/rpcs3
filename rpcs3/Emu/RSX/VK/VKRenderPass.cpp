@@ -425,10 +425,17 @@ namespace vk
 		begin_renderpass(cmd, g_cached_renderpass, target, framebuffer_region);
 	}
 
+	void (*g_end_renderpass_hook)(const vk::command_buffer& cmd) = nullptr;
+
 	void end_renderpass(const vk::command_buffer& cmd)
 	{
 		vkCmdEndRenderPass(cmd);
 		g_current_renderpass[cmd] = {};
+
+		if (g_end_renderpass_hook)
+		{
+			g_end_renderpass_hook(cmd);
+		}
 	}
 
 	bool is_renderpass_open(const vk::command_buffer& cmd)

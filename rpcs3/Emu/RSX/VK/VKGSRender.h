@@ -129,6 +129,55 @@ private:
 	u64 m_vr_acquire_us = 0;   // desktop swapchain image acquire in flip
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
+	// Gate 6: the right-eye draws of one left render pass are recorded into a Vulkan
+	// secondary command buffer and executed in a single right-eye pass when the left
+	// pass ends (vk::g_end_renderpass_hook), instead of switching render passes twice
+	// per draw. A batch is only open while the left pass is open. RPCS3_VR_BATCH=0
+	// restores the per-draw replay.
+	struct vr_secondary_cb : public vk::command_buffer_chunk
+	{
+		void attach(vk::command_pool& cmd_pool, VkCommandBuffer cb)
+		{
+			pool = &cmd_pool;
+			commands = cb;
+			is_open = true;
+			is_pending = false;
+			clear_state_cache();
+			flags = cb_reload_dynamic_state;
+		}
+
+		void detach()
+		{
+			commands = VK_NULL_HANDLE;
+			is_open = false;
+			clear_state_cache();
+			flags = 0;
+		}
+	};
+
+	struct vr_batch_slot
+	{
+		VkCommandBuffer cb = VK_NULL_HANDLE;
+		vk::command_buffer_chunk* owner = nullptr; // primary it was executed in
+		u64 owner_reset_id = 0;                    // free once the owner has been reset (GPU done)
+	};
+
+	vk::command_pool m_vr_batch_pool;
+	std::vector<vr_batch_slot> m_vr_batch_slots;
+	vr_secondary_cb m_vr_batch_cb;
+	bool m_vr_batching = false;
+	bool m_vr_batch_open = false;
+	bool m_vr_batch_executing = false;
+	usz m_vr_batch_slot = 0;
+	vk::command_buffer_chunk* m_vr_batch_primary = nullptr;
+	VkRenderPass m_vr_batch_pass = VK_NULL_HANDLE;
+	vk::framebuffer_holder* m_vr_batch_fbo = nullptr;
+	static VKGSRender* s_vr_batch_owner;
+	static void vr_on_end_renderpass(const vk::command_buffer& cmd);
+	bool vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo);
+	void vr_batch_flush();   // run any open batch now (ends the left pass if it is open)
+	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
+
 	sizeu m_swapchain_dims{};
 	bool swapchain_unavailable = false;
 	bool should_reinitialize_swapchain = false;

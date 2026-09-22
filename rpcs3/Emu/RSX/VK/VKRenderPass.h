@@ -23,6 +23,10 @@ namespace vk
 	void begin_renderpass(VkDevice dev, const vk::command_buffer& cmd, u64 renderpass_key, VkFramebuffer target, const coordu& framebuffer_region);
 	void begin_renderpass(const vk::command_buffer& cmd, VkRenderPass pass, VkFramebuffer target, const coordu& framebuffer_region);
 	void end_renderpass(const vk::command_buffer& cmd);
+
+	// VR fork (Gate 6): called after every end_renderpass, so batched right-eye draws
+	// run exactly where the left render pass ends (before anything recorded after it).
+	extern void (*g_end_renderpass_hook)(const vk::command_buffer& cmd);
 	bool is_renderpass_open(const vk::command_buffer& cmd);
 
 	using renderpass_op_callback_t = std::function<void(const vk::command_buffer&, VkRenderPass, VkFramebuffer)>;
