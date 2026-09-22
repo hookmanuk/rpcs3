@@ -68,8 +68,6 @@ namespace vk::xr
 	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
 	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, game-FOV mode only
 	bool hmd_fov();   // RPCS3_OPENXR_FOV=game keeps the game's FOV; default renders the headset's
-	f32 hud_scale();  // RPCS3_OPENXR_HUD_SCALE, default 0.65 of a 16:9 box fitted edge to edge in the headset view;
-	                  // the render FOV extends past what the lenses show, so 1 puts the HUD at the edges
 	bool flip_y();    // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
 
 	// Locate the head for the next game frame (predicted one 60 Hz frame after
@@ -77,4 +75,12 @@ namespace vk::xr
 	// Returns false if tracking is unavailable.
 	// eye_fov receives the located per-eye tangents (left, right, up, down).
 	bool locate_render_pose(f32 quat_xyzw[4], f32 eye_fov[2][4]);
+
+	// Distance between the located eyes (metres), from the latest locate_render_pose.
+	f32 ipd();
+
+	// Fixed screen: show the eyes as a flat stereo quad of this width (metres),
+	// centred at (x, y, -distance) in LOCAL space, or in VIEW space (following the
+	// head) when !world_locked. Takes effect on the next headset frame.
+	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance);
 }

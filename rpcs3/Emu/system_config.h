@@ -244,6 +244,21 @@ struct cfg_root : cfg::node
 
 		} custom_anaglyph_matrices{ this };
 
+		// VR fork: stereo rendering and OpenXR headset output.
+		struct node_vr : cfg::node
+		{
+			node_vr(cfg::node* _this) : cfg::node(_this, "VR") {}
+
+			cfg::_bool enabled{ this, "Enabled", false };
+			cfg::_bool hud_fixed{ this, "HUD Fixed In Front", false, true };
+			cfg::_bool fixed_screen{ this, "Fixed Screen", false, true }; // flat stereo window placed by the HUD settings
+			cfg::uint<0, 200> screen_depth{ this, "Screen 3D Depth", 100, true };      // % of the automatic fixed-screen stereo strength
+			cfg::uint<10, 200> hud_scale{ this, "HUD Scale", 65, true };
+			cfg::_int<-100, 100> hud_offset_x{ this, "HUD Horizontal Offset", 0, true }; // % of the central view half-width, + is right
+			cfg::_int<-100, 100> hud_offset_y{ this, "HUD Vertical Offset", 0, true };   // % of the central view half-height, + is up
+
+		} vr{ this };
+
 	} video{ this };
 
 	struct node_audio : cfg::node

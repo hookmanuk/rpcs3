@@ -585,6 +585,64 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		ui->gb_anaglyph_settings->setEnabled(false);
 	}
 
+	// VR
+	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
+	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
+	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
+	{
+		// Percentage sliders with a value label and a reset button.
+		const auto percent_text = [](int value) { return tr("%1%", "VR HUD slider").arg(value); };
+		const auto enhance_vr_slider = [this](QSlider* slider, QLabel* min, QLabel* max, QLabel* val, QAbstractButton* reset,
+			emu_settings_type type, QGroupBox* group, const QString& tooltip, std::function<QString(int)> format, int snap)
+		{
+			m_emu_settings->EnhanceSlider(slider, type);
+			SubscribeTooltip(group, tooltip);
+			const int def = stoi(m_emu_settings->GetSettingDefault(type));
+			const auto text = [def, format](int value)
+			{
+				return value == def ? tr("%1 (Default)", "VR HUD slider").arg(format(value)) : format(value);
+			};
+			slider->setPageStep(10);
+			min->setText(format(slider->minimum()));
+			max->setText(format(slider->maximum()));
+			val->setText(text(slider->value()));
+			connect(slider, &QSlider::valueChanged, [text, val](int value) { val->setText(text(value)); });
+			connect(reset, &QAbstractButton::clicked, [def, slider]() { slider->setValue(def); });
+			SnapSlider(slider, snap);
+		};
+
+		enhance_vr_slider(ui->vrHudScale, ui->vrHudScaleMin, ui->vrHudScaleMax, ui->vrHudScaleVal, ui->vrHudScaleReset,
+			emu_settings_type::VRHudScale, ui->gb_vrHudScale, tooltips.settings.vr_hud_scale, percent_text, 5);
+		enhance_vr_slider(ui->vrHudOffsetX, ui->vrHudOffsetXMin, ui->vrHudOffsetXMax, ui->vrHudOffsetXVal, ui->vrHudOffsetXReset,
+			emu_settings_type::VRHudOffsetX, ui->gb_vrHudOffsetX, tooltips.settings.vr_hud_offset, percent_text, 1);
+		enhance_vr_slider(ui->vrHudOffsetY, ui->vrHudOffsetYMin, ui->vrHudOffsetYMax, ui->vrHudOffsetYVal, ui->vrHudOffsetYReset,
+			emu_settings_type::VRHudOffsetY, ui->gb_vrHudOffsetY, tooltips.settings.vr_hud_offset, percent_text, 1);
+		enhance_vr_slider(ui->vrScreenDepth, ui->vrScreenDepthMin, ui->vrScreenDepthMax, ui->vrScreenDepthVal, ui->vrScreenDepthReset,
+			emu_settings_type::VRScreenDepth, ui->gb_vrScreenDepth, tooltips.settings.vr_screen_depth, percent_text, 5);
+
+		const auto enable_vr_options = [this]()
+		{
+			const bool vr = ui->vrEnabled->isChecked();
+			ui->vrHudFixed->setEnabled(vr);
+			ui->vrFixedScreen->setEnabled(vr);
+			ui->gb_vrHudScale->setEnabled(vr);
+			ui->gb_vrHudOffsetX->setEnabled(vr);
+			ui->gb_vrHudOffsetY->setEnabled(vr);
+			ui->gb_vrScreenDepth->setEnabled(vr && ui->vrFixedScreen->isChecked());
+		};
+		connect(ui->vrEnabled, &QCheckBox::toggled, this, enable_vr_options);
+		connect(ui->vrFixedScreen, &QCheckBox::toggled, this, enable_vr_options);
+		enable_vr_options();
+
+		// The headset session and right-eye resources are set up when the game boots,
+		// so VR cannot be switched while one is running. The HUD options stay live.
+		if (!Emu.IsStopped())
+		{
+			ui->vrEnabled->setEnabled(false);
+			ui->vrEnabled->setText(tr("Enable VR Support (stop the game to change)"));
+		}
+	}
+
 	// Checkboxes: main options
 	EnhanceCheckBox(emu_settings_type::WriteColorBuffers, ui->dumpColor, tooltips.settings.dump_color);
 	EnhanceCheckBox(emu_settings_type::StretchToDisplayArea, ui->stretchToDisplayArea, tooltips.settings.stretch_to_display_area);

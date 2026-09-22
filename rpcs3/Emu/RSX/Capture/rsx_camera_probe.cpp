@@ -2,6 +2,7 @@
 #include "rsx_camera_probe.h"
 
 #include "Emu/System.h"
+#include "Emu/system_config.h"
 #include "Utilities/File.h"
 #include "Emu/IdManager.h"
 #include "Emu/RSX/Utils/rsx_utils.h"
@@ -158,7 +159,7 @@ namespace rsx::vr
 
 	bool camera_probe::render_enabled() const
 	{
-		if (!m_active.load() || !m_render_enabled)
+		if (!m_active.load() || !m_render_enabled || !g_cfg.video.vr.enabled)
 		{
 			return false;
 		}
@@ -397,7 +398,7 @@ namespace rsx::vr
 
 		if (f32* cam = find_slot(buffer, reloc, reloc_size, m_cam_slot); cam && m_render_camera_right_valid)
 		{
-			const f32 half_eye_baseline = 0.120002f * (m_vr_view ? m_vr_eye_scale : 1.f);
+			const f32 half_eye_baseline = 0.120002f * (m_vr_view ? m_vr_eye_scale : m_screen_stereo_scale);
 			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];
 			cam[1] += eye_sign * half_eye_baseline * m_render_camera_right[1];
 			cam[2] += eye_sign * half_eye_baseline * m_render_camera_right[2];
@@ -415,7 +416,10 @@ namespace rsx::vr
 		// guessing them would turn a measured policy into a heuristic.
 		const f32 per_eye_sep = surface_w * 2u == eye.width ? 0.03047f : 0.040625f;
 		constexpr f32 convergence = 2.878f;
-		const f32 sep = eye_sign * per_eye_sep;
+		// On a fixed screen larger than the one the game tuned its stereo for, the
+		// whole separation is scaled down so far objects keep the same physical
+		// disparity (see set_screen_stereo_scale). The headset path uses eye_scale.
+		const f32 sep = eye_sign * per_eye_sep * (m_vr_view ? 1.f : m_screen_stereo_scale);
 
 		if (m_vr_view)
 		{
@@ -489,10 +493,15 @@ namespace rsx::vr
 		m_vr_view = true;
 	}
 
-	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale)
+	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale, bool hud_fixed, f32 hud_offset_x, f32 hud_offset_y,
+		f32 hud_depth, f32 ipd)
 	{
+		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
 		m_vr_hmd_fov = tangents != nullptr;
 		m_vr_hud_scale = hud_scale;
+		m_vr_hud_fixed = hud_fixed;
+		m_vr_hud_offset_x = hud_offset_x;
+		m_vr_hud_offset_y = hud_offset_y;
 		if (tangents)
 		{
 			for (u32 e = 0; e < 2; ++e)
@@ -503,6 +512,11 @@ namespace rsx::vr
 				}
 			}
 		}
+	}
+
+	void camera_probe::set_screen_stereo_scale(f32 scale)
+	{
+		m_screen_stereo_scale = scale;
 	}
 
 	void camera_probe::clear_vr_view()
@@ -567,19 +581,60 @@ namespace rsx::vr
 		// eye's headset frustum and scaled by the HUD scale. W is 1 for these draws.
 		const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
 		const f32 aspect = static_cast<f32>(eye.width) / eye.height;
-		const f32 fit_x = std::min(-t[0], t[1]);
-		const f32 fit_y = std::min(t[2], -t[3]);
+		f32 fit_x = std::min(-t[0], t[1]);
+		f32 fit_y = std::min(t[2], -t[3]);
+		if (m_vr_hud_fixed)
+		{
+			// One box for both eyes, so the fixed HUD carries no stray disparity.
+			const f32* o = m_vr_eye_fov[eye_sign < 0.f ? 1 : 0];
+			fit_x = std::min({ fit_x, -o[0], o[1] });
+			fit_y = std::min({ fit_y, o[2], -o[3] });
+		}
 		const f32 box_y = std::min(fit_y, fit_x / aspect);
 		const f32 tx = m_vr_hud_scale * box_y * aspect;
 		const f32 ty = m_vr_hud_scale * box_y;
-		const f32 sx = 2.f * tx / (t[1] - t[0]);
+		// Box centre, in view tangents (y in the clip basis, which is down when flip_y).
+		// At a finite depth each eye sees the HUD shifted away from its own side:
+		// the eye sits at eye_sign * ipd/2, so the point appears at -eye_sign * ipd/(2d).
+		const f32 parallax = -eye_sign * m_vr_hud_parallax;
+		const f32 cx = m_vr_hud_offset_x * box_y * aspect;
+		const f32 cy = m_vr_hud_offset_y * box_y * (m_vr_flip_y ? -1.f : 1.f);
+
+		// Eye frustum remap of a view direction (tan x, tan y, 1) to clip space.
+		const f32 fx = 2.f / (t[1] - t[0]);
 		const f32 ox = -(t[1] + t[0]) / (t[1] - t[0]);
-		const f32 sy = 2.f * ty / (t[2] - t[3]);
+		const f32 fy = 2.f / (t[2] - t[3]);
 		const f32 oy = -(t[2] + t[3]) / (t[2] - t[3]) * (m_vr_flip_y ? -1.f : 1.f);
+
+		if (!m_vr_hud_fixed)
+		{
+			// Head-locked: the box stays at the centre of the view.
+			for (u32 r = 0; r < 4; ++r)
+			{
+				rows[r][0] = (rows[r][0] * tx + rows[r][3] * (cx + parallax)) * fx + rows[r][3] * ox;
+				rows[r][1] = (rows[r][1] * ty + rows[r][3] * cy) * fy + rows[r][3] * oy;
+			}
+			return;
+		}
+
+		// Fixed in front: the box is a direction in LOCAL space (straight ahead),
+		// seen through the head rotation this frame is rendered with, exactly as
+		// the world is. u = (tan x, tan y, 1) in the clip basis, u' = R^T u.
+		const auto& R = m_vr_rot;
 		for (u32 r = 0; r < 4; ++r)
 		{
-			rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
-			rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
+			const f32 u0 = rows[r][0] * tx + rows[r][3] * cx;
+			const f32 u1 = rows[r][1] * ty + rows[r][3] * cy;
+			const f32 u2 = rows[r][3];
+
+			// The eye offset is along the head's own right axis, i.e. after rotation.
+			const f32 v0 = R[0] * u0 + R[1] * u1 + R[2] * u2 + parallax * u2;
+			const f32 v1 = R[3] * u0 + R[4] * u1 + R[5] * u2;
+			const f32 v2 = R[6] * u0 + R[7] * u1 + R[8] * u2;
+
+			rows[r][0] = v0 * fx + v2 * ox;
+			rows[r][1] = v1 * fy + v2 * oy;
+			rows[r][3] = v2;
 		}
 	}
 

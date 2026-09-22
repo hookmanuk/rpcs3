@@ -101,6 +101,12 @@ namespace vk::xr
 			// Presentation of the virtual stereo screen (metres, LOCAL space)
 			f32 screen_distance = 2.0f;
 			f32 screen_width = 3.0f;
+			// Live screen mode (set_screen, under slot_mutex): the eyes shown as a flat
+			// stereo quad instead of a projection layer.
+			bool screen_mode = false;
+			bool screen_world = true; // LOCAL space; false follows the head (VIEW space)
+			f32 screen_x = 0.f;
+			f32 screen_y = 0.f;
 
 			// Projection mode
 			bool projection = true;
@@ -108,8 +114,8 @@ namespace vk::xr
 			f32 fov_scale = 1.f;
 			bool flip_y = false;
 			bool hmd_fov = true;
-			f32 hud_scale = 0.65f;
 			std::atomic<XrTime> last_display_time{ 0 };
+			f32 ipd = 0.063f;
 			// Pose the pending game frame is rendered with; declared at the next flip.
 			bool render_pose_valid = false;
 			XrQuaternionf render_orientation{ 0.f, 0.f, 0.f, 1.f };
@@ -526,7 +532,6 @@ namespace vk::xr
 		g_xr.fov_scale = env_float("RPCS3_OPENXR_FOV_SCALE", 1.0f);
 		g_xr.flip_y = read_env("RPCS3_OPENXR_FLIP_Y") == "1";
 		g_xr.hmd_fov = read_env("RPCS3_OPENXR_FOV") != "game";
-		g_xr.hud_scale = env_float("RPCS3_OPENXR_HUD_SCALE", 0.65f);
 
 		xr_log.success("Headset '%s' found. Vulkan instance extensions: %u, device extensions: %u",
 			props.systemName, ::size32(g_xr.instance_exts), ::size32(g_xr.device_exts));
@@ -802,8 +807,21 @@ namespace vk::xr
 
 			slot_t meta{};
 			s32 index = -1;
+			bool screen_mode = !g_xr.projection;
+			bool screen_world = true;
+			f32 screen_pos[3] = { 0.f, 0.f, -g_xr.screen_distance };
+			f32 screen_width = g_xr.screen_width;
 			{
 				std::lock_guard lock(g_xr.slot_mutex);
+				if (g_xr.screen_mode)
+				{
+					screen_mode = true;
+					screen_world = g_xr.screen_world;
+					screen_pos[0] = g_xr.screen_x;
+					screen_pos[1] = g_xr.screen_y;
+					screen_pos[2] = -g_xr.screen_distance;
+					screen_width = g_xr.screen_width;
+				}
 				index = g_xr.latest;
 				if (index >= 0)
 				{
@@ -883,7 +901,7 @@ namespace vk::xr
 				}
 				lock_end(3, lt3);
 
-				if (ok && g_xr.projection && meta.pose_valid && meta.have_fov)
+				if (ok && !screen_mode && meta.pose_valid && meta.have_fov)
 				{
 					// Declare exactly how these eyes were rendered: the head orientation
 					// the camera was rotated by, the located eye positions, and the FOV
@@ -918,19 +936,19 @@ namespace vk::xr
 				}
 				else if (ok)
 				{
-					const f32 height = g_xr.screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
+					const f32 height = screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
 					for (u32 i = 0; i < 2; ++i)
 					{
 						auto& quad = quads[i];
 						quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
-						quad.space = g_xr.space;
 						quad.eyeVisibility = i == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
 						quad.subImage.swapchain = g_xr.eyes[i].handle;
 						quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
 						quad.subImage.imageArrayIndex = 0;
 						quad.pose.orientation.w = 1.f;
-						quad.pose.position = { 0.f, 0.f, -g_xr.screen_distance };
-						quad.size = { g_xr.screen_width, height };
+						quad.space = screen_world ? g_xr.space : g_xr.view_space;
+						quad.pose.position = { screen_pos[0], screen_pos[1], screen_pos[2] };
+						quad.size = { screen_width, height };
 						layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
 					}
 				}
@@ -1134,8 +1152,23 @@ namespace vk::xr
 	f32 eye_scale() { return g_xr.eye_scale; }
 	f32 fov_scale() { return g_xr.fov_scale; }
 	bool hmd_fov() { return g_xr.hmd_fov; }
-	f32 hud_scale() { return g_xr.hud_scale; }
 	bool flip_y() { return g_xr.flip_y; }
+
+	f32 ipd() { return g_xr.ipd; }
+
+	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance)
+	{
+		std::lock_guard lock(g_xr.slot_mutex);
+		g_xr.screen_mode = enabled;
+		if (enabled)
+		{
+			g_xr.screen_world = world_locked;
+			g_xr.screen_width = width;
+			g_xr.screen_x = x;
+			g_xr.screen_y = y;
+			g_xr.screen_distance = distance;
+		}
+	}
 
 	bool locate_render_pose(f32 quat_xyzw[4], f32 eye_fov[2][4])
 	{
@@ -1175,6 +1208,15 @@ namespace vk::xr
 		g_xr.render_orientation = head.pose.orientation;
 		g_xr.render_eye_position[0] = located[0].pose.position;
 		g_xr.render_eye_position[1] = located[1].pose.position;
+		{
+			const XrVector3f& a = located[0].pose.position;
+			const XrVector3f& b = located[1].pose.position;
+			const f32 d = std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z));
+			if (d > 0.04f && d < 0.09f)
+			{
+				g_xr.ipd = d;
+			}
+		}
 		for (u32 i = 0; i < 2; ++i)
 		{
 			const XrFovf& f = located[i].fov;

@@ -713,10 +713,44 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		f32 head[4];
 		f32 eye_fov[2][4];
 		auto& probe = rsx::vr::camera_probe::get();
-		if (vk::xr::projection_mode() && vk::xr::locate_render_pose(head, eye_fov))
+		const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode();
+		// HUD stereo distance, and the fixed screen's distance (metres).
+		constexpr f32 vr_hud_distance = 2.f;
+		if (fixed_screen && vk::xr::locate_render_pose(head, eye_fov))
 		{
+			// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
+			// place the window where the HUD box would be (depth 0 = 2 m).
+			probe.clear_vr_view();
+			const f32 aspect = 16.f / 9.f;
+			const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
+			const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
+			const f32 box_y = std::min(fit_y, fit_x / aspect);
+			const f32 depth = vr_hud_distance;
+			const f32 width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
+
+			// The game's stereo separates far objects by a fixed fraction of the picture,
+			// tuned for a TV about 0.53 m (24") wide. On a wider window that would make
+			// the eyes diverge, so keep the TV's physical disparity by scaling the
+			// separation by reference width / window width, then by the user's strength.
+			constexpr f32 reference_width = 0.53f;
+			const f32 auto_scale = width > reference_width ? reference_width / width : 1.f;
+			probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
+
+			vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
+				width,
+				depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
+				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
+				depth);
+		}
+		else if (!fixed_screen && vk::xr::locate_render_pose(head, eye_fov))
+		{
+			vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
+			probe.set_screen_stereo_scale(1.f);
 			probe.set_vr_view(head, vk::xr::eye_scale(), vk::xr::fov_scale(), vk::xr::flip_y());
-			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr, vk::xr::hud_scale());
+			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr,
+				g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
+				g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
+				vr_hud_distance, vk::xr::ipd());
 		}
 		else
 		{

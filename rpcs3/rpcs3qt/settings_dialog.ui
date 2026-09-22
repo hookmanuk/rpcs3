@@ -598,6 +598,256 @@
                 </widget>
                </item>
                <item>
+                <widget class="QGroupBox" name="gb_vr">
+                 <property name="title">
+                  <string>VR</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="gb_vr_layout">
+                  <item>
+                   <widget class="QCheckBox" name="vrEnabled">
+                    <property name="text">
+                     <string>Enable VR Support</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="vrFixedScreen">
+                    <property name="text">
+                     <string>Fixed Screen (floating 3D window)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QCheckBox" name="vrHudFixed">
+                    <property name="text">
+                     <string>HUD Fixed In Front</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrHudScale">
+                    <property name="title">
+                     <string>HUD Scale</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrHudScale_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudScaleLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudScaleMin">
+                         <property name="text">
+                          <string>10</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrHudScale">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrHudScaleMax">
+                         <property name="text">
+                          <string>200</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudScaleLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudScaleVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrHudScaleReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrHudOffsetX">
+                    <property name="title">
+                     <string>HUD Horizontal Offset</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrHudOffsetX_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudOffsetXLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetXMin">
+                         <property name="text">
+                          <string>-100</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrHudOffsetX">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetXMax">
+                         <property name="text">
+                          <string>100</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudOffsetXLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetXVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrHudOffsetXReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrHudOffsetY">
+                    <property name="title">
+                     <string>HUD Vertical Offset</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrHudOffsetY_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudOffsetYLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetYMin">
+                         <property name="text">
+                          <string>-100</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrHudOffsetY">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetYMax">
+                         <property name="text">
+                          <string>100</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrHudOffsetYLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrHudOffsetYVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrHudOffsetYReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrScreenDepth">
+                    <property name="title">
+                     <string>Screen 3D Depth</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrScreenDepth_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrScreenDepthLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrScreenDepthMin">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrScreenDepth">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrScreenDepthMax">
+                         <property name="text">
+                          <string>200</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrScreenDepthLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrScreenDepthVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrScreenDepthReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item>
                 <spacer name="gpu_tab_layout_right_spacer">
                  <property name="orientation">
                   <enum>Qt::Orientation::Vertical</enum>
