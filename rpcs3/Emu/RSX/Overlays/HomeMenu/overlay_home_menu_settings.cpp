@@ -16,7 +16,7 @@ namespace rsx
 
 			add_page(home_menu::fa_icon::audio, std::make_shared<home_menu_settings_audio>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::video, std::make_shared<home_menu_settings_video>(x, y, width, height, use_separators, nullptr));
-			if (g_cfg.video.vr.enabled)
+			if (g_cfg.video.vr.enabled && rsx::vr::camera_probe::get().profile())
 			{
 				add_page(home_menu::fa_icon::vr, std::make_shared<home_menu_settings_vr>(x, y, width, height, use_separators, nullptr));
 			}

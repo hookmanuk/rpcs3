@@ -586,17 +586,14 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		ui->gb_anaglyph_settings->setEnabled(false);
 	}
 
-	// VR: only titles with a camera profile can be rendered in stereo, and the
-	// setting lives in that game's custom configuration.
+	// VR: only titles with a VR profile can be rendered in stereo, and the
+	// setting lives in that game's custom configuration. Without a profile
+	// (including the global settings) the VR section is hidden.
 	const auto vr_profile = game ? rsx::vr::load_title_profile(game->serial) : nullptr;
 	const bool vr_profiled_title = vr_profile != nullptr;
 	const bool vr_rate_supported = vr_profile && vr_profile->match_headset_refresh_rate;
+	ui->gb_vr->setVisible(vr_profiled_title);
 	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
-	if (!vr_profiled_title)
-	{
-		ui->vrEnabled->setChecked(false);
-		ui->vrEnabled->setEnabled(false);
-	}
 	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	if (vr_rate_supported)
