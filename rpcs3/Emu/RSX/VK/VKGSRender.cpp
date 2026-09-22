@@ -2816,7 +2816,6 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		// the right-eye surfaces are rebound or the framebuffer is released.
 		vr_batch_flush();
 
-		const u64 vr_prepare_start = get_system_time();
 		m_vr_right_rtts.prepare_render_target(*m_current_command_buffer,
 			m_framebuffer_layout.color_format, m_framebuffer_layout.depth_format,
 			m_framebuffer_layout.width, m_framebuffer_layout.height,
@@ -2864,8 +2863,6 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_vr_right_draw_fbo = vk::get_framebuffer(*m_device, vr_width, vr_height,
 			vk::to_bool32(!vr_input_attachments.empty()), vr_renderpass, m_vr_right_fbo_images);
 		m_vr_right_draw_fbo->add_ref();
-		m_vr_prepare_us += get_system_time() - vr_prepare_start;
-		m_vr_prepare_count++;
 	}
 
 	// Reset framebuffer information

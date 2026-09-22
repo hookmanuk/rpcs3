@@ -164,9 +164,5 @@ namespace vk
 	};
 
 	VkResult wait_for_fence(fence* pFence, u64 timeout = 0ull);
-
-	// Diagnostics (Gate 6 pacing): accumulated host wait time/count in wait_for_fence.
-	extern atomic_t<u64> g_fence_wait_us;
-	extern atomic_t<u64> g_fence_wait_count;
 	VkResult wait_for_event(event* pEvent, u64 timeout = 0ull);
 }

@@ -8,6 +8,7 @@
 #include "Emu/RSX/Utils/rsx_utils.h"
 
 #include "util/logs.hpp"
+#include "util/yaml.hpp"
 
 #include <cmath>
 #include <cstdlib>
@@ -123,10 +124,254 @@ namespace rsx::vr
 		}
 	}
 
+	const title_profile::stereo_rule& title_profile::stereo_for(u32 target_width, u32 output_width) const
+	{
+		for (const stereo_rule& rule : stereo_by_target_width)
+		{
+			if (target_width * rule.output_width_divisor == output_width)
+			{
+				return rule;
+			}
+		}
+		return stereo;
+	}
+
+	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id)
+	{
+		if (title_id.empty())
+		{
+			return nullptr;
+		}
+
+		const std::string path = fs::get_executable_dir() + "vr_profiles/" + std::string(title_id) + ".json";
+		fs::file file(path);
+		if (!file)
+		{
+			return nullptr;
+		}
+
+		// JSON is YAML flow syntax, so RPCS3's YAML reader parses it.
+		const auto [root, parse_error] = yaml_load(file.to_string());
+		if (!parse_error.empty())
+		{
+			vr_probe_log.error("VR profile '%s' is not valid JSON: %s", path, parse_error);
+			return nullptr;
+		}
+
+		// emucore is built without C++ exceptions: every lookup goes through
+		// get_yaml_node_value (util/yaml.cpp catches), and missing keys are checked.
+		std::string error;
+		const auto child = [](const YAML::Node& parent, const char* key)
+		{
+			return parent && parent.IsMap() ? parent[key] : YAML::Node(YAML::NodeType::Undefined);
+		};
+		const auto read = [&]<typename T>(const YAML::Node& parent, const char* key, T& out, bool required = true) -> bool
+		{
+			const YAML::Node node = child(parent, key);
+			if (!node)
+			{
+				if (required && error.empty()) error = fmt::format("missing \"%s\"", key);
+				return false;
+			}
+			std::string node_error;
+			T value = get_yaml_node_value<T>(node, node_error);
+			if (!node_error.empty())
+			{
+				if (error.empty()) error = fmt::format("\"%s\": %s", key, node_error);
+				return false;
+			}
+			out = std::move(value);
+			return true;
+		};
+		const auto read_rule = [&](const YAML::Node& node, title_profile::stereo_rule& rule)
+		{
+			read(node, "per_eye_separation", rule.per_eye_separation);
+			read(node, "convergence", rule.convergence);
+		};
+		const auto fail = [&](std::string what)
+		{
+			if (error.empty()) error = std::move(what);
+		};
+		// Unknown keys are only warned about, but that catches typos in optional ones.
+		const auto check_keys = [&](const YAML::Node& node, const char* where, std::initializer_list<std::string_view> known)
+		{
+			if (!node || !node.IsMap()) return;
+			for (const auto& entry : node)
+			{
+				std::string key_error;
+				const std::string key = get_yaml_node_value<std::string>(entry.first, key_error);
+				if (std::find(known.begin(), known.end(), key) == known.end())
+				{
+					vr_probe_log.warning("VR profile '%s': unknown key \"%s\"%s ignored.", path, key, where);
+				}
+			}
+		};
+
+		if (!root || !root.IsMap())
+		{
+			fail("the profile is not a JSON object");
+		}
+
+		if (u32 schema = 0; read(root, "schema", schema) && schema != 1)
+		{
+			fail(fmt::format("schema %u is not supported (1 only)", schema));
+		}
+
+		auto profile = std::make_shared<title_profile>();
+		if (read(root, "title_id", profile->title_id) && profile->title_id != title_id)
+		{
+			fail(fmt::format("title_id is '%s'", profile->title_id));
+		}
+
+		read(root, "app_version", profile->app_version, false);
+
+		if (std::string layout; read(root, "matrix_layout", layout) && layout != "row_vectors")
+		{
+			fail(fmt::format("matrix_layout '%s' is not supported (row_vectors only)", layout));
+		}
+
+		if (const YAML::Node blocks = child(root, "camera_blocks"); blocks && blocks.IsSequence())
+		{
+			for (const auto& block : blocks)
+			{
+				std::string node_error;
+				profile->camera_blocks.push_back(get_yaml_node_value<u32>(block, node_error));
+				if (!node_error.empty()) fail("camera_blocks: " + node_error);
+			}
+		}
+		if (profile->camera_blocks.empty())
+		{
+			fail("camera_blocks must list at least one slot");
+		}
+
+		read(root, "output_aspect_tolerance", profile->output_aspect_tolerance);
+
+		const YAML::Node camera_position = child(root, "camera_position");
+		read(camera_position, "eye_baseline", profile->eye_baseline);
+		read(camera_position, "slot", profile->camera_position_slot, false);
+
+		const YAML::Node stereo = child(root, "stereo");
+		if (std::string formula; read(stereo, "formula", formula) && formula != "clip_x_shear")
+		{
+			fail(fmt::format("stereo formula '%s' is not supported (clip_x_shear only)", formula));
+		}
+		read_rule(stereo, profile->stereo);
+		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
+		{
+			for (const auto& node : rules)
+			{
+				title_profile::stereo_rule rule;
+				read(node, "output_width_divisor", rule.output_width_divisor);
+				if (!rule.output_width_divisor)
+				{
+					fail("output_width_divisor must be at least 1");
+				}
+				read_rule(node, rule);
+				profile->stereo_by_target_width.push_back(rule);
+			}
+		}
+
+		const YAML::Node screen_space = child(root, "screen_space");
+		read(screen_space, "orthographic_block", profile->screen_space_block, false);
+		if (std::string bare; read(screen_space, "bare_projection", bare, false))
+		{
+			profile->screen_space_bare_projection = bare == "true";
+		}
+
+		read(root, "reference_screen_width", profile->reference_screen_width, false);
+		if (std::string match; read(root, "match_headset_refresh_rate", match, false))
+		{
+			profile->match_headset_refresh_rate = match == "true";
+		}
+
+		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate" });
+		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
+		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection" });
+		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
+		{
+			for (const auto& node : rules)
+			{
+				check_keys(node, " in stereo.by_target_width", { "output_width_divisor", "per_eye_separation", "convergence" });
+			}
+		}
+
+		if (!error.empty())
+		{
+			vr_probe_log.error("VR profile '%s' is invalid: %s", path, error);
+			return nullptr;
+		}
+
+		return profile;
+	}
+
 	bool title_has_profile(std::string_view title_id)
 	{
-		// Gate 4 profile data: rpcs3/bin/vr_profiles/BCES00664.json.
-		return title_id == "BCES00664";
+		return load_title_profile(title_id) != nullptr;
+	}
+
+	namespace
+	{
+		atomic_t<u32> g_headset_refresh_hz{0};
+	}
+
+	void set_headset_refresh_rate(u32 hz)
+	{
+		if (g_headset_refresh_hz.exchange(hz) != hz && hz)
+		{
+			vr_probe_log.notice("Headset refresh rate: %u Hz", hz);
+		}
+	}
+
+	u64 effective_vblank_rate()
+	{
+		const u64 configured = g_cfg.video.vblank_rate;
+		const u32 headset = g_headset_refresh_hz.load();
+		if (!headset || !g_cfg.video.vr.enabled || !g_cfg.video.vr.match_headset_rate)
+		{
+			return configured;
+		}
+
+		const title_profile* profile = camera_probe::get().profile();
+		return profile && profile->match_headset_refresh_rate ? headset : configured;
+	}
+
+	const title_profile* camera_probe::profile() const
+	{
+		const std::string& title = Emu.GetTitleID();
+		std::lock_guard lock(m_profile_mutex);
+		if (title != m_profile_title)
+		{
+			m_profile_title = title;
+			m_profile = load_title_profile(title);
+			if (m_profile)
+			{
+				const title_profile& p = *m_profile;
+				std::string blocks;
+				for (const u32 block : p.camera_blocks)
+				{
+					blocks += fmt::format("%sc[%u]", blocks.empty() ? "" : " ", block);
+				}
+				vr_probe_log.success("VR profile loaded for %s: camera blocks %s, camera position c[%d] baseline %.9g, "
+					"stereo sep %.9g conv %.9g (%u width rules), screen space c[%d]%s, aspect tolerance %.9g, reference screen %.9g m.",
+					title, blocks, static_cast<s32>(p.camera_position_slot), p.eye_baseline,
+					p.stereo.per_eye_separation, p.stereo.convergence, ::size32(p.stereo_by_target_width),
+					static_cast<s32>(p.screen_space_block), p.screen_space_bare_projection ? " + bare projections" : "",
+					p.output_aspect_tolerance, p.reference_screen_width);
+				for (const auto& rule : p.stereo_by_target_width)
+				{
+					vr_probe_log.notice("VR profile stereo rule: targets 1/%u of output width: sep %.9g conv %.9g",
+						rule.output_width_divisor, rule.per_eye_separation, rule.convergence);
+				}
+				if (!m_profile->app_version.empty() && Emu.GetAppVersion() != m_profile->app_version)
+				{
+					vr_probe_log.warning("VR profile for %s was made for version %s; this is version %s.",
+						title, m_profile->app_version, Emu.GetAppVersion());
+				}
+			}
+		}
+		return m_profile.get();
 	}
 
 	camera_probe& camera_probe::get()
@@ -159,7 +404,7 @@ namespace rsx::vr
 
 		if (cfg.empty() && m_config_path.empty())
 		{
-			// Gate 5 development default: render WipEout's profiled title in
+			// Gate 5 development default: render any profiled title in
 			// stereo without requiring the launcher to inject an environment
 			// variable. Explicit probe configuration still overrides this.
 			parse("render=1");
@@ -189,13 +434,17 @@ namespace rsx::vr
 
 		// Do not allocate/replay right-eye resources for unrelated titles merely
 		// because the development default is armed.
-		return m_title.empty() || Emu.GetTitleID() == m_title;
+		if (!m_title.empty() && Emu.GetTitleID() != m_title)
+		{
+			return false;
+		}
+		return profile() != nullptr;
 	}
 
 	void camera_probe::reset_params()
 	{
-		m_base = 256;
-		m_cam_slot = 465;
+		m_base = umax;
+		m_cam_slot = umax;
 		m_yaw = m_pitch = m_roll = 0.f;
 		m_tx = m_ty = m_tz = 0.f;
 		m_eye = 0.f;
@@ -211,7 +460,7 @@ namespace rsx::vr
 		m_raw_slot = 0;
 		m_raw_comp = 0;
 		m_raw_add = 0.f;
-		m_title = "BCES00664";
+		m_title.clear();
 	}
 
 	void camera_probe::poll()
@@ -329,7 +578,7 @@ namespace rsx::vr
 		m_active = true;
 		m_description = cfg;
 
-		vr_probe_log.success("Camera probe ARMED for title '%s': %s", m_title, cfg);
+		vr_probe_log.success("Camera probe ARMED for title '%s': %s", m_title.empty() ? "(any profiled)" : m_title, cfg);
 		vr_probe_log.warning("This modifies the transient per-draw constant copy only. "
 			"Guest state is untouched.");
 	}
@@ -342,10 +591,7 @@ namespace rsx::vr
 			return false;
 		}
 
-		if (!m_title.empty() && Emu.GetTitleID() != m_title)
-		{
-			return false;
-		}
+		const title_profile& profile = *ensure(this->profile());
 
 		const auto is_perspective = [](f32* const r[4])
 		{
@@ -355,11 +601,13 @@ namespace rsx::vr
 		};
 
 		// The position policy has a wider domain than the matrix policy. Locate a
-		// perspective block first so c[465]'s offset follows the exact camera
-		// right axis used by this draw (not a global axis or a stale prior draw).
+		// perspective block first so the camera position's offset follows the exact
+		// camera right axis used by this draw (not a global axis or a stale prior draw).
+		const u32 base_override[2] = { m_base, m_base + 4 };
+		const std::span<const u32> camera_blocks = m_base != umax ? std::span<const u32>(base_override) : std::span<const u32>(profile.camera_blocks);
 		f32* rows[4] = {};
 		bool have_perspective = false;
-		for (const u32 candidate : { m_base, m_base + 4 })
+		for (const u32 candidate : camera_blocks)
 		{
 			f32* r[4];
 			bool present = true;
@@ -379,7 +627,7 @@ namespace rsx::vr
 
 		if (!have_perspective)
 		{
-			apply_vr_screen_space(buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
+			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
 		}
 
@@ -392,7 +640,7 @@ namespace rsx::vr
 
 		const f32 target_aspect = static_cast<f32>(surface_w) / surface_h;
 		const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
-		const bool output_aspect_match = std::fabs(target_aspect / output_aspect - 1.f) <= 0.02f;
+		const bool output_aspect_match = std::fabs(target_aspect / output_aspect - 1.f) <= profile.output_aspect_tolerance;
 
 		// Rotation-invariance audit (see m_audit_yaw_deg): the same classifier and
 		// clip-space rotation as the headset path, with the left eye unrotated and
@@ -423,12 +671,11 @@ namespace rsx::vr
 		}
 
 		// A camera block that is a bare projection (no view rotation or translation
-		// folded in) draws in the game camera's own space: the main-menu particle
-		// cloud, whose view lives in c[256..259] with c[465].w = 0. No race camera
-		// block in the 2D or native-3D Gate 3 captures has this form. It is part of
-		// the menu screen, so it goes into the same fixed box as the HUD instead of
-		// following the head.
-		if (output_aspect_match && m_vr_view && m_vr_hmd_fov)
+		// folded in) draws in the game camera's own space. In WipEout that is the
+		// main-menu particle cloud, and no race camera block has this form. When the
+		// profile says so, it is part of the screen and goes into the same fixed box
+		// as the HUD instead of following the head.
+		if (output_aspect_match && m_vr_view && m_vr_hmd_fov && profile.screen_space_bare_projection)
 		{
 			constexpr f32 eps = 1e-5f;
 			const bool bare_projection =
@@ -449,11 +696,11 @@ namespace rsx::vr
 			}
 		}
 
-		// c[465] is a camera-world point in the native oracle. Unlike the
-		// matrix it changes on the cascade route too. A cascade's c[260] is a
-		// perspective projection but its clip-X column is not camera right
-		// (native capture dot=+0.007); use the most recent real camera view for
-		// that global axis. Output-aspect camera draws establish/refresh it.
+		// The camera position is a camera-world point in the native oracle. Unlike
+		// the matrix it changes on the cascade route too. A cascade's camera block is
+		// a perspective projection but its clip-X column is not camera right
+		// (WipEout native capture dot=+0.007); use the most recent real camera view
+		// for that global axis. Output-aspect camera draws establish/refresh it.
 		// Head rotation first, so camera right and the eye offsets below follow
 		// the rotated view.
 		if (output_aspect_match && m_vr_view)
@@ -474,9 +721,10 @@ namespace rsx::vr
 			}
 		}
 
-		if (f32* cam = find_slot(buffer, reloc, reloc_size, m_cam_slot); cam && m_render_camera_right_valid)
+		const u32 cam_slot = m_cam_slot != umax ? m_cam_slot : profile.camera_position_slot;
+		if (f32* cam = cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cam_slot) : nullptr; cam && m_render_camera_right_valid)
 		{
-			const f32 half_eye_baseline = 0.120002f * (m_vr_view ? m_vr_eye_scale : m_screen_stereo_scale);
+			const f32 half_eye_baseline = profile.eye_baseline * 0.5f * (m_vr_view ? m_vr_eye_scale : m_screen_stereo_scale);
 			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];
 			cam[1] += eye_sign * half_eye_baseline * m_render_camera_right[1];
 			cam[2] += eye_sign * half_eye_baseline * m_render_camera_right[2];
@@ -487,13 +735,12 @@ namespace rsx::vr
 			return false;
 		}
 
-		// Gate 4 fitted two resolution families. The half-resolution pass uses
-		// 75% of the full-resolution shear, not 50%, so select the measured
-		// value by target width. Infinity layers are deliberately left on the
-		// converged path until their six program/pass keys are made profile data;
-		// guessing them would turn a measured policy into a heuristic.
-		const f32 per_eye_sep = surface_w * 2u == eye.width ? 0.03047f : 0.040625f;
-		constexpr f32 convergence = 2.878f;
+		// The profile's measured shear for this target width (WipEout's half-resolution
+		// pass uses 75% of the full-resolution shear, not 50%). Infinity layers stay
+		// on the converged rule until their program/pass keys are profile data.
+		const auto& stereo_rule = profile.stereo_for(surface_w, eye.width);
+		const f32 per_eye_sep = stereo_rule.per_eye_separation;
+		const f32 convergence = stereo_rule.convergence;
 		// On a fixed screen larger than the one the game tuned its stereo for, the
 		// whole separation is scaled down so far objects keep the same physical
 		// disparity (see set_screen_stereo_scale). The headset path uses eye_scale.
@@ -502,7 +749,7 @@ namespace rsx::vr
 		if (m_vr_view)
 		{
 			// Headset eyes are parallel: keep the formula's eye translation
-			// (clip.x -= sep*conv, the same 0.120-unit offset as c[465]) and drop
+			// (clip.x -= sep*conv, the same offset as the camera position's) and drop
 			// its convergence image shift (clip.x += sep*clip.w).
 			rows[3][0] -= sep * m_vr_eye_scale * convergence;
 
@@ -555,9 +802,12 @@ namespace rsx::vr
 		}
 
 		// Head translation, in the same clip basis as the rotation. The game's own
-		// eye separation is 0.240 units for ipd metres of real separation, so that
-		// ratio is the world scale, and the eye_scale knob scales both together.
-		const f32 units_per_metre = ipd > 0.01f ? 0.240004f * eye_scale / ipd : 0.f;
+		// eye separation (the profile's eye_baseline, in world units) stands for ipd
+		// metres of real separation, so that ratio is the world scale, and the
+		// eye_scale knob scales both together.
+		const title_profile* profile = this->profile();
+		const f32 eye_baseline = profile ? profile->eye_baseline : 0.f;
+		const f32 units_per_metre = ipd > 0.01f ? eye_baseline * eye_scale / ipd : 0.f;
 		for (u32 i = 0; i < 3; ++i)
 		{
 			// + camera_depth is forward, which is -Z in LOCAL space and +forward here.
@@ -614,17 +864,18 @@ namespace rsx::vr
 		return true;
 	}
 
-	void camera_probe::apply_vr_screen_space(void* buffer, const u16* reloc, usz reloc_size,
+	void camera_probe::apply_vr_screen_space(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
 		u16 surface_w, u16 surface_h, f32 eye_sign) const
 	{
 		// With the headset FOV, the eye image spans far more than the game's
 		// frustum. Screen-space draws (HUD, menus) must not stretch with it or
 		// leave the view, so they are mapped into a fixed box inside the headset
-		// frustum. Classifier, from the Gate 3 capture: every HUD
-		// draw reads c[256..259] as an orthographic pixel matrix, while every
-		// post-process pass (bloom chain, full-screen composite) reads no
-		// c[256..259] at all - so post-processing is never touched.
-		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid)
+		// frustum. Classifier: an output-aspect draw whose profile screen-space
+		// block is orthographic. In WipEout's Gate 3 capture every HUD draw reads
+		// c[256..259] as an orthographic pixel matrix, while every post-process
+		// pass (bloom chain, full-screen composite) reads no c[256..259] at all -
+		// so post-processing is never touched.
+		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || profile.screen_space_block == umax)
 		{
 			return;
 		}
@@ -632,7 +883,7 @@ namespace rsx::vr
 		const auto& avconf = g_fxo->get<rsx::avconf>();
 		const size2u eye = avconf.video_frame_size();
 		if (!surface_w || !surface_h || !eye.width || !eye.height ||
-			std::fabs((static_cast<f32>(surface_w) / surface_h) / (static_cast<f32>(eye.width) / eye.height) - 1.f) > 0.02f)
+			std::fabs((static_cast<f32>(surface_w) / surface_h) / (static_cast<f32>(eye.width) / eye.height) - 1.f) > profile.output_aspect_tolerance)
 		{
 			return;
 		}
@@ -640,7 +891,7 @@ namespace rsx::vr
 		f32* rows[4];
 		for (u32 k = 0; k < 4; ++k)
 		{
-			rows[k] = find_slot(buffer, reloc, reloc_size, m_base + k);
+			rows[k] = find_slot(buffer, reloc, reloc_size, profile.screen_space_block + k);
 			if (!rows[k])
 			{
 				return;
@@ -827,7 +1078,8 @@ namespace rsx::vr
 			return;
 		}
 
-		// Title gate: never perturb a title we have not profiled.
+		// Title gate (title=). Unset, experiments run on whatever is booted, so an
+		// unprofiled game can be investigated with explicit base= and cam=.
 		if (!m_title.empty() && Emu.GetTitleID() != m_title)
 		{
 			return;
@@ -849,7 +1101,20 @@ namespace rsx::vr
 		}
 
 		// --- matrix probe ----------------------------------------------------
-		if (m_require_cam && !find_slot(buffer, reloc, reloc_size, m_cam_slot))
+		// Slots come from base=/cam= or else the title's profile.
+		const title_profile* profile = this->profile();
+		const u32 base_override[2] = { m_base, m_base + 4 };
+		const std::span<const u32> camera_blocks = m_base != umax ? std::span<const u32>(base_override)
+			: profile ? std::span<const u32>(profile->camera_blocks) : std::span<const u32>();
+		const u32 cam_slot = m_cam_slot != umax ? m_cam_slot : profile ? profile->camera_position_slot : umax;
+		// Probe default for unprofiled titles: RPCS3's own 2% output-aspect match.
+		const f32 aspect_tolerance = profile ? profile->output_aspect_tolerance : 0.02f;
+		if (camera_blocks.empty())
+		{
+			return;
+		}
+
+		if (m_require_cam && (cam_slot == umax || !find_slot(buffer, reloc, reloc_size, cam_slot)))
 		{
 			return;
 		}
@@ -867,9 +1132,9 @@ namespace rsx::vr
 
 			const f32 target_aspect = static_cast<f32>(surface_w) / surface_h;
 			const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
-			if (std::fabs(target_aspect / output_aspect - 1.f) > 0.02f)
+			if (std::fabs(target_aspect / output_aspect - 1.f) > aspect_tolerance)
 			{
-				if (find_slot(buffer, reloc, reloc_size, m_base))
+				if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 				{
 					m_stat_rejected_aspect++;
 				}
@@ -889,7 +1154,7 @@ namespace rsx::vr
 
 		f32* rows[4] = {};
 		bool found = false;
-		for (const u32 candidate : { m_base, m_base + 4 })
+		for (const u32 candidate : camera_blocks)
 		{
 			f32* r[4];
 			bool present = true;
@@ -909,7 +1174,7 @@ namespace rsx::vr
 
 		if (!found)
 		{
-			if (find_slot(buffer, reloc, reloc_size, m_base))
+			if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 			{
 				m_stat_rejected_no_perspective++;
 			}
@@ -918,7 +1183,7 @@ namespace rsx::vr
 
 		m_stat_perturbed++;
 
-		// WipEout's native stereo shear, applied in clip space:
+		// The native stereo shear (WipEout's), applied in clip space:
 		//   clip.x += sep * (clip.w - conv)
 		// Column 0 of the row-vector matrix produces clip.x and column 3 produces
 		// clip.w, so: col0 += sep * col3, then the constant term (row 3) -= sep*conv.
@@ -947,10 +1212,10 @@ namespace rsx::vr
 
 		// Camera pivot from the pristine guest bank (w must be 1 for a point).
 		f32 cam[3] = { 0.f, 0.f, 0.f };
-		if (guest_constants && m_cam_slot < 512)
+		if (guest_constants && cam_slot < 512)
 		{
 			const u32* bank = static_cast<const u32*>(guest_constants);
-			const u32* c = bank + m_cam_slot * 4;
+			const u32* c = bank + cam_slot * 4;
 			std::memcpy(&cam[0], &c[0], sizeof(f32));
 			std::memcpy(&cam[1], &c[1], sizeof(f32));
 			std::memcpy(&cam[2], &c[2], sizeof(f32));

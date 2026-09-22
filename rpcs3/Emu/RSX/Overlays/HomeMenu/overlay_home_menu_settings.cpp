@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "overlay_home_menu_settings.h"
 #include "Emu/system_config.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 
 namespace rsx
 {
@@ -183,6 +184,11 @@ namespace rsx
 		{
 			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
 			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
+			// Only where the game's VR profile confirms it keeps normal speed at other vblank rates.
+			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->match_headset_refresh_rate)
+			{
+				add_checkbox(&g_cfg.video.vr.match_headset_rate, localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE);
+			}
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_x, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X, " %", 1);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);

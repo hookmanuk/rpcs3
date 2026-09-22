@@ -588,7 +588,9 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 
 	// VR: only titles with a camera profile can be rendered in stereo, and the
 	// setting lives in that game's custom configuration.
-	const bool vr_profiled_title = game && rsx::vr::title_has_profile(game->serial);
+	const auto vr_profile = game ? rsx::vr::load_title_profile(game->serial) : nullptr;
+	const bool vr_profiled_title = vr_profile != nullptr;
+	const bool vr_rate_supported = vr_profile && vr_profile->match_headset_refresh_rate;
 	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
 	if (!vr_profiled_title)
 	{
@@ -597,6 +599,18 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	}
 	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
+	if (vr_rate_supported)
+	{
+		EnhanceCheckBox(emu_settings_type::VRMatchHeadsetRate, ui->vrMatchHeadsetRate, tooltips.settings.vr_match_headset_rate);
+	}
+	else
+	{
+		// Shown, but off and unchangeable; the saved setting is not touched.
+		ui->vrMatchHeadsetRate->setChecked(false);
+		ui->vrMatchHeadsetRate->setEnabled(false);
+		ui->vrMatchHeadsetRate->setToolTip(tooltips.settings.vr_match_headset_rate_unsupported);
+		SubscribeTooltip(ui->vrMatchHeadsetRate, tooltips.settings.vr_match_headset_rate_unsupported);
+	}
 	{
 		// Percentage sliders with a value label and a reset button.
 		const auto percent_text = [](int value) { return tr("%1%", "VR HUD slider").arg(value); };
@@ -631,10 +645,11 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
 			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
 
-		const auto enable_vr_options = [this, vr_profiled_title]()
+		const auto enable_vr_options = [this, vr_profiled_title, vr_rate_supported]()
 		{
 			const bool vr = vr_profiled_title && ui->vrEnabled->isChecked();
 			ui->vrHudFixed->setEnabled(vr);
+			ui->vrMatchHeadsetRate->setEnabled(vr && vr_rate_supported);
 			ui->vrFixedScreen->setEnabled(vr);
 			ui->gb_vrHudScale->setEnabled(vr);
 			ui->gb_vrHudOffsetX->setEnabled(vr);

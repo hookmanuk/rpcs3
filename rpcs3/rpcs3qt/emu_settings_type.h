@@ -88,6 +88,7 @@ enum class emu_settings_type
 	VREnabled,
 	VRHudFixed,
 	VRFixedScreen,
+	VRMatchHeadsetRate,
 	VRScreenDepth,
 	VRHudScale,
 	VRHudOffsetX,

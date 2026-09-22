@@ -1,7 +1,6 @@
 #pragma once
 
 #include "util/types.hpp"
-#include "util/atomic.hpp"
 #include <vector>
 
 #include "VulkanAPI.h"
@@ -61,8 +60,6 @@ namespace vk
 
 	// Sync helpers around vkQueueSubmit
 	void acquire_global_submit_lock();
-	extern atomic_t<u64> g_submit_lock_wait_us;  // diagnostics
-	extern atomic_t<u64> g_submit_call_us;       // diagnostics
 	void release_global_submit_lock();
 	void queue_submit(const vk::queue_submit_t* packet);
 

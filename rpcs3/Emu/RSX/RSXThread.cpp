@@ -1162,7 +1162,8 @@ namespace rsx
 #endif
 			u64 start_time = get_system_time();
 
-			u64 vblank_rate = g_cfg.video.vblank_rate;
+			// VR fork: the headset's refresh rate when "Match Headset Refresh Rate" applies.
+			u64 vblank_rate = rsx::vr::effective_vblank_rate();
 			u64 vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
 
 			u64 local_vblank_count = 0;
@@ -1200,7 +1201,11 @@ namespace rsx
 							local_vblank_count = 0;
 
 							// We have a rare chance to update settings without losing precision whenever local_vblank_count is 0
-							vblank_rate = g_cfg.video.vblank_rate;
+							if (const u64 rate = rsx::vr::effective_vblank_rate(); rate != vblank_rate)
+							{
+								rsx_log.notice("VBlank rate: %u Hz", rate);
+								vblank_rate = rate;
+							}
 							vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
 						}
 
@@ -3576,13 +3581,13 @@ namespace rsx
 
 		switch (frame_limit)
 		{
-		case frame_limit_type::none: limit = g_cfg.core.max_cpu_preempt_count_per_frame ? static_cast<double>(g_cfg.video.vblank_rate) : 0.; break;
+		case frame_limit_type::none: limit = g_cfg.core.max_cpu_preempt_count_per_frame ? static_cast<double>(rsx::vr::effective_vblank_rate()) : 0.; break;
 		case frame_limit_type::_30: limit = 30.; break;
 		case frame_limit_type::_50: limit = 50.; break;
 		case frame_limit_type::_60: limit = 60.; break;
  		case frame_limit_type::_120: limit = 120.; break;
 		case frame_limit_type::display_rate: limit = get_cached_display_refresh_rate(); break;
-		case frame_limit_type::_auto: limit = static_cast<double>(g_cfg.video.vblank_rate); break;
+		case frame_limit_type::_auto: limit = static_cast<double>(rsx::vr::effective_vblank_rate()); break;
 		case frame_limit_type::_ps3: limit = 0.; break;
 		case frame_limit_type::infinite: limit = 0.; break;
 		default:
@@ -3805,7 +3810,7 @@ namespace rsx
 				}
 			};
 
-			const u64 vblank_rate_10 = g_cfg.video.vblank_rate * 10;
+			const u64 vblank_rate_10 = rsx::vr::effective_vblank_rate() * 10;
 
 			if (can_reevaluate)
 			{
@@ -3828,7 +3833,7 @@ namespace rsx
 				}
 			}
 			// Sudden FPS drop detection
-			else if ((fails > 13 || hard_fails > 2 || !(abs_dst(fps_10, 300) < 20 || abs_dst(fps_10, 600) < 30 || abs_dst(fps_10, g_cfg.video.vblank_rate * 10) < 30 || abs_dst(fps_10, g_cfg.video.vblank_rate * 10 / 2) < 20)) && lowered_delay < raised_delay && is_last_frame_a_fail)
+			else if ((fails > 13 || hard_fails > 2 || !(abs_dst(fps_10, 300) < 20 || abs_dst(fps_10, 600) < 30 || abs_dst(fps_10, vblank_rate_10) < 30 || abs_dst(fps_10, vblank_rate_10 / 2) < 20)) && lowered_delay < raised_delay && is_last_frame_a_fail)
 			{
 				lower_preemption_count();
 			}

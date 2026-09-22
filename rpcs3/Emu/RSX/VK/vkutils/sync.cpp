@@ -560,23 +560,8 @@ namespace vk
 		);
 	}
 
-	// Diagnostics (Gate 6 pacing): total time and count of host waits on GPU fences.
-	atomic_t<u64> g_fence_wait_us{ 0 };
-	atomic_t<u64> g_fence_wait_count{ 0 };
-
 	VkResult wait_for_fence(fence* pFence, u64 timeout)
 	{
-		const u64 wait_start = get_system_time();
-		struct wait_timer
-		{
-			u64 start;
-			~wait_timer()
-			{
-				g_fence_wait_us += get_system_time() - start;
-				g_fence_wait_count++;
-			}
-		} timer{ wait_start };
-
 		pFence->wait_flush();
 
 		if (timeout)

@@ -257,6 +257,7 @@ struct cfg_root : cfg::node
 			cfg::_int<-100, 100> hud_offset_x{ this, "HUD Horizontal Offset", 0, true }; // % of the central view half-width, + is right
 			cfg::_int<-100, 100> hud_offset_y{ this, "HUD Vertical Offset", 0, true };   // % of the central view half-height, + is up
 			cfg::_int<-500, 500> camera_depth{ this, "Camera Depth Offset", 0, true };   // hundredths of a metre, + moves the viewpoint forward
+			cfg::_bool match_headset_rate{ this, "Match Headset Refresh Rate", true, true }; // vblank at the headset's rate; only if the VR profile allows it
 
 		} vr{ this };
 

@@ -262,6 +262,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y: return tr("HUD Vertical Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH: return tr("Screen 3D Depth", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Depth Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE: return tr("Match Headset Refresh Rate", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT: return tr("Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_BACKGROUND_INPUT: return tr("Background Input Enabled", "Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_KEEP_PADS_CONNECTED: return tr("Keep Pads Connected", "Input");

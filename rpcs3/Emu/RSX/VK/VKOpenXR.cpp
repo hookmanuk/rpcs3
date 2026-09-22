@@ -4,6 +4,7 @@
 #include "vkutils/commands.h"
 #include "vkutils/image.h"
 #include "vkutils/image_helpers.h"
+#include "../Capture/rsx_camera_probe.h"
 
 #define XR_NO_PROTOTYPES
 #define XR_USE_GRAPHICS_API_VULKAN
@@ -138,6 +139,12 @@ namespace vk::xr
 			bool hmd_fov = true;
 			bool position_tracking = true;
 			std::atomic<XrTime> last_display_time{ 0 };
+			// Display refresh rate, only from XR_FB_display_refresh_rate. Not from
+			// XrFrameState::predictedDisplayPeriod: that is the app's pacing, a multiple
+			// of the refresh period whenever the app runs late (SteamVR reports
+			// 45/30/22.5 Hz), and following it spirals the game down.
+			bool fb_refresh_rate = false;  // extension enabled
+			f32 fb_display_hz = 0.f;       // updated on change events
 			f32 ipd = 0.063f;
 			// Pose the pending game frame is rendered with; declared at the next flip.
 			bool render_pose_valid = false;
@@ -174,6 +181,7 @@ namespace vk::xr
 			XR_FN(xrWaitSwapchainImage);
 			XR_FN(xrReleaseSwapchainImage);
 			XR_FN(xrResultToString);
+			XR_FN(xrGetDisplayRefreshRateFB);
 #undef XR_FN
 
 			void reset()
@@ -435,6 +443,15 @@ namespace vk::xr
 			return true;
 		}
 
+		void query_display_refresh_rate()
+		{
+			f32 hz = 0.f;
+			if (g_xr.fb_refresh_rate && g_xr.session && XR_SUCCEEDED(g_xr.xrGetDisplayRefreshRateFB(g_xr.session, &hz)) && hz > 0.f)
+			{
+				g_xr.fb_display_hz = hz;
+			}
+		}
+
 		void poll_events()
 		{
 			XrEventDataBuffer event{ XR_TYPE_EVENT_DATA_BUFFER };
@@ -455,6 +472,7 @@ namespace vk::xr
 						vk::acquire_global_submit_lock();
 						g_xr.session_running = check(g_xr.xrBeginSession(g_xr.session, &begin), "xrBeginSession");
 						vk::release_global_submit_lock();
+						query_display_refresh_rate();
 					}
 					else if (changed.state == XR_SESSION_STATE_STOPPING)
 					{
@@ -462,17 +480,23 @@ namespace vk::xr
 						g_xr.xrEndSession(g_xr.session);
 						vk::release_global_submit_lock();
 						g_xr.session_running = false;
+						rsx::vr::set_headset_refresh_rate(0);
 					}
 					else if (changed.state == XR_SESSION_STATE_EXITING || changed.state == XR_SESSION_STATE_LOSS_PENDING)
 					{
 						g_xr.session_running = false;
 						g_xr.lost = true;
+						rsx::vr::set_headset_refresh_rate(0);
 					}
 					break;
 				}
+				case XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB:
+					query_display_refresh_rate();
+					break;
 				case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
 					g_xr.session_running = false;
 					g_xr.lost = true;
+					rsx::vr::set_headset_refresh_rate(0);
 					break;
 				default:
 					break;
@@ -515,12 +539,29 @@ namespace vk::xr
 			return false;
 		}
 
-		const char* extensions[] = { XR_KHR_VULKAN_ENABLE_EXTENSION_NAME };
+		// Optional: the display refresh rate, for "Match Headset Refresh Rate".
+		g_xr.fb_refresh_rate = false;
+		if (PFN_xrEnumerateInstanceExtensionProperties enumerate = nullptr;
+			load_fn(enumerate, "xrEnumerateInstanceExtensionProperties"))
+		{
+			u32 count = 0;
+			enumerate(nullptr, 0, &count, nullptr);
+			std::vector<XrExtensionProperties> available(count, { XR_TYPE_EXTENSION_PROPERTIES });
+			if (count && XR_SUCCEEDED(enumerate(nullptr, count, &count, available.data())))
+			{
+				for (const auto& ext : available)
+				{
+					g_xr.fb_refresh_rate |= std::strcmp(ext.extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0;
+				}
+			}
+		}
+
+		const char* extensions[] = { XR_KHR_VULKAN_ENABLE_EXTENSION_NAME, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME };
 		XrInstanceCreateInfo create{ XR_TYPE_INSTANCE_CREATE_INFO };
 		std::memcpy(create.applicationInfo.applicationName, "RPCS3", sizeof("RPCS3"));
 		std::memcpy(create.applicationInfo.engineName, "RPCS3", sizeof("RPCS3"));
 		create.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-		create.enabledExtensionCount = 1;
+		create.enabledExtensionCount = g_xr.fb_refresh_rate ? 2 : 1;
 		create.enabledExtensionNames = extensions;
 
 		if (!check(g_xr.xrCreateInstance(&create, &g_xr.instance), "xrCreateInstance"))
@@ -559,6 +600,18 @@ namespace vk::xr
 		XR_LOAD(xrReleaseSwapchainImage);
 		XR_LOAD(xrResultToString);
 #undef XR_LOAD
+		if (g_xr.fb_refresh_rate && !load_fn(g_xr.xrGetDisplayRefreshRateFB, "xrGetDisplayRefreshRateFB"))
+		{
+			g_xr.fb_refresh_rate = false;
+		}
+		if (g_xr.fb_refresh_rate)
+		{
+			xr_log.notice("Display refresh rate: XR_FB_display_refresh_rate available.");
+		}
+		else
+		{
+			xr_log.notice("Display refresh rate unavailable (no XR_FB_display_refresh_rate): Match Headset Refresh Rate keeps the configured Vblank Rate.");
+		}
 
 		if (!ok)
 		{
@@ -852,48 +905,6 @@ namespace vk::xr
 
 		// One headset frame on the OpenXR thread: present the newest published eye
 		// pair (re-presenting the previous one only after the 100 ms idle timeout).
-		// Diagnostics: how long this thread holds RPCS3's global submit lock per
-		// call site (RPCS3's own submits wait while it is held).
-		using lock_clock = std::chrono::steady_clock;
-		s64 g_lock_held_us[5]{};
-		const char* const g_lock_site_names[5] = { "xrBeginFrame", "acquire+wait", "vkQueueSubmit", "release", "xrEndFrame" };
-
-		lock_clock::time_point lock_begin()
-		{
-			vk::acquire_global_submit_lock();
-			return lock_clock::now();
-		}
-
-		void lock_end(u32 site, lock_clock::time_point start)
-		{
-			const auto held = lock_clock::now() - start;
-			vk::release_global_submit_lock();
-			g_lock_held_us[site] += std::chrono::duration_cast<std::chrono::microseconds>(held).count();
-		}
-
-		void report_lock_hold()
-		{
-			static lock_clock::time_point s_window = lock_clock::now();
-			const auto now = lock_clock::now();
-			if (now - s_window < std::chrono::seconds(1))
-			{
-				return;
-			}
-			s_window = now;
-
-			s64 total = 0;
-			for (const s64 v : g_lock_held_us) total += v;
-			if (total > 100'000)
-			{
-				xr_log.warning("Submit lock held %.1f ms in the last second: %s %.1f, %s %.1f, %s %.1f, %s %.1f, %s %.1f",
-					total / 1000.0,
-					g_lock_site_names[0], g_lock_held_us[0] / 1000.0, g_lock_site_names[1], g_lock_held_us[1] / 1000.0,
-					g_lock_site_names[2], g_lock_held_us[2] / 1000.0, g_lock_site_names[3], g_lock_held_us[3] / 1000.0,
-					g_lock_site_names[4], g_lock_held_us[4] / 1000.0);
-			}
-			for (s64& v : g_lock_held_us) v = 0;
-		}
-
 		// Copy overlay buffer `index` into the overlay swapchain (frame thread).
 		bool copy_overlay(s32 index)
 		{
@@ -906,10 +917,10 @@ namespace vk::xr
 			XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
 			XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
 			wait.timeout = 100'000'000; // 100 ms
-			const auto lt1 = lock_begin();
+			vk::acquire_global_submit_lock();
 			bool ok = check(g_xr.xrAcquireSwapchainImage(chain.handle, &acquire, &chain.acquired), "xrAcquireSwapchainImage");
 			ok = ok && check(g_xr.xrWaitSwapchainImage(chain.handle, &wait), "xrWaitSwapchainImage");
-			lock_end(1, lt1);
+			vk::release_global_submit_lock();
 
 			if (ok)
 			{
@@ -936,9 +947,9 @@ namespace vk::xr
 				VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 				submit.commandBufferCount = 1;
 				submit.pCommandBuffers = &g_xr.cmd;
-				const auto lt2 = lock_begin();
+				vk::acquire_global_submit_lock();
 				vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
-				lock_end(2, lt2);
+				vk::release_global_submit_lock();
 				vkWaitForFences(g_xr.device, 1, &g_xr.fence, VK_TRUE, UINT64_MAX);
 				vkResetFences(g_xr.device, 1, &g_xr.fence);
 			}
@@ -946,9 +957,9 @@ namespace vk::xr
 			if (chain.acquired != umax)
 			{
 				XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-				const auto lt3 = lock_begin();
+				vk::acquire_global_submit_lock();
 				ok = check(g_xr.xrReleaseSwapchainImage(chain.handle, &release), "xrReleaseSwapchainImage") && ok;
-				lock_end(3, lt3);
+				vk::release_global_submit_lock();
 				chain.acquired = umax;
 			}
 			return ok;
@@ -963,10 +974,15 @@ namespace vk::xr
 				return;
 			}
 			g_xr.last_display_time.store(frame_state.predictedDisplayTime);
+			// For "Match Headset Refresh Rate" (the emulated vblank follows it).
+			if (g_xr.fb_display_hz > 0.f)
+			{
+				rsx::vr::set_headset_refresh_rate(static_cast<u32>(std::lround(g_xr.fb_display_hz)));
+			}
 
-			const auto lt0 = lock_begin();
+			vk::acquire_global_submit_lock();
 			const XrResult begun = g_xr.xrBeginFrame(g_xr.session, nullptr);
-			lock_end(0, lt0);
+			vk::release_global_submit_lock();
 			if (!check(begun, "xrBeginFrame"))
 			{
 				return;
@@ -1026,10 +1042,10 @@ namespace vk::xr
 					XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
 					XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
 					wait.timeout = 100'000'000; // 100 ms
-					const auto lt1 = lock_begin();
+					vk::acquire_global_submit_lock();
 					ok = ok && check(g_xr.xrAcquireSwapchainImage(eye.handle, &acquire, &eye.acquired), "xrAcquireSwapchainImage");
 					ok = ok && check(g_xr.xrWaitSwapchainImage(eye.handle, &wait), "xrWaitSwapchainImage");
-					lock_end(1, lt1);
+					vk::release_global_submit_lock();
 				}
 
 				if (ok)
@@ -1061,9 +1077,9 @@ namespace vk::xr
 					VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 					submit.commandBufferCount = 1;
 					submit.pCommandBuffers = &g_xr.cmd;
-					const auto lt2 = lock_begin();
+					vk::acquire_global_submit_lock();
 					vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
-					lock_end(2, lt2);
+					vk::release_global_submit_lock();
 
 					// The copy is tiny; waiting here keeps the slot and command buffer
 					// lifetimes trivial and never touches the RSX thread.
@@ -1071,7 +1087,7 @@ namespace vk::xr
 					vkResetFences(g_xr.device, 1, &g_xr.fence);
 				}
 
-				const auto lt3 = lock_begin();
+				vk::acquire_global_submit_lock();
 				for (auto& eye : g_xr.eyes)
 				{
 					if (eye.acquired != umax)
@@ -1081,7 +1097,7 @@ namespace vk::xr
 						eye.acquired = umax;
 					}
 				}
-				lock_end(3, lt3);
+				vk::release_global_submit_lock();
 
 				if (ok && !screen_mode && meta.pose_valid && meta.have_fov)
 				{
@@ -1162,9 +1178,9 @@ namespace vk::xr
 			end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			end.layerCount = layer_count;
 			end.layers = layers;
-			const auto lt4 = lock_begin();
+			vk::acquire_global_submit_lock();
 			check(g_xr.xrEndFrame(g_xr.session, &end), "xrEndFrame");
-			lock_end(4, lt4);
+			vk::release_global_submit_lock();
 
 			static bool s_reported = false;
 			if (layer_count && !std::exchange(s_reported, true))
@@ -1203,7 +1219,6 @@ namespace vk::xr
 					break;
 				}
 				run_frame();
-				report_lock_hold();
 			}
 		}
 	}
@@ -1216,6 +1231,7 @@ namespace vk::xr
 			g_xr.slot_cv.notify_all();
 			g_xr.thread.join();
 		}
+		rsx::vr::set_headset_refresh_rate(0);
 
 		if (g_xr.instance)
 		{

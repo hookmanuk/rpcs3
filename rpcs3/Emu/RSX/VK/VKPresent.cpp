@@ -252,12 +252,7 @@ void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 	ensure(ctx->swap_command_buffer);
 
 	// Perform hard swap here
-	const u64 frame_wait_start = get_system_time();
-	const u64 fence_us_before = vk::g_fence_wait_us.load();
-	const VkResult frame_wait_result = ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT);
-	m_vr_frame_wait_us += get_system_time() - frame_wait_start;
-	m_vr_frame_wait_fence_us += vk::g_fence_wait_us.load() - fence_us_before;
-	if (frame_wait_result != VK_SUCCESS)
+	if (ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT) != VK_SUCCESS)
 	{
 		// Lost surface/device, release swapchain
 		swapchain_unavailable = true;
@@ -656,41 +651,6 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		evaluate_cpu_usage_reduction_limits();
 	}
 
-	// Gate 6 pacing diagnostics: where the RSX thread waits on the GPU, per second.
-	{
-		static u64 s_window_start = get_system_time();
-		static u64 s_fence_us_start = vk::g_fence_wait_us.load();
-		static u64 s_fence_count_start = vk::g_fence_wait_count.load();
-		static u32 s_flips = 0;
-		s_flips++;
-		const u64 now = get_system_time();
-		if (now - s_window_start >= 1'000'000)
-		{
-			const u64 fence_us = vk::g_fence_wait_us.load() - s_fence_us_start;
-			const u64 fence_count = vk::g_fence_wait_count.load() - s_fence_count_start;
-			rsx_log.warning("Pacing: %u flips/s. GPU fence waits %.1f ms (%llu waits), frame-context wait %.1f ms. desktop acquire %.1f ms. Right eye: RT setup %.1f ms (%llu), replay %.1f ms, invalidated surfaces %u",
-				s_flips, fence_us / 1000.0, fence_count, m_vr_frame_wait_us / 1000.0, m_vr_acquire_us / 1000.0,
-				m_vr_prepare_us / 1000.0, m_vr_prepare_count, m_vr_replay_us / 1000.0, ::size32(m_vr_right_rtts.invalidated_resources));
-			static u64 s_lock_wait_prev = 0, s_submit_prev = 0;
-			const u64 lock_wait = vk::g_submit_lock_wait_us.load(), submit_us = vk::g_submit_call_us.load();
-			rsx_log.warning("Submit: waited for lock %.1f ms/s, inside vkQueueSubmit %.1f ms/s",
-				(lock_wait - s_lock_wait_prev) / 1000.0, (submit_us - s_submit_prev) / 1000.0);
-			s_lock_wait_prev = lock_wait;
-			s_submit_prev = submit_us;
-			const auto* rp = m_vr_replay_part_us;
-			rsx_log.warning("Replay parts (ms/s): end rp+query %.1f, swap fbo %.1f, constants %.1f, vertex env %.1f, textures(R) %.1f, bind+state+begin %.1f, draw+end %.1f, restore consts %.1f, textures(L) %.1f, resume %.1f",
-				rp[0] / 1000.0, rp[1] / 1000.0, rp[2] / 1000.0, rp[3] / 1000.0, rp[4] / 1000.0, rp[5] / 1000.0, rp[6] / 1000.0, rp[7] / 1000.0, rp[8] / 1000.0, rp[9] / 1000.0);
-			for (auto& v : m_vr_replay_part_us) v = 0;
-			m_vr_prepare_us = m_vr_replay_us = m_vr_prepare_count = m_vr_acquire_us = 0;
-			s_window_start = now;
-			s_fence_us_start = vk::g_fence_wait_us.load();
-			s_fence_count_start = vk::g_fence_wait_count.load();
-			s_flips = 0;
-			m_vr_frame_wait_us = 0;
-			m_vr_frame_wait_fence_us = 0;
-		}
-	}
-
 	// Gate 6: publish the eyes to the OpenXR frame thread. The RSX thread never
 	// waits on the headset's clock (that stalled guest command processing and
 	// dropped frames in busy scenes); it records a copy into a free eye buffer,
@@ -782,9 +742,11 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		// Overlay flips (paused emulation) draw nothing, so the pose waits for the next game flip.
 		const bool located = info.emu_flip && vk::xr::locate_render_pose(head, head_position, eye_fov);
 
-		// The HUD box: 16:9, fitted in the central symmetric part of both eyes' views,
-		// scaled by the HUD settings, at 2 m. The fixed screen and RPCS3's overlays use it.
-		const f32 aspect = 16.f / 9.f;
+		// The HUD box: the game's output aspect, fitted in the central symmetric part of
+		// both eyes' views, scaled by the HUD settings, at 2 m. The fixed screen and
+		// RPCS3's overlays use it.
+		const size2u output_size = avconfig.video_frame_size();
+		const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
 		const f32 depth = vr_hud_distance;
 		f32 box_y = 0.f;
 		f32 width = 0.f;
@@ -811,11 +773,13 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			probe.clear_vr_view();
 
 			// The game's stereo separates far objects by a fixed fraction of the picture,
-			// tuned for a TV about 0.53 m (24") wide. On a wider window that would make
-			// the eyes diverge, so keep the TV's physical disparity by scaling the
-			// separation by reference width / window width, then by the user's strength.
-			constexpr f32 reference_width = 0.53f;
-			const f32 auto_scale = width > reference_width ? reference_width / width : 1.f;
+			// tuned for the profile's reference screen (WipEout: a 0.53 m, 24" TV). On a
+			// wider window that would make the eyes diverge, so keep that screen's physical
+			// disparity by scaling the separation by reference width / window width, then
+			// by the user's strength.
+			const auto* profile = probe.profile();
+			const f32 reference_width = profile ? profile->reference_screen_width : 0.f;
+			const f32 auto_scale = reference_width > 0.f && width > reference_width ? reference_width / width : 1.f;
 			probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
 
 			vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
@@ -851,7 +815,6 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	ensure(m_current_frame->swap_command_buffer == nullptr);
 
 	u64 timeout = m_swapchain->get_swap_image_count() <= 2? 0ull: 100000000ull;
-	const u64 acquire_start = get_system_time();
 	while (VkResult status = m_swapchain->acquire_next_swapchain_image(m_current_frame->acquire_signal_semaphore, timeout, &m_current_frame->present_image))
 	{
 		switch (status)
@@ -890,8 +853,6 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			break;
 		}
 	}
-
-	m_vr_acquire_us += get_system_time() - acquire_start;
 
 	// Confirm that the driver did not silently fail
 	ensure(m_current_frame->present_image != umax);

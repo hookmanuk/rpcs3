@@ -16,9 +16,10 @@
 //                                                    a confound). Empty/missing
 //                                                    file => no perturbation.
 //
-//   base=256        base slot of the 4x4 world->clip matrix (c[base..base+3])
-//   cam=465         slot holding camera world position (w==1), used as the
-//                   pivot for rotations and to report the derived right axis
+//   base=<n>        base slot of the 4x4 world->clip matrix (c[base..base+3]);
+//                   c[base+4..] is tried next. Default: the profile's camera blocks
+//   cam=<n>         slot holding camera world position (w==1), used as the
+//                   pivot for rotations. Default: the profile's camera position
 //
 //   yaw=<deg>       rotate the world about the camera pivot (world Y)
 //   pitch=<deg>     ... world X
@@ -34,7 +35,7 @@
 //                   slot we believe is camera state) and negative controls (a
 //                   slot we believe is not).
 //
-//   stereo=<sep>    apply WipEout's own clip-space stereo shear to the camera
+//   stereo=<sep>    apply a clip-space stereo shear to the camera
 //   conv=<c>        block:  clip.x += sep * (clip.w - conv).
 //                   This is the exact per-eye transform the game applies in its
 //                   native 3D mode (fitted over 641 draws, residual < 4e-6). It is
@@ -57,7 +58,7 @@
 //                   (default 0; superseded by the perspective test, which is
 //                   strictly more precise - kept for experiments).
 //
-//   title=<id>      only act on this title id (default BCES00664)
+//   title=<id>      only act on this title id (default: any title with a profile)
 //
 //   render=1         enable the Gate 5 renderer interface. The renderer calls
 //                    apply_render_eye() twice on two *new* host constant
@@ -74,18 +75,73 @@
 // M' = D * M. Column 0 of M's upper 3x3 is the world-space direction that maps
 // to clip X, which is the camera right axis.
 
+#include <memory>
+#include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <array>
+#include <vector>
 
 #include "util/types.hpp"
 #include "util/atomic.hpp"
 
 namespace rsx::vr
 {
-	// True if this title id has a VR camera profile. Only profiled titles can be
+	// A title's VR profile, bin/vr_profiles/<TITLE_ID>.json (schema 1). Every
+	// game-specific value the stereo renderer uses comes from here.
+	struct title_profile
+	{
+		std::string title_id;
+		std::string app_version;             // expected game version; a mismatch is logged
+
+		// 4-slot camera matrices (row vectors), tried in order; the first
+		// perspective one is the draw's camera.
+		std::vector<u32> camera_blocks;
+		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
+
+		u32 camera_position_slot = umax;     // umax: the game has none
+		f32 eye_baseline = 0.f;              // native eye distance, world units
+
+		// clip.x += sep * (clip.w - conv), sep = -/+ per_eye_separation.
+		struct stereo_rule
+		{
+			u32 output_width_divisor = 1;    // applies to targets output_width / divisor wide
+			f32 per_eye_separation = 0.f;
+			f32 convergence = 0.f;
+		};
+		stereo_rule stereo;                          // default
+		std::vector<stereo_rule> stereo_by_target_width;
+
+		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
+		bool screen_space_bare_projection = false;
+
+		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
+
+		// The game keeps real-time speed with its vblank at the headset's refresh
+		// rate, so "Match Headset Refresh Rate" is offered.
+		bool match_headset_refresh_rate = false;
+
+		// The stereo rule for a render target this wide.
+		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
+	};
+
+	// Load and validate bin/vr_profiles/<title_id>.json. Null (with the reason
+	// logged) when the file is missing or invalid.
+	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id);
+
+	// True if this title id has a valid VR profile. Only profiled titles can be
 	// rendered in stereo, so the VR options are offered for those alone.
 	bool title_has_profile(std::string_view title_id);
+
+	// The headset's display refresh rate (Hz, rounded) while an OpenXR session
+	// runs; 0 clears it.
+	void set_headset_refresh_rate(u32 hz);
+
+	// The vblank rate to emulate: the headset's refresh rate while a headset runs
+	// and "Match Headset Refresh Rate" is on for a title whose profile allows it,
+	// otherwise the configured Vblank Rate (which is never modified).
+	u64 effective_vblank_rate();
 
 	class camera_probe
 	{
@@ -108,16 +164,20 @@ namespace rsx::vr
 		void apply(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			const void* guest_constants, u16 surface_w, u16 surface_h) const;
 
-		// Apply WipEout's profiled native-eye transform to a freshly cloned
+		// Apply the title profile's native-eye transform to a freshly cloned
 		// constant buffer. Returns true only when this is a perspective,
-		// output-aspect world draw and its camera matrix was sheared. c[465]
-		// is adjusted independently whenever the draw carries both it and a
-		// usable perspective camera block (including the shared shadow route).
+		// output-aspect world draw and its camera matrix was sheared. The camera
+		// position slot is adjusted independently whenever the draw carries both
+		// it and a usable perspective camera block (including the shared shadow route).
 		bool apply_render_eye(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 
 		// Human-readable description of the active probe, for logging.
 		const std::string& description() const { return m_description; }
+
+		// The running title's VR profile, loaded on first use for each title.
+		// Null when the title has none.
+		const title_profile* profile() const;
 
 		// Gate 6 headset view. quat_xyzw is the OpenXR head orientation (LOCAL
 		// space) the next frame is rendered with. While set, output-aspect camera
@@ -157,7 +217,7 @@ namespace rsx::vr
 		void parse(const std::string& cfg);
 		void reset_params();
 		void apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head) const;
-		void apply_vr_screen_space(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
+		void apply_vr_screen_space(const title_profile& profile, void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 		void map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const;
 
@@ -168,10 +228,16 @@ namespace rsx::vr
 		u64 m_config_stamp = 0;
 
 		std::string m_description;
-		std::string m_title;
+		std::string m_title; // probe override (title=); empty = the running title
 
-		u32 m_base = 256;
-		u32 m_cam_slot = 465;
+		// Cached profile of the running title (see profile()).
+		mutable std::mutex m_profile_mutex;
+		mutable std::string m_profile_title;
+		mutable std::shared_ptr<const title_profile> m_profile;
+
+		// Probe overrides (base=, cam=); umax = the profile's.
+		u32 m_base = umax;
+		u32 m_cam_slot = umax;
 
 		f32 m_yaw = 0.f, m_pitch = 0.f, m_roll = 0.f;
 		f32 m_tx = 0.f, m_ty = 0.f, m_tz = 0.f;

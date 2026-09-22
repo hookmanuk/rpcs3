@@ -119,14 +119,6 @@ private:
 	std::unique_ptr<vk::buffer> m_host_object_data;
 	vk::framebuffer_holder* m_draw_fbo = nullptr;
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
-	// Gate 6 pacing diagnostics (RSX thread only).
-	u64 m_vr_frame_wait_us = 0;
-	u64 m_vr_frame_wait_fence_us = 0;
-	u64 m_vr_prepare_us = 0;   // right-eye render-target setup in prepare_rtts
-	u64 m_vr_replay_us = 0;    // right-eye draw replay in emit_geometry
-	u64 m_vr_replay_part_us[10]{};
-	u64 m_vr_prepare_count = 0;
-	u64 m_vr_acquire_us = 0;   // desktop swapchain image acquire in flip
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
 	// Gate 6: the right-eye draws of one left render pass are recorded into a Vulkan
