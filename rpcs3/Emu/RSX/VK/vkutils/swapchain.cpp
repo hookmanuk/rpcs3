@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "swapchain.h"
+#include "../VKHelpers.h"
 #include "Emu/system_config.h"
 
 namespace vk
@@ -355,6 +356,11 @@ namespace vk
 			present.pWaitSemaphores = &semaphore;
 		}
 
-		return _vkQueuePresentKHR(dev.get_present_queue(), &present);
+		// The queue may be shared with other threads (the OpenXR frame thread
+		// submits to it), and queue access must be externally synchronized.
+		vk::acquire_global_submit_lock();
+		const VkResult result = _vkQueuePresentKHR(dev.get_present_queue(), &present);
+		vk::release_global_submit_lock();
+		return result;
 	}
 }

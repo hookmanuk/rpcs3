@@ -24,11 +24,19 @@ namespace vk
 		g_submit_mutex.unlock();
 	}
 
+	// Diagnostics (Gate 6 pacing): time spent waiting for the submit lock and
+	// inside vkQueueSubmit, from RPCS3's own submissions.
+	atomic_t<u64> g_submit_lock_wait_us{ 0 };
+	atomic_t<u64> g_submit_call_us{ 0 };
+
 	FORCE_INLINE
 	static void queue_submit_impl(const queue_submit_t& submit_info)
 	{
 		ensure(submit_info.pfence);
+		const u64 lock_start = get_system_time();
 		acquire_global_submit_lock();
+		const u64 submit_start = get_system_time();
+		g_submit_lock_wait_us += submit_start - lock_start;
 		VkSubmitInfo info
 		{
 			.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -43,6 +51,7 @@ namespace vk
 		};
 
 		vkQueueSubmit(submit_info.queue, 1, &info, submit_info.pfence->handle);
+		g_submit_call_us += get_system_time() - submit_start;
 		release_global_submit_lock();
 
 		// Signal fence

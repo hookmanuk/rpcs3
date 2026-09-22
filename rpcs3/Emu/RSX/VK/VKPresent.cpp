@@ -83,8 +83,11 @@ bool VKGSRender::reinitialize_swapchain()
 	// Discard the current upscaling pipeline if any
 	m_upscaler.reset();
 
-	// Drain all the queues
+	// Drain all the queues. The OpenXR frame thread may be submitting, and
+	// vkDeviceWaitIdle requires every queue to be externally synchronized.
+	vk::acquire_global_submit_lock();
 	vkDeviceWaitIdle(*m_device);
+	vk::release_global_submit_lock();
 
 	// Clean the FBO caches
 	for (u32 i = 0; i < m_swapchain->get_swap_image_count(); ++i)
@@ -249,7 +252,12 @@ void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 	ensure(ctx->swap_command_buffer);
 
 	// Perform hard swap here
-	if (ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT) != VK_SUCCESS)
+	const u64 frame_wait_start = get_system_time();
+	const u64 fence_us_before = vk::g_fence_wait_us.load();
+	const VkResult frame_wait_result = ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT);
+	m_vr_frame_wait_us += get_system_time() - frame_wait_start;
+	m_vr_frame_wait_fence_us += vk::g_fence_wait_us.load() - fence_us_before;
+	if (frame_wait_result != VK_SUCCESS)
 	{
 		// Lost surface/device, release swapchain
 		swapchain_unavailable = true;
@@ -641,11 +649,89 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		evaluate_cpu_usage_reduction_limits();
 	}
 
+	// Gate 6 pacing diagnostics: where the RSX thread waits on the GPU, per second.
+	{
+		static u64 s_window_start = get_system_time();
+		static u64 s_fence_us_start = vk::g_fence_wait_us.load();
+		static u64 s_fence_count_start = vk::g_fence_wait_count.load();
+		static u32 s_flips = 0;
+		s_flips++;
+		const u64 now = get_system_time();
+		if (now - s_window_start >= 1'000'000)
+		{
+			const u64 fence_us = vk::g_fence_wait_us.load() - s_fence_us_start;
+			const u64 fence_count = vk::g_fence_wait_count.load() - s_fence_count_start;
+			rsx_log.warning("Pacing: %u flips/s. GPU fence waits %.1f ms (%llu waits), frame-context wait %.1f ms. desktop acquire %.1f ms. Right eye: RT setup %.1f ms (%llu), replay %.1f ms, invalidated surfaces %u",
+				s_flips, fence_us / 1000.0, fence_count, m_vr_frame_wait_us / 1000.0, m_vr_acquire_us / 1000.0,
+				m_vr_prepare_us / 1000.0, m_vr_prepare_count, m_vr_replay_us / 1000.0, ::size32(m_vr_right_rtts.invalidated_resources));
+			static u64 s_lock_wait_prev = 0, s_submit_prev = 0;
+			const u64 lock_wait = vk::g_submit_lock_wait_us.load(), submit_us = vk::g_submit_call_us.load();
+			rsx_log.warning("Submit: waited for lock %.1f ms/s, inside vkQueueSubmit %.1f ms/s",
+				(lock_wait - s_lock_wait_prev) / 1000.0, (submit_us - s_submit_prev) / 1000.0);
+			s_lock_wait_prev = lock_wait;
+			s_submit_prev = submit_us;
+			const auto* rp = m_vr_replay_part_us;
+			rsx_log.warning("Replay parts (ms/s): end rp+query %.1f, swap fbo %.1f, constants %.1f, vertex env %.1f, textures(R) %.1f, bind+state+begin %.1f, draw+end %.1f, restore consts %.1f, textures(L) %.1f, resume %.1f",
+				rp[0] / 1000.0, rp[1] / 1000.0, rp[2] / 1000.0, rp[3] / 1000.0, rp[4] / 1000.0, rp[5] / 1000.0, rp[6] / 1000.0, rp[7] / 1000.0, rp[8] / 1000.0, rp[9] / 1000.0);
+			for (auto& v : m_vr_replay_part_us) v = 0;
+			m_vr_prepare_us = m_vr_replay_us = m_vr_prepare_count = m_vr_acquire_us = 0;
+			s_window_start = now;
+			s_fence_us_start = vk::g_fence_wait_us.load();
+			s_fence_count_start = vk::g_fence_wait_count.load();
+			s_flips = 0;
+			m_vr_frame_wait_us = 0;
+			m_vr_frame_wait_fence_us = 0;
+		}
+	}
+
+	// Gate 6: publish the eyes to the OpenXR frame thread. The RSX thread never
+	// waits on the headset's clock (that stalled guest command processing and
+	// dropped frames in busy scenes); it records a copy into a free eye buffer,
+	// submits, and tags the pair with the pose its draws were rotated by.
+	if (vk::xr::is_running())
+	{
+		if (image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
+			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height))
+		{
+			flush_command_queue();
+			if (g_cfg.video.multithreaded_rsx)
+			{
+				// The submit may still be queued on the offload thread.
+				g_fxo->get<rsx::dma_manager>().sync();
+			}
+
+			f32 tan_x = 0.f, tan_y = 0.f;
+			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
+			vk::xr::commit_eyes(have_fov, tan_x, tan_y);
+		}
+
+		// Head pose for the next game frame: its camera draws are rotated by it,
+		// and it is declared with that frame when the frame thread presents it.
+		f32 head[4];
+		f32 eye_fov[2][4];
+		auto& probe = rsx::vr::camera_probe::get();
+		if (vk::xr::projection_mode() && vk::xr::locate_render_pose(head, eye_fov))
+		{
+			probe.set_vr_view(head, vk::xr::eye_scale(), vk::xr::fov_scale(), vk::xr::flip_y());
+			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr, vk::xr::hud_scale());
+		}
+		else
+		{
+			probe.clear_vr_view();
+		}
+	}
+	else
+	{
+		// No headset session: back to the game's camera.
+		rsx::vr::camera_probe::get().clear_vr_view();
+	}
+
 	// Prepare surface for new frame. Set no timeout here so that we wait for the next image if need be
 	ensure(m_current_frame->present_image == umax);
 	ensure(m_current_frame->swap_command_buffer == nullptr);
 
 	u64 timeout = m_swapchain->get_swap_image_count() <= 2? 0ull: 100000000ull;
+	const u64 acquire_start = get_system_time();
 	while (VkResult status = m_swapchain->acquire_next_swapchain_image(m_current_frame->acquire_signal_semaphore, timeout, &m_current_frame->present_image))
 	{
 		switch (status)
@@ -684,6 +770,8 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			break;
 		}
 	}
+
+	m_vr_acquire_us += get_system_time() - acquire_start;
 
 	// Confirm that the driver did not silently fail
 	ensure(m_current_frame->present_image != umax);
@@ -1027,45 +1115,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		vk::change_image_layout(*m_current_command_buffer, target_image, target_layout, present_layout, subresource_range);
 	}
 
-	// Gate 6: copy the eyes into the headset swapchains inside this frame's
-	// command buffer; the XR frame ends only after RPCS3 has submitted it.
-	const bool xr_frame = vk::xr::begin_frame();
-	if (xr_frame && image_to_flip)
-	{
-		vk::xr::record_eye_copies(*m_current_command_buffer, image_to_flip,
-			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
-	}
-
 	queue_swap_request();
-
-	if (xr_frame)
-	{
-		if (g_cfg.video.multithreaded_rsx)
-		{
-			// The flip submit may still be queued on the offload thread.
-			g_fxo->get<rsx::dma_manager>().sync();
-		}
-		f32 tan_x = 0.f, tan_y = 0.f;
-		const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
-		vk::xr::end_frame(have_fov, tan_x, tan_y);
-
-		// Head pose for the next game frame: its camera draws are rotated by it,
-		// and it is declared with that frame at the next flip.
-		f32 head[4];
-		if (vk::xr::projection_mode() && vk::xr::locate_render_pose(head))
-		{
-			rsx::vr::camera_probe::get().set_vr_view(head, vk::xr::eye_scale(), vk::xr::fov_scale(), vk::xr::flip_y());
-		}
-		else
-		{
-			rsx::vr::camera_probe::get().clear_vr_view();
-		}
-	}
-	else
-	{
-		// No headset frame (session idle or absent): back to the game's camera.
-		rsx::vr::camera_probe::get().clear_vr_view();
-	}
 
 	m_frame_stats.flip_time = m_profiler.duration();
 

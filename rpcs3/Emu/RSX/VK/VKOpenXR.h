@@ -22,9 +22,10 @@ namespace vk
 //   get_physical_device()          after vkCreateInstance, selects the HMD GPU
 //   device_extensions()            merged by vk::render_device::create
 //   create_session()               after the device exists
-// and once per guest flip:
-//   begin_frame() -> record_eye_copies() into RPCS3's flip command buffer ->
-//   RPCS3 submits -> end_frame()
+// and once per guest flip (RSX thread, never blocks on the headset):
+//   publish_eyes() into RPCS3's flip command buffer -> RPCS3 submits ->
+//   commit_eyes(); a dedicated thread runs xrWaitFrame/xrEndFrame at the
+//   headset's rate and presents the newest committed pair
 //
 // The two eyes are shown as a world-locked stereo quad (a virtual 3D screen). This
 // is deliberately simpler than a projection layer: the game's fixed FOV and camera
@@ -45,32 +46,35 @@ namespace vk::xr
 
 	VkPhysicalDevice get_physical_device(VkInstance instance);
 
-	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, u32 queue_family, u32 queue_index);
+	// Also starts the OpenXR frame thread, which submits its swapchain copies to
+	// `queue` under RPCS3's global submit lock.
+	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index);
 	void destroy();
 
-	// Polls events and runs xrWaitFrame/xrBeginFrame. Returns true when a frame was
-	// begun; end_frame() must then be called exactly once.
-	bool begin_frame();
+	// True while the headset session is running (the frame thread is presenting).
+	bool is_running();
 
-	// Acquires both eye swapchain images and records copies from the generated eye
-	// images into them. right may equal left (mono fallback). Returns false if the
-	// source cannot be presented; end_frame() still submits an empty frame.
-	bool record_eye_copies(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
+	// RSX thread, at each guest flip: record copies of the generated eyes into a
+	// free eye buffer inside RPCS3's command buffer. right may equal left. If this
+	// returns true, submit the command buffer, then call commit_eyes().
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
 
-	// Call after the command buffer holding the copies was submitted to the queue.
-	// With projection mode and a valid render pose and FOV, the eyes are submitted
-	// as a projection layer (declaring the pose/FOV they were rendered with);
-	// otherwise as the stereo quad.
-	void end_frame(bool have_fov, f32 tan_half_x, f32 tan_half_y);
+	// Make the just-submitted eye pair the newest one, tagged with the pose it was
+	// rendered with and (game-FOV mode) its FOV. The frame thread presents it.
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y);
 
 	// Projection mode (default; RPCS3_OPENXR_MODE=quad selects the virtual screen).
 	bool projection_mode();
 	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
-	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, default 1 (the game's own FOV)
+	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, game-FOV mode only
+	bool hmd_fov();   // RPCS3_OPENXR_FOV=game keeps the game's FOV; default renders the headset's
+	f32 hud_scale();  // RPCS3_OPENXR_HUD_SCALE, default 0.65 of a 16:9 box fitted edge to edge in the headset view;
+	                  // the render FOV extends past what the lenses show, so 1 puts the HUD at the edges
 	bool flip_y();    // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
 
 	// Locate the head for the next game frame (predicted one 60 Hz frame after
-	// this flip's display time). It becomes the pose declared for that frame at
-	// the next end_frame(). Returns false if tracking is unavailable.
-	bool locate_render_pose(f32 quat_xyzw[4]);
+	// the latest headset display time). commit_eyes() tags that frame with it.
+	// Returns false if tracking is unavailable.
+	// eye_fov receives the located per-eye tangents (left, right, up, down).
+	bool locate_render_pose(f32 quat_xyzw[4], f32 eye_fov[2][4]);
 }

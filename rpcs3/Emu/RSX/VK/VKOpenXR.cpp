@@ -16,9 +16,15 @@
 #include <dlfcn.h>
 #endif
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <new>
 #include <sstream>
+#include <thread>
 
 LOG_CHANNEL(xr_log, "OpenXR");
 
@@ -33,6 +39,20 @@ namespace vk::xr
 			u32 acquired = umax;
 		};
 
+		// One published eye pair plus how it was rendered.
+		struct slot_t
+		{
+			VkImage image[2]{};
+			VkDeviceMemory memory[2]{};
+			bool pose_valid = false;
+			XrQuaternionf orientation{ 0.f, 0.f, 0.f, 1.f };
+			XrVector3f eye_position[2]{};
+			XrFovf eye_fov[2]{};
+			bool have_fov = false;
+			f32 tan_half_x = 0.f;
+			f32 tan_half_y = 0.f;
+		};
+
 		struct state_t
 		{
 			void* loader = nullptr;
@@ -44,8 +64,8 @@ namespace vk::xr
 			XrSpace space = XR_NULL_HANDLE;
 			XrSpace view_space = XR_NULL_HANDLE;
 			XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
-			bool session_running = false;
-			bool lost = false;
+			std::atomic<bool> session_running{ false };
+			std::atomic<bool> lost{ false };
 
 			std::vector<std::string> instance_exts;
 			std::vector<std::string> device_exts;
@@ -56,10 +76,27 @@ namespace vk::xr
 			u32 swapchain_h = 0;
 			VkFormat swapchain_format = VK_FORMAT_UNDEFINED;
 
-			// Per-frame
-			bool frame_begun = false;
-			bool layers_ready = false;
-			XrTime display_time = 0;
+			// OpenXR frame thread. It alone waits on the headset's clock; the RSX
+			// thread only publishes eye pairs into these slots at each guest flip.
+			VkDevice device = VK_NULL_HANDLE;
+			VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+			VkQueue queue = VK_NULL_HANDLE;
+			VkCommandPool cmd_pool = VK_NULL_HANDLE;
+			VkCommandBuffer cmd = VK_NULL_HANDLE;
+			VkFence fence = VK_NULL_HANDLE;
+			std::thread thread;
+			std::atomic<bool> stop{ false };
+
+			std::mutex slot_mutex;
+			std::condition_variable slot_cv;
+			u64 commit_seq = 0;  // bumped by commit_eyes(); the frame thread paces on it
+			slot_t slots[3];
+			u32 slot_w = 0;
+			u32 slot_h = 0;
+			VkFormat slot_format = VK_FORMAT_UNDEFINED;
+			s32 latest = -1;   // newest committed slot
+			s32 in_use = -1;   // slot the frame thread is copying from
+			s32 writing = -1;  // slot the RSX thread is filling
 
 			// Presentation of the virtual stereo screen (metres, LOCAL space)
 			f32 screen_distance = 2.0f;
@@ -70,11 +107,14 @@ namespace vk::xr
 			f32 eye_scale = 1.f;
 			f32 fov_scale = 1.f;
 			bool flip_y = false;
-			XrTime last_display_time = 0;
+			bool hmd_fov = true;
+			f32 hud_scale = 0.65f;
+			std::atomic<XrTime> last_display_time{ 0 };
 			// Pose the pending game frame is rendered with; declared at the next flip.
 			bool render_pose_valid = false;
 			XrQuaternionf render_orientation{ 0.f, 0.f, 0.f, 1.f };
 			XrVector3f render_eye_position[2]{};
+			XrFovf render_eye_fov[2]{};
 
 #define XR_FN(name) PFN_##name name = nullptr
 			XR_FN(xrCreateInstance);
@@ -106,6 +146,12 @@ namespace vk::xr
 			XR_FN(xrReleaseSwapchainImage);
 			XR_FN(xrResultToString);
 #undef XR_FN
+
+			void reset()
+			{
+				this->~state_t();
+				new (this) state_t();
+			}
 		};
 
 		state_t g_xr;
@@ -364,6 +410,12 @@ namespace vk::xr
 		}
 	}
 
+	namespace
+	{
+		void frame_thread();
+		void destroy_slots();
+	}
+
 	bool prepare()
 	{
 		if (g_xr.instance)
@@ -473,6 +525,8 @@ namespace vk::xr
 		g_xr.eye_scale = env_float("RPCS3_OPENXR_EYE_SCALE", 1.0f);
 		g_xr.fov_scale = env_float("RPCS3_OPENXR_FOV_SCALE", 1.0f);
 		g_xr.flip_y = read_env("RPCS3_OPENXR_FLIP_Y") == "1";
+		g_xr.hmd_fov = read_env("RPCS3_OPENXR_FOV") != "game";
+		g_xr.hud_scale = env_float("RPCS3_OPENXR_HUD_SCALE", 0.65f);
 
 		xr_log.success("Headset '%s' found. Vulkan instance extensions: %u, device extensions: %u",
 			props.systemName, ::size32(g_xr.instance_exts), ::size32(g_xr.device_exts));
@@ -511,7 +565,7 @@ namespace vk::xr
 		return pdev;
 	}
 
-	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, u32 queue_family, u32 queue_index)
+	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index)
 	{
 		if (!g_xr.instance || g_xr.session)
 		{
@@ -558,10 +612,32 @@ namespace vk::xr
 		g_xr.swapchain_formats.resize(count);
 		g_xr.xrEnumerateSwapchainFormats(g_xr.session, count, &count, g_xr.swapchain_formats.data());
 
+		g_xr.device = device;
+		g_xr.physical_device = pdev;
+		g_xr.queue = queue;
+
+		VkCommandPoolCreateInfo pool_info{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		pool_info.queueFamilyIndex = queue_family;
+		VkCommandBufferAllocateInfo cmd_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmd_info.commandBufferCount = 1;
+		VkFenceCreateInfo fence_info{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+		if (vkCreateCommandPool(device, &pool_info, nullptr, &g_xr.cmd_pool) != VK_SUCCESS ||
+			(cmd_info.commandPool = g_xr.cmd_pool, vkAllocateCommandBuffers(device, &cmd_info, &g_xr.cmd) != VK_SUCCESS) ||
+			vkCreateFence(device, &fence_info, nullptr, &g_xr.fence) != VK_SUCCESS)
+		{
+			xr_log.error("Could not create the OpenXR frame thread's Vulkan objects");
+			return false;
+		}
+
+		g_xr.thread = std::thread(frame_thread);
+
 		if (g_xr.projection)
 		{
-			xr_log.success("Session created (queue family %u, index %u). Projection mode: eye scale %.2f, FOV scale %.2f%s.",
-				queue_family, queue_index, g_xr.eye_scale, g_xr.fov_scale, g_xr.flip_y ? ", Y flipped" : "");
+			xr_log.success("Session created (queue family %u, index %u). Projection mode: eye scale %.2f, %s FOV%s.",
+				queue_family, queue_index, g_xr.eye_scale,
+				g_xr.hmd_fov ? "headset" : fmt::format("game x%.2f", g_xr.fov_scale), g_xr.flip_y ? ", Y flipped" : "");
 		}
 		else
 		{
@@ -571,8 +647,358 @@ namespace vk::xr
 		return true;
 	}
 
+	namespace
+	{
+		void destroy_slots()
+		{
+			for (auto& slot : g_xr.slots)
+			{
+				for (u32 i = 0; i < 2; ++i)
+				{
+					if (slot.image[i]) vkDestroyImage(g_xr.device, slot.image[i], nullptr);
+					if (slot.memory[i]) vkFreeMemory(g_xr.device, slot.memory[i], nullptr);
+					slot.image[i] = VK_NULL_HANDLE;
+					slot.memory[i] = VK_NULL_HANDLE;
+				}
+			}
+			g_xr.slot_w = g_xr.slot_h = 0;
+			g_xr.slot_format = VK_FORMAT_UNDEFINED;
+			g_xr.latest = -1;
+		}
+
+		bool create_slots(u32 width, u32 height, VkFormat format)
+		{
+			VkPhysicalDeviceMemoryProperties memory_props{};
+			vkGetPhysicalDeviceMemoryProperties(g_xr.physical_device, &memory_props);
+
+			for (auto& slot : g_xr.slots)
+			{
+				for (u32 i = 0; i < 2; ++i)
+				{
+					VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+					info.imageType = VK_IMAGE_TYPE_2D;
+					info.format = format;
+					info.extent = { width, height, 1 };
+					info.mipLevels = 1;
+					info.arrayLayers = 1;
+					info.samples = VK_SAMPLE_COUNT_1_BIT;
+					info.tiling = VK_IMAGE_TILING_OPTIMAL;
+					info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+					info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+					if (vkCreateImage(g_xr.device, &info, nullptr, &slot.image[i]) != VK_SUCCESS)
+					{
+						destroy_slots();
+						return false;
+					}
+
+					VkMemoryRequirements req{};
+					vkGetImageMemoryRequirements(g_xr.device, slot.image[i], &req);
+					u32 type = umax;
+					for (u32 t = 0; t < memory_props.memoryTypeCount; ++t)
+					{
+						if ((req.memoryTypeBits & (1u << t)) &&
+							(memory_props.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+						{
+							type = t;
+							break;
+						}
+					}
+
+					VkMemoryAllocateInfo alloc{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+					alloc.allocationSize = req.size;
+					alloc.memoryTypeIndex = type;
+					if (type == umax || vkAllocateMemory(g_xr.device, &alloc, nullptr, &slot.memory[i]) != VK_SUCCESS ||
+						vkBindImageMemory(g_xr.device, slot.image[i], slot.memory[i], 0) != VK_SUCCESS)
+					{
+						destroy_slots();
+						return false;
+					}
+				}
+			}
+
+			g_xr.slot_w = width;
+			g_xr.slot_h = height;
+			g_xr.slot_format = format;
+			return true;
+		}
+
+		void image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to,
+			VkAccessFlags src_access, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage)
+		{
+			VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			barrier.srcAccessMask = src_access;
+			barrier.dstAccessMask = dst_access;
+			barrier.oldLayout = from;
+			barrier.newLayout = to;
+			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			barrier.image = image;
+			barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+		}
+
+		// One headset frame on the OpenXR thread: present the newest published eye
+		// pair (re-presenting the previous one only after the 100 ms idle timeout).
+		// Diagnostics: how long this thread holds RPCS3's global submit lock per
+		// call site (RPCS3's own submits wait while it is held).
+		using lock_clock = std::chrono::steady_clock;
+		s64 g_lock_held_us[5]{};
+		const char* const g_lock_site_names[5] = { "xrBeginFrame", "acquire+wait", "vkQueueSubmit", "release", "xrEndFrame" };
+
+		lock_clock::time_point lock_begin()
+		{
+			vk::acquire_global_submit_lock();
+			return lock_clock::now();
+		}
+
+		void lock_end(u32 site, lock_clock::time_point start)
+		{
+			const auto held = lock_clock::now() - start;
+			vk::release_global_submit_lock();
+			g_lock_held_us[site] += std::chrono::duration_cast<std::chrono::microseconds>(held).count();
+		}
+
+		void report_lock_hold()
+		{
+			static lock_clock::time_point s_window = lock_clock::now();
+			const auto now = lock_clock::now();
+			if (now - s_window < std::chrono::seconds(1))
+			{
+				return;
+			}
+			s_window = now;
+
+			s64 total = 0;
+			for (const s64 v : g_lock_held_us) total += v;
+			if (total > 100'000)
+			{
+				xr_log.warning("Submit lock held %.1f ms in the last second: %s %.1f, %s %.1f, %s %.1f, %s %.1f, %s %.1f",
+					total / 1000.0,
+					g_lock_site_names[0], g_lock_held_us[0] / 1000.0, g_lock_site_names[1], g_lock_held_us[1] / 1000.0,
+					g_lock_site_names[2], g_lock_held_us[2] / 1000.0, g_lock_site_names[3], g_lock_held_us[3] / 1000.0,
+					g_lock_site_names[4], g_lock_held_us[4] / 1000.0);
+			}
+			for (s64& v : g_lock_held_us) v = 0;
+		}
+
+		void run_frame()
+		{
+			XrFrameState frame_state{ XR_TYPE_FRAME_STATE };
+			if (!check(g_xr.xrWaitFrame(g_xr.session, nullptr, &frame_state), "xrWaitFrame"))
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+				return;
+			}
+			g_xr.last_display_time.store(frame_state.predictedDisplayTime);
+
+			const auto lt0 = lock_begin();
+			const XrResult begun = g_xr.xrBeginFrame(g_xr.session, nullptr);
+			lock_end(0, lt0);
+			if (!check(begun, "xrBeginFrame"))
+			{
+				return;
+			}
+
+			slot_t meta{};
+			s32 index = -1;
+			{
+				std::lock_guard lock(g_xr.slot_mutex);
+				index = g_xr.latest;
+				if (index >= 0)
+				{
+					g_xr.in_use = index;
+					meta = g_xr.slots[index];
+				}
+			}
+
+			XrCompositionLayerQuad quads[2]{};
+			XrCompositionLayerProjectionView views[2]{};
+			XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+			const XrCompositionLayerBaseHeader* layers[2]{};
+			u32 layer_count = 0;
+
+			if (index >= 0 && frame_state.shouldRender && ensure_swapchains(g_xr.slot_w, g_xr.slot_h, g_xr.slot_format))
+			{
+				bool ok = true;
+				for (auto& eye : g_xr.eyes)
+				{
+					XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+					XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+					wait.timeout = 100'000'000; // 100 ms
+					const auto lt1 = lock_begin();
+					ok = ok && check(g_xr.xrAcquireSwapchainImage(eye.handle, &acquire, &eye.acquired), "xrAcquireSwapchainImage");
+					ok = ok && check(g_xr.xrWaitSwapchainImage(eye.handle, &wait), "xrWaitSwapchainImage");
+					lock_end(1, lt1);
+				}
+
+				if (ok)
+				{
+					VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+					begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+					vkResetCommandBuffer(g_xr.cmd, 0);
+					vkBeginCommandBuffer(g_xr.cmd, &begin);
+					for (u32 i = 0; i < 2; ++i)
+					{
+						const VkImage target = g_xr.eyes[i].images[g_xr.eyes[i].acquired].image;
+						image_barrier(g_xr.cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+						VkImageCopy region{};
+						region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+						region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+						region.extent = { g_xr.slot_w, g_xr.slot_h, 1 };
+						vkCmdCopyImage(g_xr.cmd, meta.image[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+							target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+						// OpenXR requires color swapchain images to be released in this layout.
+						image_barrier(g_xr.cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+							VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
+							VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+					}
+					vkEndCommandBuffer(g_xr.cmd);
+
+					VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+					submit.commandBufferCount = 1;
+					submit.pCommandBuffers = &g_xr.cmd;
+					const auto lt2 = lock_begin();
+					vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
+					lock_end(2, lt2);
+
+					// The copy is tiny; waiting here keeps the slot and command buffer
+					// lifetimes trivial and never touches the RSX thread.
+					vkWaitForFences(g_xr.device, 1, &g_xr.fence, VK_TRUE, UINT64_MAX);
+					vkResetFences(g_xr.device, 1, &g_xr.fence);
+				}
+
+				const auto lt3 = lock_begin();
+				for (auto& eye : g_xr.eyes)
+				{
+					if (eye.acquired != umax)
+					{
+						XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+						ok = check(g_xr.xrReleaseSwapchainImage(eye.handle, &release), "xrReleaseSwapchainImage") && ok;
+						eye.acquired = umax;
+					}
+				}
+				lock_end(3, lt3);
+
+				if (ok && g_xr.projection && meta.pose_valid && meta.have_fov)
+				{
+					// Declare exactly how these eyes were rendered: the head orientation
+					// the camera was rotated by, the located eye positions, and the FOV
+					// the draws were projected with.
+					const f32 half_x = std::atan(meta.tan_half_x);
+					const f32 half_y = std::atan(meta.tan_half_y);
+					for (u32 i = 0; i < 2; ++i)
+					{
+						auto& view = views[i];
+						view.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+						view.pose.orientation = meta.orientation;
+						view.pose.position = meta.eye_position[i];
+						view.fov = g_xr.hmd_fov ? meta.eye_fov[i] : XrFovf{ -half_x, half_x, half_y, -half_y };
+						view.subImage.swapchain = g_xr.eyes[i].handle;
+						view.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
+						view.subImage.imageArrayIndex = 0;
+					}
+					projection.space = g_xr.space;
+					projection.viewCount = 2;
+					projection.views = views;
+					layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
+
+					static bool s_reported_projection = false;
+					if (!std::exchange(s_reported_projection, true))
+					{
+						const XrFovf& f = views[0].fov;
+						xr_log.success("Projection layer: game FOV %.1f x %.1f degrees; rendering %.1f x %.1f degrees (%s).",
+							2.f * half_x * 57.29578f, 2.f * half_y * 57.29578f,
+							(f.angleRight - f.angleLeft) * 57.29578f, (f.angleUp - f.angleDown) * 57.29578f,
+							g_xr.hmd_fov ? "headset" : "game");
+					}
+				}
+				else if (ok)
+				{
+					const f32 height = g_xr.screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
+					for (u32 i = 0; i < 2; ++i)
+					{
+						auto& quad = quads[i];
+						quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+						quad.space = g_xr.space;
+						quad.eyeVisibility = i == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
+						quad.subImage.swapchain = g_xr.eyes[i].handle;
+						quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
+						quad.subImage.imageArrayIndex = 0;
+						quad.pose.orientation.w = 1.f;
+						quad.pose.position = { 0.f, 0.f, -g_xr.screen_distance };
+						quad.size = { g_xr.screen_width, height };
+						layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
+					}
+				}
+			}
+
+			{
+				std::lock_guard lock(g_xr.slot_mutex);
+				g_xr.in_use = -1;
+			}
+
+			XrFrameEndInfo end{ XR_TYPE_FRAME_END_INFO };
+			end.displayTime = frame_state.predictedDisplayTime;
+			end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+			end.layerCount = layer_count;
+			end.layers = layers;
+			const auto lt4 = lock_begin();
+			check(g_xr.xrEndFrame(g_xr.session, &end), "xrEndFrame");
+			lock_end(4, lt4);
+
+			static bool s_reported = false;
+			if (layer_count && !std::exchange(s_reported, true))
+			{
+				xr_log.success("First stereo frame submitted to the headset (OpenXR frame thread).");
+			}
+		}
+
+		void frame_thread()
+		{
+			u64 presented_seq = 0;
+			while (!g_xr.stop.load())
+			{
+				poll_events();
+				if (!g_xr.session_running.load() || g_xr.lost)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+					continue;
+				}
+
+				// One headset frame per new game frame. When the game runs below the
+				// headset rate, the runtime then sees the missed frames and fills them
+				// itself (reprojection / motion smoothing). Re-presenting stale frames
+				// would hide that. The wait is on this thread, never on RSX. After
+				// 100 ms without a new frame (loading, pause) re-present anyway.
+				{
+					std::unique_lock lock(g_xr.slot_mutex);
+					g_xr.slot_cv.wait_for(lock, std::chrono::milliseconds(100),
+						[&] { return g_xr.commit_seq != presented_seq || g_xr.stop.load(); });
+					presented_seq = g_xr.commit_seq;
+				}
+				if (g_xr.stop.load())
+				{
+					break;
+				}
+				run_frame();
+				report_lock_hold();
+			}
+		}
+	}
+
 	void destroy()
 	{
+		if (g_xr.thread.joinable())
+		{
+			g_xr.stop.store(true);
+			g_xr.slot_cv.notify_all();
+			g_xr.thread.join();
+		}
+
 		if (g_xr.instance)
 		{
 			destroy_swapchains();
@@ -580,56 +1006,41 @@ namespace vk::xr
 			if (g_xr.space) g_xr.xrDestroySpace(g_xr.space);
 			if (g_xr.session)
 			{
-				if (g_xr.session_running) g_xr.xrEndSession(g_xr.session);
+				if (g_xr.session_running.load()) g_xr.xrEndSession(g_xr.session);
 				g_xr.xrDestroySession(g_xr.session);
 			}
 			if (g_xr.xrDestroyInstance) g_xr.xrDestroyInstance(g_xr.instance);
 		}
 
+		if (g_xr.device)
+		{
+			// The frame thread is joined; drain its (and RSX's) copies before freeing.
+			if (g_xr.queue)
+			{
+				vk::acquire_global_submit_lock();
+				vkQueueWaitIdle(g_xr.queue);
+				vk::release_global_submit_lock();
+			}
+			destroy_slots();
+			if (g_xr.fence) vkDestroyFence(g_xr.device, g_xr.fence, nullptr);
+			if (g_xr.cmd_pool) vkDestroyCommandPool(g_xr.device, g_xr.cmd_pool, nullptr);
+		}
+
 		void* loader = g_xr.loader;
 		const auto gipa = g_xr.gipa;
-		g_xr = {};
+		g_xr.reset();
 		g_xr.loader = loader;
 		g_xr.gipa = gipa;
 	}
 
-	bool begin_frame()
+	bool is_running()
 	{
-		if (!g_xr.session || g_xr.lost)
-		{
-			return false;
-		}
-
-		poll_events();
-		if (!g_xr.session_running)
-		{
-			return false;
-		}
-
-		XrFrameState frame_state{ XR_TYPE_FRAME_STATE };
-		if (!check(g_xr.xrWaitFrame(g_xr.session, nullptr, &frame_state), "xrWaitFrame"))
-		{
-			return false;
-		}
-
-		vk::acquire_global_submit_lock();
-		const XrResult result = g_xr.xrBeginFrame(g_xr.session, nullptr);
-		vk::release_global_submit_lock();
-		if (!check(result, "xrBeginFrame"))
-		{
-			return false;
-		}
-
-		g_xr.frame_begun = true;
-		g_xr.layers_ready = false;
-		g_xr.display_time = frame_state.predictedDisplayTime;
-		g_xr.last_display_time = frame_state.predictedDisplayTime;
-		return true;
+		return g_xr.session && g_xr.session_running.load() && !g_xr.lost;
 	}
 
-	bool record_eye_copies(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height)
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height)
 	{
-		if (!g_xr.frame_begun || !left || !width || !height)
+		if (!is_running() || !left || !width || !height)
 		{
 			return false;
 		}
@@ -637,34 +1048,43 @@ namespace vk::xr
 		right = right ? right : left;
 		width = std::min({ width, left->width(), right->width() });
 		height = std::min({ height, left->height(), right->height() });
+		const VkFormat format = left->format();
 
-		if (!ensure_swapchains(width, height, left->format()))
+		std::unique_lock lock(g_xr.slot_mutex);
+		if (g_xr.slot_w != width || g_xr.slot_h != height || g_xr.slot_format != format)
 		{
-			return false;
-		}
-
-		vk::image* sources[2] = { left, right };
-		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-		for (u32 i = 0; i < 2; ++i)
-		{
-			auto& eye = g_xr.eyes[i];
-
-			XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-			XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
-			wait.timeout = 100'000'000; // 100 ms
-
-			vk::acquire_global_submit_lock();
-			bool ok = check(g_xr.xrAcquireSwapchainImage(eye.handle, &acquire, &eye.acquired), "xrAcquireSwapchainImage");
-			ok = ok && check(g_xr.xrWaitSwapchainImage(eye.handle, &wait), "xrWaitSwapchainImage");
-			vk::release_global_submit_lock();
-
-			if (!ok)
+			// Resolution or format change: wait for the OpenXR thread to let go of
+			// its slot, drain the queue, then rebuild the eye buffers.
+			while (g_xr.in_use >= 0)
 			{
+				lock.unlock();
+				std::this_thread::yield();
+				lock.lock();
+			}
+			vk::acquire_global_submit_lock();
+			vkQueueWaitIdle(g_xr.queue);
+			vk::release_global_submit_lock();
+			destroy_slots();
+			if (!create_slots(width, height, format))
+			{
+				xr_log.error("Could not create %ux%u eye buffers", width, height);
 				return false;
 			}
+		}
 
-			const VkImage target = eye.images[eye.acquired].image;
+		s32 slot = 0;
+		while (slot == g_xr.latest || slot == g_xr.in_use)
+		{
+			slot++;
+		}
+		g_xr.writing = slot;
+		lock.unlock();
+
+		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		vk::image* sources[2] = { left, right };
+		for (u32 i = 0; i < 2; ++i)
+		{
+			const VkImage target = g_xr.slots[slot].image[i];
 			vk::image* source = sources[i];
 
 			source->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -676,126 +1096,62 @@ namespace vk::xr
 			region.extent = { width, height, 1 };
 			vkCmdCopyImage(cmd, source->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-			// OpenXR requires color swapchain images to be released in this layout.
-			vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, range);
+			// Left in TRANSFER_SRC for the OpenXR thread's copy into the swapchain.
+			vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, range);
 			source->pop_layout(cmd);
 		}
-
-		g_xr.layers_ready = true;
 		return true;
 	}
 
-	void end_frame(bool have_fov, f32 tan_half_x, f32 tan_half_y)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y)
 	{
-		if (!g_xr.frame_begun)
+		std::unique_lock lock(g_xr.slot_mutex);
+		if (g_xr.writing < 0)
 		{
 			return;
 		}
-		g_xr.frame_begun = false;
 
-		vk::acquire_global_submit_lock();
+		// The pose this frame's draws were rotated by (located at the previous flip).
+		auto& slot = g_xr.slots[g_xr.writing];
+		slot.pose_valid = g_xr.render_pose_valid;
+		slot.orientation = g_xr.render_orientation;
+		slot.eye_position[0] = g_xr.render_eye_position[0];
+		slot.eye_position[1] = g_xr.render_eye_position[1];
+		slot.eye_fov[0] = g_xr.render_eye_fov[0];
+		slot.eye_fov[1] = g_xr.render_eye_fov[1];
+		slot.have_fov = have_fov;
+		slot.tan_half_x = tan_half_x;
+		slot.tan_half_y = tan_half_y;
 
-		bool released = true;
-		for (auto& eye : g_xr.eyes)
-		{
-			if (eye.acquired != umax)
-			{
-				XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-				released = check(g_xr.xrReleaseSwapchainImage(eye.handle, &release), "xrReleaseSwapchainImage") && released;
-				eye.acquired = umax;
-			}
-		}
-
-		XrCompositionLayerQuad quads[2]{};
-		XrCompositionLayerProjectionView views[2]{};
-		XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-		const XrCompositionLayerBaseHeader* layers[2]{};
-		u32 layer_count = 0;
-
-		if (g_xr.layers_ready && released && g_xr.projection && g_xr.render_pose_valid && have_fov)
-		{
-			// Declare exactly how the eyes were rendered: the head orientation the
-			// camera was rotated by, the located eye positions, and the game's own
-			// (symmetric, parallel-eye) field of view. The compositor reprojects
-			// the remaining head motion at the headset's rate.
-			const f32 half_x = std::atan(tan_half_x);
-			const f32 half_y = std::atan(tan_half_y);
-			for (u32 i = 0; i < 2; ++i)
-			{
-				auto& view = views[i];
-				view.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-				view.pose.orientation = g_xr.render_orientation;
-				view.pose.position = g_xr.render_eye_position[i];
-				view.fov = { -half_x, half_x, half_y, -half_y };
-				view.subImage.swapchain = g_xr.eyes[i].handle;
-				view.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
-				view.subImage.imageArrayIndex = 0;
-			}
-			projection.space = g_xr.space;
-			projection.viewCount = 2;
-			projection.views = views;
-			layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
-
-			static bool s_reported_projection = false;
-			if (!std::exchange(s_reported_projection, true))
-			{
-				xr_log.success("Projection layer: game FOV %.1f x %.1f degrees.",
-					2.f * half_x * 57.29578f, 2.f * half_y * 57.29578f);
-			}
-		}
-		else if (g_xr.layers_ready && released)
-		{
-			const f32 height = g_xr.screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
-			for (u32 i = 0; i < 2; ++i)
-			{
-				auto& quad = quads[i];
-				quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
-				quad.space = g_xr.space;
-				quad.eyeVisibility = i == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
-				quad.subImage.swapchain = g_xr.eyes[i].handle;
-				quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
-				quad.subImage.imageArrayIndex = 0;
-				quad.pose.orientation.w = 1.f;
-				quad.pose.position = { 0.f, 0.f, -g_xr.screen_distance };
-				quad.size = { g_xr.screen_width, height };
-				layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
-			}
-		}
-
-		XrFrameEndInfo end{ XR_TYPE_FRAME_END_INFO };
-		end.displayTime = g_xr.display_time;
-		end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-		end.layerCount = layer_count;
-		end.layers = layers;
-		check(g_xr.xrEndFrame(g_xr.session, &end), "xrEndFrame");
-
-		vk::release_global_submit_lock();
-
-		static bool s_reported = false;
-		if (layer_count && !std::exchange(s_reported, true))
-		{
-			xr_log.success("First stereo frame submitted to the headset.");
-		}
+		g_xr.latest = g_xr.writing;
+		g_xr.writing = -1;
+		g_xr.commit_seq++;
+		lock.unlock();
+		g_xr.slot_cv.notify_one();
 	}
 
 	bool projection_mode() { return g_xr.projection; }
 	f32 eye_scale() { return g_xr.eye_scale; }
 	f32 fov_scale() { return g_xr.fov_scale; }
+	bool hmd_fov() { return g_xr.hmd_fov; }
+	f32 hud_scale() { return g_xr.hud_scale; }
 	bool flip_y() { return g_xr.flip_y; }
 
-	bool locate_render_pose(f32 quat_xyzw[4])
+	bool locate_render_pose(f32 quat_xyzw[4], f32 eye_fov[2][4])
 	{
 		// A frame rendered without a located pose must not be declared with an old one.
 		g_xr.render_pose_valid = false;
 
-		if (!g_xr.session_running || !g_xr.view_space || !g_xr.last_display_time)
+		const XrTime last_display = g_xr.last_display_time.load();
+		if (!is_running() || !g_xr.view_space || !last_display)
 		{
 			return false;
 		}
 
-		// The next game frame is presented at the next guest flip, one 60 Hz
-		// frame after this one. The compositor corrects any prediction error.
-		const XrTime time = g_xr.last_display_time + 16666667;
+		// The next game frame is published at the next guest flip and shown on the
+		// following headset frame; predict about one 60 Hz frame past the latest
+		// display time. The compositor corrects any prediction error.
+		const XrTime time = last_display + 16666667;
 
 		XrSpaceLocation head{ XR_TYPE_SPACE_LOCATION };
 		if (!XR_SUCCEEDED(g_xr.xrLocateSpace(g_xr.view_space, g_xr.space, time, &head)) ||
@@ -819,6 +1175,15 @@ namespace vk::xr
 		g_xr.render_orientation = head.pose.orientation;
 		g_xr.render_eye_position[0] = located[0].pose.position;
 		g_xr.render_eye_position[1] = located[1].pose.position;
+		for (u32 i = 0; i < 2; ++i)
+		{
+			const XrFovf& f = located[i].fov;
+			g_xr.render_eye_fov[i] = f;
+			eye_fov[i][0] = std::tan(f.angleLeft);
+			eye_fov[i][1] = std::tan(f.angleRight);
+			eye_fov[i][2] = std::tan(f.angleUp);
+			eye_fov[i][3] = std::tan(f.angleDown);
+		}
 		g_xr.render_pose_valid = true;
 
 		quat_xyzw[0] = head.pose.orientation.x;

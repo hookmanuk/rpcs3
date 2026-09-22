@@ -355,6 +355,7 @@ namespace rsx::vr
 
 		if (!have_perspective)
 		{
+			apply_vr_screen_space(buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
 		}
 
@@ -423,7 +424,23 @@ namespace rsx::vr
 			// its convergence image shift (clip.x += sep*clip.w).
 			rows[3][0] -= sep * m_vr_eye_scale * convergence;
 
-			if (m_vr_fov_scale != 1.f)
+			if (m_vr_hmd_fov && m_vr_proj_valid)
+			{
+				// Re-project from the game frustum onto this eye's headset frustum.
+				// Game NDC x = A * (x/f); headset NDC x = (2*(x/f) - (r+l)) / (r-l).
+				// Both are linear in clip space: X' = X*sx + W*ox (likewise Y).
+				const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
+				const f32 sx = 2.f / (m_vr_proj_x * (t[1] - t[0]));
+				const f32 ox = -(t[1] + t[0]) / (t[1] - t[0]);
+				const f32 sy = 2.f / (m_vr_proj_y * (t[2] - t[3]));
+				const f32 oy = -(t[2] + t[3]) / (t[2] - t[3]) * (m_vr_flip_y ? -1.f : 1.f);
+				for (u32 r = 0; r < 4; ++r)
+				{
+					rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
+					rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
+				}
+			}
+			else if (m_vr_fov_scale != 1.f)
 			{
 				const f32 zoom = 1.f / m_vr_fov_scale;
 				for (u32 r = 0; r < 4; ++r)
@@ -468,7 +485,24 @@ namespace rsx::vr
 
 		m_vr_eye_scale = eye_scale;
 		m_vr_fov_scale = fov_scale;
+		m_vr_flip_y = flip_y;
 		m_vr_view = true;
+	}
+
+	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale)
+	{
+		m_vr_hmd_fov = tangents != nullptr;
+		m_vr_hud_scale = hud_scale;
+		if (tangents)
+		{
+			for (u32 e = 0; e < 2; ++e)
+			{
+				for (u32 i = 0; i < 4; ++i)
+				{
+					m_vr_eye_fov[e][i] = tangents[e][i];
+				}
+			}
+		}
 	}
 
 	void camera_probe::clear_vr_view()
@@ -485,6 +519,68 @@ namespace rsx::vr
 		tan_half_x = m_vr_fov_scale / m_vr_proj_x;
 		tan_half_y = m_vr_fov_scale / m_vr_proj_y;
 		return true;
+	}
+
+	void camera_probe::apply_vr_screen_space(void* buffer, const u16* reloc, usz reloc_size,
+		u16 surface_w, u16 surface_h, f32 eye_sign) const
+	{
+		// With the headset FOV, the eye image spans far more than the game's
+		// frustum. Screen-space draws (HUD, menus) must not stretch with it or
+		// leave the view, so they are mapped into a fixed box inside the headset
+		// frustum. Classifier, from the Gate 3 capture: every HUD
+		// draw reads c[256..259] as an orthographic pixel matrix, while every
+		// post-process pass (bloom chain, full-screen composite) reads no
+		// c[256..259] at all - so post-processing is never touched.
+		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid)
+		{
+			return;
+		}
+
+		const auto& avconf = g_fxo->get<rsx::avconf>();
+		const size2u eye = avconf.video_frame_size();
+		if (!surface_w || !surface_h || !eye.width || !eye.height ||
+			std::fabs((static_cast<f32>(surface_w) / surface_h) / (static_cast<f32>(eye.width) / eye.height) - 1.f) > 0.02f)
+		{
+			return;
+		}
+
+		f32* rows[4];
+		for (u32 k = 0; k < 4; ++k)
+		{
+			rows[k] = find_slot(buffer, reloc, reloc_size, m_base + k);
+			if (!rows[k])
+			{
+				return;
+			}
+		}
+
+		constexpr f32 eps = 1e-6f;
+		if (!(std::fabs(rows[0][3]) < eps && std::fabs(rows[1][3]) < eps &&
+			std::fabs(rows[2][3]) < eps && std::fabs(rows[3][3] - 1.f) < eps))
+		{
+			return;
+		}
+
+		// The game camera's FOV changes with speed and camera mode (and can exceed
+		// the headset's), so the HUD is not tied to it. It becomes a fixed box with
+		// the output aspect, fitted inside the central symmetric part of this
+		// eye's headset frustum and scaled by the HUD scale. W is 1 for these draws.
+		const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
+		const f32 aspect = static_cast<f32>(eye.width) / eye.height;
+		const f32 fit_x = std::min(-t[0], t[1]);
+		const f32 fit_y = std::min(t[2], -t[3]);
+		const f32 box_y = std::min(fit_y, fit_x / aspect);
+		const f32 tx = m_vr_hud_scale * box_y * aspect;
+		const f32 ty = m_vr_hud_scale * box_y;
+		const f32 sx = 2.f * tx / (t[1] - t[0]);
+		const f32 ox = -(t[1] + t[0]) / (t[1] - t[0]);
+		const f32 sy = 2.f * ty / (t[2] - t[3]);
+		const f32 oy = -(t[2] + t[3]) / (t[2] - t[3]) * (m_vr_flip_y ? -1.f : 1.f);
+		for (u32 r = 0; r < 4; ++r)
+		{
+			rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
+			rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
+		}
 	}
 
 	void camera_probe::apply_vr_rotation(f32* const rows[4]) const

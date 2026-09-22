@@ -1339,6 +1339,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	if (vr_render)
 	{
+		const u64 vr_replay_start = get_system_time();
+		u64 vr_part_t = vr_replay_start;
+		const auto vr_part = [&](u32 bucket) { const u64 t = get_system_time(); m_vr_replay_part_us[bucket] += t - vr_part_t; vr_part_t = t; };
 		vk::end_renderpass(*m_current_command_buffer);
 		if (vr_suspend_query)
 		{
@@ -1347,21 +1350,28 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			m_current_command_buffer->flags &= ~vk::command_buffer::cb_has_open_query;
 		}
 
+		vr_part(0);
 		auto* const left_fbo = m_draw_fbo;
 		auto left_images = std::move(m_fbo_images);
 		m_draw_fbo = m_vr_right_draw_fbo;
 		m_fbo_images = m_vr_right_fbo_images;
 
+		vr_part(1);
 		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
+		vr_part(2);
 		update_vertex_env(sub_index * 2 + 1, upload_info);
+		vr_part(3);
 		bind_texture_env(true);
+		vr_part(4);
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
+		vr_part(5);
 		emit_vulkan_draw();
 		m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
 		vk::end_renderpass(*m_current_command_buffer);
 
+		vr_part(6);
 		m_draw_fbo = left_fbo;
 		m_fbo_images = std::move(left_images);
 		// Restore the guest-authored allocation. Pipeline dependency processing
@@ -1373,8 +1383,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
 				m_vs_binding_table->cbuf_location);
 		}
+		vr_part(7);
 		bind_texture_env(false);
 
+		vr_part(8);
 		if (vr_suspend_query)
 		{
 			// Continue the same guest query after the host-only right-eye draw.
@@ -1390,6 +1402,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
+		vr_part(9);
+		m_vr_replay_us += get_system_time() - vr_replay_start;
 	}
 
 	m_frame_stats.draw_exec_time += m_profiler.duration();

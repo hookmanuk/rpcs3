@@ -122,8 +122,16 @@ namespace rsx::vr
 		void set_vr_view(const f32 quat_xyzw[4], f32 eye_scale, f32 fov_scale, bool flip_y);
 		void clear_vr_view();
 
+		// Render each eye into exactly this frustum instead of the game's own:
+		// tangents (left, right, up, down) per eye, left/down negative, as
+		// reported by the headset. Pass nullptr to keep the game's FOV.
+		// Screen-space draws (HUD, menus) become a fixed output-aspect box fitted
+		// inside the headset view, times hud_scale.
+		void set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale);
+
 		// tan of the rendered half-angles, measured from the camera draws
 		// (including fov_scale). False until a rigid camera block has been seen.
+		// Also the readiness test for the headset-FOV remap.
 		bool get_vr_fov(f32& tan_half_x, f32& tan_half_y) const;
 
 	private:
@@ -131,6 +139,8 @@ namespace rsx::vr
 		void parse(const std::string& cfg);
 		void reset_params();
 		void apply_vr_rotation(f32* const rows[4]) const;
+		void apply_vr_screen_space(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
+			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 
 		bool m_enabled = false;          // subsystem on (default render path or probe config)
 		atomic_t<bool> m_active{false};  // a perturbation is configured right now
@@ -165,6 +175,10 @@ namespace rsx::vr
 		std::array<f32, 9> m_vr_rot{};
 		f32 m_vr_eye_scale = 1.f;
 		f32 m_vr_fov_scale = 1.f;
+		bool m_vr_flip_y = false;
+		bool m_vr_hmd_fov = false;
+		f32 m_vr_hud_scale = 1.f;
+		f32 m_vr_eye_fov[2][4]{};
 		// Projection x/y scales relative to w, from the latest rigid camera block.
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;

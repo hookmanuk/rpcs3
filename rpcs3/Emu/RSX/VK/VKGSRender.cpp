@@ -499,7 +499,7 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	{
 		// RPCS3 submits graphics work to queue 0 of the graphics family.
 		vk::xr::create_session(m_instance.handle(), m_device->gpu(), *m_device,
-			m_device->get_graphics_queue_family(), 0);
+			m_device->get_graphics_queue(), m_device->get_graphics_queue_family(), 0);
 	}
 
 	m_swapchain_dims.width = m_frame->client_width();
@@ -834,11 +834,12 @@ VKGSRender::~VKGSRender()
 		do_local_task(rsx::FIFO::state::lock_wait);
 	}
 
+	// The OpenXR session references the device and its frame thread submits to
+	// the graphics queue: stop it before the device-wide wait and any teardown.
+	vk::xr::destroy();
+
 	//Wait for device to finish up with resources
 	vkDeviceWaitIdle(*m_device);
-
-	// The OpenXR session references the device; end it before any teardown.
-	vk::xr::destroy();
 
 	// Globals. TODO: Refactor lifetime management
 	if (auto async_scheduler = g_fxo->try_get<vk::AsyncTaskScheduler>())
@@ -2314,25 +2315,42 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 		return false;
 	}
 
-	std::vector<u8> source(source_size);
-	const void* source_ptr = m_transform_constants_ring_info.map(source_offset, source_size);
-	std::memcpy(source.data(), source_ptr, source_size);
-	m_transform_constants_ring_info.unmap();
+	// Never read the mapped ring back: it is write-combined memory, where CPU
+	// reads are uncached and cost tens of microseconds per draw (hundreds of ms
+	// per second in races with many ships). Refill the constants from the guest
+	// registers exactly as upload_transform_constants() does, transform them in
+	// a CPU scratch buffer, then write the result once, sequentially.
+	const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || (m_vertex_prog && m_vertex_prog->has_indexed_constants);
+	if (!full_bank && !m_vertex_prog)
+	{
+		return false;
+	}
+
+	const usz size = full_bank ? 8192 : m_vertex_prog->constant_ids.size() * 16;
+	if (!size || size != source_size)
+	{
+		// The last upload does not describe this program; leave the guest allocation bound.
+		return false;
+	}
+
+	static thread_local std::vector<u8> scratch;
+	scratch.resize(size);
+	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
+	m_draw_processor.fill_vertex_program_constants_data(scratch.data(), constant_ids);
+
+	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
+	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();
+	const bool classified_world = rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
+		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
-	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(source_size, alignment));
-	void* destination = m_transform_constants_ring_info.map(allocation, source_size);
-	std::memcpy(destination, source.data(), source_size);
-
-	const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || (m_vertex_prog && m_vertex_prog->has_indexed_constants);
-	const u16* reloc = (!full_bank && m_vertex_prog) ? m_vertex_prog->constant_ids.data() : nullptr;
-	const usz reloc_size = (!full_bank && m_vertex_prog) ? m_vertex_prog->constant_ids.size() : 0;
-	const bool classified_world = rsx::vr::camera_probe::get().apply_render_eye(destination, reloc, reloc_size,
-		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
+	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(size, alignment));
+	void* destination = m_transform_constants_ring_info.map(allocation, size);
+	std::memcpy(destination, scratch.data(), size);
 	m_transform_constants_ring_info.unmap();
 
 	m_xform_constants_dynamic_offset = allocation;
-	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, source_size,
+	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, size,
 		m_device->gpu().get_limits().maxUniformBufferRange);
 	m_xform_constants_dynamic_offset -= m_vertex_constants_buffer_info.offset;
 	m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
@@ -2617,6 +2635,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	// the ordinary texture cache. The path is inert unless render=1 is armed.
 	if (rsx::vr::camera_probe::get().render_enabled())
 	{
+		const u64 vr_prepare_start = get_system_time();
 		m_vr_right_rtts.prepare_render_target(*m_current_command_buffer,
 			m_framebuffer_layout.color_format, m_framebuffer_layout.depth_format,
 			m_framebuffer_layout.width, m_framebuffer_layout.height,
@@ -2664,6 +2683,8 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_vr_right_draw_fbo = vk::get_framebuffer(*m_device, vr_width, vr_height,
 			vk::to_bool32(!vr_input_attachments.empty()), vr_renderpass, m_vr_right_fbo_images);
 		m_vr_right_draw_fbo->add_ref();
+		m_vr_prepare_us += get_system_time() - vr_prepare_start;
+		m_vr_prepare_count++;
 	}
 
 	// Reset framebuffer information
