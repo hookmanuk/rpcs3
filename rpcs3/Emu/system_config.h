@@ -256,6 +256,7 @@ struct cfg_root : cfg::node
 			cfg::uint<10, 200> hud_scale{ this, "HUD Scale", 65, true };
 			cfg::_int<-100, 100> hud_offset_x{ this, "HUD Horizontal Offset", 0, true }; // % of the central view half-width, + is right
 			cfg::_int<-100, 100> hud_offset_y{ this, "HUD Vertical Offset", 0, true };   // % of the central view half-height, + is up
+			cfg::_int<-500, 500> camera_depth{ this, "Camera Depth Offset", 0, true };   // hundredths of a metre, + moves the viewpoint forward
 
 		} vr{ this };
 

@@ -114,6 +114,7 @@ namespace vk::xr
 			f32 fov_scale = 1.f;
 			bool flip_y = false;
 			bool hmd_fov = true;
+			bool position_tracking = true;
 			std::atomic<XrTime> last_display_time{ 0 };
 			f32 ipd = 0.063f;
 			// Pose the pending game frame is rendered with; declared at the next flip.
@@ -532,6 +533,7 @@ namespace vk::xr
 		g_xr.fov_scale = env_float("RPCS3_OPENXR_FOV_SCALE", 1.0f);
 		g_xr.flip_y = read_env("RPCS3_OPENXR_FLIP_Y") == "1";
 		g_xr.hmd_fov = read_env("RPCS3_OPENXR_FOV") != "game";
+		g_xr.position_tracking = read_env("RPCS3_OPENXR_POSITION") != "0";
 
 		xr_log.success("Headset '%s' found. Vulkan instance extensions: %u, device extensions: %u",
 			props.systemName, ::size32(g_xr.instance_exts), ::size32(g_xr.device_exts));
@@ -1170,7 +1172,7 @@ namespace vk::xr
 		}
 	}
 
-	bool locate_render_pose(f32 quat_xyzw[4], f32 eye_fov[2][4])
+	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4])
 	{
 		// A frame rendered without a located pose must not be declared with an old one.
 		g_xr.render_pose_valid = false;
@@ -1227,6 +1229,14 @@ namespace vk::xr
 			eye_fov[i][3] = std::tan(f.angleDown);
 		}
 		g_xr.render_pose_valid = true;
+
+		position_xyz[0] = position_xyz[1] = position_xyz[2] = 0.f;
+		if (g_xr.position_tracking && (head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
+		{
+			position_xyz[0] = head.pose.position.x;
+			position_xyz[1] = head.pose.position.y;
+			position_xyz[2] = head.pose.position.z;
+		}
 
 		quat_xyzw[0] = head.pose.orientation.x;
 		quat_xyzw[1] = head.pose.orientation.y;

@@ -28,6 +28,7 @@
 
 #include "Emu/NP/rpcn_countries.h"
 #include "Emu/GameInfo.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 #include "Emu/emu_callbacks.h"
 #include "Emu/System.h"
 #include "Emu/system_config.h"
@@ -585,8 +586,15 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		ui->gb_anaglyph_settings->setEnabled(false);
 	}
 
-	// VR
+	// VR: only titles with a camera profile can be rendered in stereo, and the
+	// setting lives in that game's custom configuration.
+	const bool vr_profiled_title = game && rsx::vr::title_has_profile(game->serial);
 	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
+	if (!vr_profiled_title)
+	{
+		ui->vrEnabled->setChecked(false);
+		ui->vrEnabled->setEnabled(false);
+	}
 	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	{
@@ -619,16 +627,20 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 			emu_settings_type::VRHudOffsetY, ui->gb_vrHudOffsetY, tooltips.settings.vr_hud_offset, percent_text, 1);
 		enhance_vr_slider(ui->vrScreenDepth, ui->vrScreenDepthMin, ui->vrScreenDepthMax, ui->vrScreenDepthVal, ui->vrScreenDepthReset,
 			emu_settings_type::VRScreenDepth, ui->gb_vrScreenDepth, tooltips.settings.vr_screen_depth, percent_text, 5);
+		const auto plain_text = [](int value) { return QString::number(value); };
+		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
+			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
 
-		const auto enable_vr_options = [this]()
+		const auto enable_vr_options = [this, vr_profiled_title]()
 		{
-			const bool vr = ui->vrEnabled->isChecked();
+			const bool vr = vr_profiled_title && ui->vrEnabled->isChecked();
 			ui->vrHudFixed->setEnabled(vr);
 			ui->vrFixedScreen->setEnabled(vr);
 			ui->gb_vrHudScale->setEnabled(vr);
 			ui->gb_vrHudOffsetX->setEnabled(vr);
 			ui->gb_vrHudOffsetY->setEnabled(vr);
 			ui->gb_vrScreenDepth->setEnabled(vr && ui->vrFixedScreen->isChecked());
+			ui->gb_vrCameraDepth->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 		};
 		connect(ui->vrEnabled, &QCheckBox::toggled, this, enable_vr_options);
 		connect(ui->vrFixedScreen, &QCheckBox::toggled, this, enable_vr_options);

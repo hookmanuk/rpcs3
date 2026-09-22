@@ -9,6 +9,8 @@
 #include "VKGSRender.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/chip_class.h"
+
+#include <unordered_set>
 #include <vulkan/vulkan_core.h>
 
 namespace vk
@@ -693,6 +695,35 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 						? sampler_state->image_handle->info.subresourceRange.aspectMask
 						: right_image->aspect();
 					view = right_image->get_view(rsx::method_registers.fragment_textures[i].decoded_remap(), aspect);
+				}
+			}
+
+			// Eye-provenance diagnostic: a right-eye draw sampling a render-target
+			// derived texture that was NOT swapped for the right eye's surface sees
+			// the left eye's pixels. For camera-dependent content that is a VR bug
+			// in any game (an unmirrored copy, a sub-rect or reformatted view).
+			// Each distinct source is reported once.
+			// Every distinct (texture, origin, target) a right-eye draw samples is
+			// reported once, so the whole right-eye texture diet of a frame is known.
+			if (vr_right_eye)
+			{
+				static std::unordered_set<u64> reported;
+				const auto& tex = rsx::method_registers.fragment_textures[i];
+				const u32 tex_addr = rsx::get_address(tex.offset(), tex.location());
+				const u64 key = (u64{tex_addr} << 32) | (u64{sampler_state->upload_context} << 24) |
+					(u64{view != nullptr} << 23) | (u64{m_framebuffer_layout.color_addresses[0] >> 16} << 7) | i;
+				if (reported.insert(key).second)
+				{
+					const u32 ctx = sampler_state->upload_context;
+					const bool rt_derived = ctx == rsx::texture_upload_context::framebuffer_storage ||
+						ctx == rsx::texture_upload_context::blit_engine_dst;
+					rsx_log.warning("VR eye provenance: target 0x%x %ux%u unit %u samples 0x%x %ux%u fmt 0x%x: %s",
+						m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height, i,
+						tex_addr, tex.width(), tex.height(), tex.format(),
+						view ? "RIGHT-eye surface" :
+						!rt_derived ? (ctx == rsx::texture_upload_context::shader_read ? "guest memory upload" : "other upload") :
+						ctx == rsx::texture_upload_context::blit_engine_dst ? "LEFT-eye blit copy" :
+						sampler_state->image_handle ? "LEFT-eye render target (no right-eye surface there)" : "LEFT-eye sub-resource copy");
 				}
 			}
 

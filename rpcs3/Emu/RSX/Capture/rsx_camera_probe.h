@@ -75,6 +75,7 @@
 // to clip X, which is the camera right axis.
 
 #include <string>
+#include <string_view>
 #include <array>
 
 #include "util/types.hpp"
@@ -82,6 +83,10 @@
 
 namespace rsx::vr
 {
+	// True if this title id has a VR camera profile. Only profiled titles can be
+	// rendered in stereo, so the VR options are offered for those alone.
+	bool title_has_profile(std::string_view title_id);
+
 	class camera_probe
 	{
 	public:
@@ -119,7 +124,11 @@ namespace rsx::vr
 		// draws are rotated by it and the stereo becomes parallel (translation
 		// term only). eye_scale multiplies the game's eye separation, fov_scale
 		// widens the rendered field of view. flip_y if NDC +Y is screen-down.
-		void set_vr_view(const f32 quat_xyzw[4], f32 eye_scale, f32 fov_scale, bool flip_y);
+		// position_xyz is the head position in LOCAL space (metres); camera_depth is a
+		// constant forward offset of the viewpoint (metres, + is forward). Both are
+		// converted to game units using the game's own eye separation against ipd.
+		void set_vr_view(const f32 quat_xyzw[4], const f32 position_xyz[3], f32 eye_scale,
+			f32 fov_scale, bool flip_y, f32 ipd, f32 camera_depth);
 		void clear_vr_view();
 
 		// Native (non-headset-view) stereo: scale the game's eye separation, for
@@ -147,9 +156,10 @@ namespace rsx::vr
 		camera_probe();
 		void parse(const std::string& cfg);
 		void reset_params();
-		void apply_vr_rotation(f32* const rows[4]) const;
+		void apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head) const;
 		void apply_vr_screen_space(void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
+		void map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const;
 
 		bool m_enabled = false;          // subsystem on (default render path or probe config)
 		atomic_t<bool> m_active{false};  // a perturbation is configured right now
@@ -191,12 +201,33 @@ namespace rsx::vr
 		f32 m_screen_stereo_scale = 1.f;
 		f32 m_vr_hud_offset_x = 0.f;
 		f32 m_vr_hud_offset_y = 0.f;
+		// Head translation for this frame, in the clip basis (right, up or down, forward):
+		// m_vr_head_units in game units for camera draws, m_vr_head_m in metres for the
+		// fixed screen-space box, which lives at a known distance.
+		std::array<f32, 3> m_vr_head_units{};
+		std::array<f32, 3> m_vr_head_m{};
+		f32 m_vr_hud_depth = 0.f;   // metres
 		f32 m_vr_hud_parallax = 0.f; // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
 		f32 m_vr_eye_fov[2][4]{};
 		// Projection x/y scales relative to w, from the latest rigid camera block.
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;
 		mutable bool m_vr_proj_valid = false;
+
+		// Rotation-invariance audit, RPCS3_VR_AUDIT=<degrees> (desktop only, no
+		// headset): both eyes share one eye position and the right eye is yawed by
+		// that angle. Under a pure rotation no world point changes colour, only
+		// position, by a known homography, so warping the left eye by it must
+		// reproduce the right; whatever does not was derived from camera
+		// orientation the renderer leaves untransformed. tools/rotation_audit.py.
+		f32 m_audit_yaw_deg = 0.f;
+		std::array<f32, 9> m_audit_rot{};
+		mutable bool m_audit_logged = false;
+		// RPCS3_VR_AUDIT_FOV=<tan>: also remap both audit eyes onto a symmetric
+		// frustum of that half-angle tangent, exercising the headset FOV remap.
+		f32 m_audit_fov_tan = 0.f;
+
+		void remap_to_eye_fov(f32* const rows[4], const f32* tangents, f32 A, f32 B) const;
 
 		bool m_have_xform = false;
 		bool m_require_cam = false;

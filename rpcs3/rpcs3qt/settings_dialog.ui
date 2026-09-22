@@ -844,6 +844,61 @@
                     </layout>
                    </widget>
                   </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrCameraDepth">
+                    <property name="title">
+                     <string>Camera Depth Offset</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrCameraDepth_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrCameraDepthLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrCameraDepthMin">
+                         <property name="text">
+                          <string>-500</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrCameraDepth">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrCameraDepthMax">
+                         <property name="text">
+                          <string>500</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrCameraDepthLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrCameraDepthVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrCameraDepthReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>

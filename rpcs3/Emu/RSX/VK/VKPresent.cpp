@@ -711,12 +711,13 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		// Head pose for the next game frame: its camera draws are rotated by it,
 		// and it is declared with that frame when the frame thread presents it.
 		f32 head[4];
+		f32 head_position[3];
 		f32 eye_fov[2][4];
 		auto& probe = rsx::vr::camera_probe::get();
 		const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode();
 		// HUD stereo distance, and the fixed screen's distance (metres).
 		constexpr f32 vr_hud_distance = 2.f;
-		if (fixed_screen && vk::xr::locate_render_pose(head, eye_fov))
+		if (fixed_screen && vk::xr::locate_render_pose(head, head_position, eye_fov))
 		{
 			// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
 			// place the window where the HUD box would be (depth 0 = 2 m).
@@ -742,11 +743,12 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
 				depth);
 		}
-		else if (!fixed_screen && vk::xr::locate_render_pose(head, eye_fov))
+		else if (!fixed_screen && vk::xr::locate_render_pose(head, head_position, eye_fov))
 		{
 			vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
 			probe.set_screen_stereo_scale(1.f);
-			probe.set_vr_view(head, vk::xr::eye_scale(), vk::xr::fov_scale(), vk::xr::flip_y());
+			probe.set_vr_view(head, head_position, vk::xr::eye_scale(), vk::xr::fov_scale(),
+				vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
 			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr,
 				g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
 				g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,

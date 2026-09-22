@@ -123,6 +123,12 @@ namespace rsx::vr
 		}
 	}
 
+	bool title_has_profile(std::string_view title_id)
+	{
+		// Gate 4 profile data: rpcs3/bin/vr_profiles/BCES00664.json.
+		return title_id == "BCES00664";
+	}
+
 	camera_probe& camera_probe::get()
 	{
 		static camera_probe instance;
@@ -131,6 +137,23 @@ namespace rsx::vr
 
 	camera_probe::camera_probe()
 	{
+		if (const std::string audit = read_env("RPCS3_VR_AUDIT"); !audit.empty())
+		{
+			// Yaw in the clip basis (right, up or down, forward): v = Q u.
+			m_audit_yaw_deg = static_cast<f32>(std::atof(audit.c_str()));
+			const f32 a = m_audit_yaw_deg * 3.14159265358979323846f / 180.f;
+			const f32 c = std::cos(a), s = std::sin(a);
+			m_audit_rot = { c, 0.f, s, 0.f, 1.f, 0.f, -s, 0.f, c };
+			vr_probe_log.success("Rotation audit: right eye yawed by %f degrees, no stereo separation.", m_audit_yaw_deg);
+
+			if (const std::string fov = read_env("RPCS3_VR_AUDIT_FOV"); !fov.empty())
+			{
+				m_audit_fov_tan = static_cast<f32>(std::atof(fov.c_str()));
+				vr_probe_log.success("Rotation audit: both eyes remapped onto a symmetric frustum, tan %f (projection A=B=%f).",
+					m_audit_fov_tan, 1.f / m_audit_fov_tan);
+			}
+		}
+
 		m_config_path = read_env("RPCS3_VR_PROBE_FILE");
 		const std::string cfg = read_env("RPCS3_VR_PROBE");
 
@@ -371,6 +394,61 @@ namespace rsx::vr
 		const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
 		const bool output_aspect_match = std::fabs(target_aspect / output_aspect - 1.f) <= 0.02f;
 
+		// Rotation-invariance audit (see m_audit_yaw_deg): the same classifier and
+		// clip-space rotation as the headset path, with the left eye unrotated and
+		// no eye offsets, so the only difference between the eyes is a known yaw.
+		if (m_audit_yaw_deg != 0.f && !m_vr_view)
+		{
+			if (!output_aspect_match)
+			{
+				return false;
+			}
+
+			static constexpr std::array<f32, 9> identity3 = { 1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f };
+			apply_vr_rotation(rows, eye_sign > 0.f ? m_audit_rot : identity3, {});
+
+			// The headset path's FOV remap, onto a symmetric frustum (l, r, u, d).
+			if (m_audit_fov_tan > 0.f && m_vr_proj_valid)
+			{
+				const f32 t[4] = { -m_audit_fov_tan, m_audit_fov_tan, m_audit_fov_tan, -m_audit_fov_tan };
+				remap_to_eye_fov(rows, t, m_vr_proj_x, m_vr_proj_y);
+			}
+			if (m_vr_proj_valid && !m_audit_logged)
+			{
+				m_audit_logged = true;
+				vr_probe_log.success("Rotation audit: game projection A=%f B=%f (tools/rotation_audit.py --proj).",
+					m_vr_proj_x, m_vr_proj_y);
+			}
+			return true;
+		}
+
+		// A camera block that is a bare projection (no view rotation or translation
+		// folded in) draws in the game camera's own space: the main-menu particle
+		// cloud, whose view lives in c[256..259] with c[465].w = 0. No race camera
+		// block in the 2D or native-3D Gate 3 captures has this form. It is part of
+		// the menu screen, so it goes into the same fixed box as the HUD instead of
+		// following the head.
+		if (output_aspect_match && m_vr_view && m_vr_hmd_fov)
+		{
+			constexpr f32 eps = 1e-5f;
+			const bool bare_projection =
+				std::fabs(rows[0][1]) < eps && std::fabs(rows[0][2]) < eps && std::fabs(rows[0][3]) < eps &&
+				std::fabs(rows[1][0]) < eps && std::fabs(rows[1][2]) < eps && std::fabs(rows[1][3]) < eps &&
+				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
+				std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
+				std::fabs(rows[2][3]) > eps;
+			if (bare_projection)
+			{
+				// Still the game's projection, so it keeps the FOV cache valid on
+				// screens with no other camera draws.
+				m_vr_proj_x = std::fabs(rows[0][0] / rows[2][3]);
+				m_vr_proj_y = std::fabs(rows[1][1] / rows[2][3]);
+				m_vr_proj_valid = true;
+				map_vr_screen_box(rows, eye_sign, output_aspect);
+				return false;
+			}
+		}
+
 		// c[465] is a camera-world point in the native oracle. Unlike the
 		// matrix it changes on the cascade route too. A cascade's c[260] is a
 		// perspective projection but its clip-X column is not camera right
@@ -380,7 +458,7 @@ namespace rsx::vr
 		// the rotated view.
 		if (output_aspect_match && m_vr_view)
 		{
-			apply_vr_rotation(rows);
+			apply_vr_rotation(rows, m_vr_rot, m_vr_head_units);
 		}
 
 		if (output_aspect_match)
@@ -430,19 +508,7 @@ namespace rsx::vr
 
 			if (m_vr_hmd_fov && m_vr_proj_valid)
 			{
-				// Re-project from the game frustum onto this eye's headset frustum.
-				// Game NDC x = A * (x/f); headset NDC x = (2*(x/f) - (r+l)) / (r-l).
-				// Both are linear in clip space: X' = X*sx + W*ox (likewise Y).
-				const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
-				const f32 sx = 2.f / (m_vr_proj_x * (t[1] - t[0]));
-				const f32 ox = -(t[1] + t[0]) / (t[1] - t[0]);
-				const f32 sy = 2.f / (m_vr_proj_y * (t[2] - t[3]));
-				const f32 oy = -(t[2] + t[3]) / (t[2] - t[3]) * (m_vr_flip_y ? -1.f : 1.f);
-				for (u32 r = 0; r < 4; ++r)
-				{
-					rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
-					rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
-				}
+				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y);
 			}
 			else if (m_vr_fov_scale != 1.f)
 			{
@@ -464,7 +530,8 @@ namespace rsx::vr
 		return true;
 	}
 
-	void camera_probe::set_vr_view(const f32 q[4], f32 eye_scale, f32 fov_scale, bool flip_y)
+	void camera_probe::set_vr_view(const f32 q[4], const f32 pos[3], f32 eye_scale,
+		f32 fov_scale, bool flip_y, f32 ipd, f32 camera_depth)
 	{
 		// OpenXR rotation matrix (right, up, back basis) from the quaternion.
 		const f32 x = q[0], y = q[1], z = q[2], w = q[3];
@@ -487,6 +554,17 @@ namespace rsx::vr
 			}
 		}
 
+		// Head translation, in the same clip basis as the rotation. The game's own
+		// eye separation is 0.240 units for ipd metres of real separation, so that
+		// ratio is the world scale, and the eye_scale knob scales both together.
+		const f32 units_per_metre = ipd > 0.01f ? 0.240004f * eye_scale / ipd : 0.f;
+		for (u32 i = 0; i < 3; ++i)
+		{
+			// + camera_depth is forward, which is -Z in LOCAL space and +forward here.
+			m_vr_head_m[i] = s[i] * pos[i] + (i == 2 ? camera_depth : 0.f);
+			m_vr_head_units[i] = m_vr_head_m[i] * units_per_metre;
+		}
+
 		m_vr_eye_scale = eye_scale;
 		m_vr_fov_scale = fov_scale;
 		m_vr_flip_y = flip_y;
@@ -497,6 +575,7 @@ namespace rsx::vr
 		f32 hud_depth, f32 ipd)
 	{
 		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
+		m_vr_hud_depth = hud_depth;
 		m_vr_hmd_fov = tangents != nullptr;
 		m_vr_hud_scale = hud_scale;
 		m_vr_hud_fixed = hud_fixed;
@@ -575,12 +654,18 @@ namespace rsx::vr
 			return;
 		}
 
+		map_vr_screen_box(rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
+	}
+
+	void camera_probe::map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const
+	{
 		// The game camera's FOV changes with speed and camera mode (and can exceed
 		// the headset's), so the HUD is not tied to it. It becomes a fixed box with
 		// the output aspect, fitted inside the central symmetric part of this
-		// eye's headset frustum and scaled by the HUD scale. W is 1 for these draws.
+		// eye's headset frustum and scaled by the HUD scale. The mapping is linear
+		// in (X, Y, W), so it also carries perspective blocks (W != 1) whose game
+		// NDC image belongs to the screen, e.g. the menu background.
 		const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
-		const f32 aspect = static_cast<f32>(eye.width) / eye.height;
 		f32 fit_x = std::min(-t[0], t[1]);
 		f32 fit_y = std::min(t[2], -t[3]);
 		if (m_vr_hud_fixed)
@@ -620,25 +705,57 @@ namespace rsx::vr
 		// Fixed in front: the box is a direction in LOCAL space (straight ahead),
 		// seen through the head rotation this frame is rendered with, exactly as
 		// the world is. u = (tan x, tan y, 1) in the clip basis, u' = R^T u.
+		// Rotating changes W. Keep Z/W on the same depth as for a camera draw
+		// (Z' = Z + (c/e)(W' - W), see apply_vr_rotation); c/e is 0 for the
+		// orthographic HUD, whose column 3 is (0, 0, 0, 1).
+		f32 k = 0.f;
+		if (const f32 d33 = rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]; d33 > 1e-12f)
+		{
+			k = (rows[0][2] * rows[0][3] + rows[1][2] * rows[1][3] + rows[2][2] * rows[2][3]) / d33;
+		}
+
+		// The box hangs at a known distance, so the head's own position moves across
+		// it: a point at distance d is (u * d - head), divided through by d to keep
+		// w on the scale the depth test expects. At infinity it is a pure direction.
+		const f32 lean = m_vr_hud_depth > 0.f ? 1.f / m_vr_hud_depth : 0.f;
+
 		const auto& R = m_vr_rot;
 		for (u32 r = 0; r < 4; ++r)
 		{
-			const f32 u0 = rows[r][0] * tx + rows[r][3] * cx;
-			const f32 u1 = rows[r][1] * ty + rows[r][3] * cy;
-			const f32 u2 = rows[r][3];
+			const f32 w = rows[r][3];
+			const f32 u0 = rows[r][0] * tx + w * (cx - lean * m_vr_head_m[0]);
+			const f32 u1 = rows[r][1] * ty + w * (cy - lean * m_vr_head_m[1]);
+			const f32 u2 = w * (1.f - lean * m_vr_head_m[2]);
 
 			// The eye offset is along the head's own right axis, i.e. after rotation.
 			const f32 v0 = R[0] * u0 + R[1] * u1 + R[2] * u2 + parallax * u2;
 			const f32 v1 = R[3] * u0 + R[4] * u1 + R[5] * u2;
 			const f32 v2 = R[6] * u0 + R[7] * u1 + R[8] * u2;
 
+			rows[r][2] += k * (v2 - rows[r][3]);
 			rows[r][0] = v0 * fx + v2 * ox;
 			rows[r][1] = v1 * fy + v2 * oy;
 			rows[r][3] = v2;
 		}
 	}
 
-	void camera_probe::apply_vr_rotation(f32* const rows[4]) const
+	void camera_probe::remap_to_eye_fov(f32* const rows[4], const f32* t, f32 A, f32 B) const
+	{
+		// Re-project from the game frustum onto this eye's headset frustum.
+		// Game NDC x = A * (x/f); headset NDC x = (2*(x/f) - (r+l)) / (r-l).
+		// Both are linear in clip space: X' = X*sx + W*ox (likewise Y).
+		const f32 sx = 2.f / (A * (t[1] - t[0]));
+		const f32 ox = -(t[1] + t[0]) / (t[1] - t[0]);
+		const f32 sy = 2.f / (B * (t[2] - t[3]));
+		const f32 oy = -(t[2] + t[3]) / (t[2] - t[3]) * (m_vr_flip_y ? -1.f : 1.f);
+		for (u32 r = 0; r < 4; ++r)
+		{
+			rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
+			rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
+		}
+	}
+
+	void camera_probe::apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head) const
 	{
 		// Row-vector camera block M (clip = v * M). For M = L * P with L affine and
 		// P a perspective projection (x' = a*x, y' = b*y, z' = c*z + d, w' = e*z):
@@ -681,13 +798,16 @@ namespace rsx::vr
 		const f32 k = dot(2, 3) / d33;
 		const f32 A = m_vr_proj_x;
 		const f32 B = m_vr_proj_y;
-		const auto& R = m_vr_rot;
 
 		for (u32 r = 0; r < 4; ++r)
 		{
-			const f32 u0 = rows[r][0] / A;
-			const f32 u1 = rows[r][1] / B;
-			const f32 u2 = rows[r][3];
+			// u is the view vector in the clip basis. Rows 0..2 carry the object's
+			// x/y/z, which a camera move does not touch; row 3 is the point term,
+			// so the head offset is subtracted there and there only.
+			const f32 t = r == 3 ? 1.f : 0.f;
+			const f32 u0 = rows[r][0] / A - t * head[0];
+			const f32 u1 = rows[r][1] / B - t * head[1];
+			const f32 u2 = rows[r][3] - t * head[2];
 
 			const f32 v0 = R[0] * u0 + R[1] * u1 + R[2] * u2;
 			const f32 v1 = R[3] * u0 + R[4] * u1 + R[5] * u2;
