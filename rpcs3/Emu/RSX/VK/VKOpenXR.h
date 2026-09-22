@@ -63,6 +63,19 @@ namespace vk::xr
 	// rendered with and (game-FOV mode) its FOV. The frame thread presents it.
 	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y);
 
+	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
+	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)
+	// into a free overlay buffer; after submitting, commit_eyes() shows it with the
+	// eye pair, or commit_overlay() alone when no eyes were published (paused
+	// emulation still flips for overlays). hide_overlay() when none is visible.
+	bool publish_overlay(const vk::command_buffer& cmd, vk::image* source);
+	void commit_overlay();
+	void hide_overlay();
+
+	// Where the overlay quad is shown: `width` metres wide, centred at
+	// (x, y, -distance) in LOCAL space, or VIEW space when !world_locked.
+	void set_overlay_placement(bool world_locked, f32 width, f32 x, f32 y, f32 distance);
+
 	// Projection mode (default; RPCS3_OPENXR_MODE=quad selects the virtual screen).
 	bool projection_mode();
 	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)

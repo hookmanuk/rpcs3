@@ -318,6 +318,14 @@ namespace vk
 			VK_BLEND_OP_ADD, VK_BLEND_OP_ADD);
 	}
 
+	ui_overlay_renderer_xr::ui_overlay_renderer_xr()
+	{
+		renderpass_config.enable_blend(0,
+			VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE,
+			VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+			VK_BLEND_OP_ADD, VK_BLEND_OP_ADD);
+	}
+
 	void ui_overlay_renderer::upload_simple_texture(vk::image* tex, vk::command_buffer& cmd,
 		vk::data_heap& upload_heap, u32 w, u32 h, u32 layers, bool font, const void* pixel_src)
 	{

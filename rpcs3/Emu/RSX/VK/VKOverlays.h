@@ -174,6 +174,14 @@ namespace vk
 				vk::data_heap& upload_heap, rsx::overlays::overlay& ui);
 	};
 
+	// OpenXR overlay layer: draws onto a transparent target, so alpha must
+	// accumulate ("over") instead of keeping the destination's. Output is
+	// premultiplied, as OpenXR expects by default.
+	struct ui_overlay_renderer_xr : public ui_overlay_renderer
+	{
+		ui_overlay_renderer_xr();
+	};
+
 	struct attachment_clear_pass : public overlay_pass
 	{
 		color4f clear_color = { 0.f, 0.f, 0.f, 0.f };

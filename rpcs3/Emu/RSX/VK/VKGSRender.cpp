@@ -926,6 +926,7 @@ VKGSRender::~VKGSRender()
 	m_texture_cache.destroy();
 
 	m_overlay_recording_img.reset();
+	m_xr_overlay_img.reset();
 	m_stencil_mirror_sampler.reset();
 
 	// Queries

@@ -276,6 +276,10 @@ void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 			for (const auto& view : m_overlay_manager->get_dirty())
 			{
 				ui_renderer->remove_temp_resources(view->uid);
+				if (m_xr_overlay_img)
+				{
+					vk::get_overlay_pass<vk::ui_overlay_renderer_xr>()->remove_temp_resources(view->uid);
+				}
 				uids_to_dispose.push_back(view->uid);
 			}
 
@@ -693,8 +697,53 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// submits, and tags the pair with the pose its draws were rotated by.
 	if (vk::xr::is_running())
 	{
-		if (image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
-			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height))
+		// Only game flips carry a new eye pair. Flips requested by RPCS3's overlays
+		// (e.g. while the home menu pauses emulation) would re-publish the old frame
+		// tagged with a newer head pose, dragging the world along with the head.
+		const bool xr_eyes = info.emu_flip && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
+			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
+
+		// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
+		// the desktop swapchain below; the headset gets them as a quad layer.
+		bool xr_overlay = false;
+		if (m_overlay_manager && m_overlay_manager->has_visible())
+		{
+			constexpr u32 overlay_width = 1920;
+			constexpr u32 overlay_height = 1080;
+			constexpr VkFormat overlay_format = VK_FORMAT_B8G8R8A8_UNORM;
+			if (!m_xr_overlay_img)
+			{
+				m_xr_overlay_img = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					VK_IMAGE_TYPE_2D, overlay_format, overlay_width, overlay_height, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+					0, VMM_ALLOCATION_POOL_SYSTEM);
+			}
+
+			vk::image* overlay_img = m_xr_overlay_img.get();
+			const VkImageSubresourceRange overlay_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			const VkClearColorValue transparent{};
+			overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			vkCmdClearColorImage(*m_current_command_buffer, overlay_img->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &transparent, 1, &overlay_range);
+			overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+			const VkRenderPass overlay_pass = vk::get_renderpass(*m_device, vk::get_renderpass_key(overlay_format));
+			vk::framebuffer_holder* overlay_fbo = vk::get_framebuffer(*m_device, overlay_width, overlay_height, VK_FALSE, overlay_pass, { overlay_img });
+			overlay_fbo->add_ref();
+			{
+				auto ui_renderer = vk::get_overlay_pass<vk::ui_overlay_renderer_xr>();
+				std::lock_guard lock(*m_overlay_manager);
+				const areau overlay_area = { 0, 0, overlay_width, overlay_height };
+				for (const auto& view : m_overlay_manager->get_views())
+				{
+					ui_renderer->run(*m_current_command_buffer, overlay_area, overlay_fbo, overlay_pass, m_texture_upload_buffer_ring_info, *view.get());
+				}
+			}
+			overlay_fbo->release();
+
+			xr_overlay = vk::xr::publish_overlay(*m_current_command_buffer, overlay_img);
+		}
+
+		if (xr_eyes || xr_overlay)
 		{
 			flush_command_queue();
 			if (g_cfg.video.multithreaded_rsx)
@@ -702,10 +751,23 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				// The submit may still be queued on the offload thread.
 				g_fxo->get<rsx::dma_manager>().sync();
 			}
+		}
 
+		if (xr_eyes)
+		{
+			// Also shows an overlay published in this flip.
 			f32 tan_x = 0.f, tan_y = 0.f;
 			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
 			vk::xr::commit_eyes(have_fov, tan_x, tan_y);
+		}
+		else if (xr_overlay)
+		{
+			vk::xr::commit_overlay();
+		}
+
+		if (!xr_overlay)
+		{
+			vk::xr::hide_overlay();
 		}
 
 		// Head pose for the next game frame: its camera draws are rotated by it,
@@ -717,17 +779,36 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode();
 		// HUD stereo distance, and the fixed screen's distance (metres).
 		constexpr f32 vr_hud_distance = 2.f;
-		if (fixed_screen && vk::xr::locate_render_pose(head, head_position, eye_fov))
+		// Overlay flips (paused emulation) draw nothing, so the pose waits for the next game flip.
+		const bool located = info.emu_flip && vk::xr::locate_render_pose(head, head_position, eye_fov);
+
+		// The HUD box: 16:9, fitted in the central symmetric part of both eyes' views,
+		// scaled by the HUD settings, at 2 m. The fixed screen and RPCS3's overlays use it.
+		const f32 aspect = 16.f / 9.f;
+		const f32 depth = vr_hud_distance;
+		f32 box_y = 0.f;
+		f32 width = 0.f;
+		if (located)
+		{
+			const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
+			const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
+			box_y = std::min(fit_y, fit_x / aspect);
+			width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
+			vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
+				depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
+				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
+				depth);
+		}
+
+		if (!info.emu_flip)
+		{
+			// Keep the current view until the game draws again.
+		}
+		else if (fixed_screen && located)
 		{
 			// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
 			// place the window where the HUD box would be (depth 0 = 2 m).
 			probe.clear_vr_view();
-			const f32 aspect = 16.f / 9.f;
-			const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
-			const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
-			const f32 box_y = std::min(fit_y, fit_x / aspect);
-			const f32 depth = vr_hud_distance;
-			const f32 width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
 
 			// The game's stereo separates far objects by a fixed fraction of the picture,
 			// tuned for a TV about 0.53 m (24") wide. On a wider window that would make
@@ -743,7 +824,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
 				depth);
 		}
-		else if (!fixed_screen && vk::xr::locate_render_pose(head, head_position, eye_fov))
+		else if (!fixed_screen && located)
 		{
 			vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
 			probe.set_screen_stereo_scale(1.f);

@@ -76,6 +76,28 @@ namespace vk::xr
 			u32 swapchain_h = 0;
 			VkFormat swapchain_format = VK_FORMAT_UNDEFINED;
 
+			// RPCS3 overlay layer (home menu etc.): own swapchain and triple buffer,
+			// indices under slot_mutex like the eye slots.
+			eye_swapchain overlay_chain;
+			u32 overlay_chain_w = 0;
+			u32 overlay_chain_h = 0;
+			VkFormat overlay_chain_format = VK_FORMAT_UNDEFINED;
+			VkImage overlay_image[3]{};
+			VkDeviceMemory overlay_memory[3]{};
+			u32 overlay_w = 0;
+			u32 overlay_h = 0;
+			VkFormat overlay_format = VK_FORMAT_UNDEFINED;
+			s32 overlay_latest = -1;
+			s32 overlay_in_use = -1;
+			s32 overlay_writing = -1;
+			bool overlay_shown = false;
+			u64 overlay_seq = 0; // bumped when the overlay changes without new eyes
+			bool overlay_world = false;
+			f32 overlay_width = 1.5f;
+			f32 overlay_x = 0.f;
+			f32 overlay_y = 0.f;
+			f32 overlay_distance = 2.f;
+
 			// OpenXR frame thread. It alone waits on the headset's clock; the RSX
 			// thread only publishes eye pairs into these slots at each guest flip.
 			VkDevice device = VK_NULL_HANDLE;
@@ -314,6 +336,69 @@ namespace vk::xr
 			return VK_FORMAT_UNDEFINED;
 		}
 
+		bool create_chain(eye_swapchain& chain, u32 width, u32 height, VkFormat format)
+		{
+			XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
+			info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+			info.format = static_cast<s64>(format);
+			info.sampleCount = 1;
+			info.width = width;
+			info.height = height;
+			info.faceCount = 1;
+			info.arraySize = 1;
+			info.mipCount = 1;
+
+			if (!check(g_xr.xrCreateSwapchain(g_xr.session, &info, &chain.handle), "xrCreateSwapchain"))
+			{
+				chain.handle = XR_NULL_HANDLE;
+				return false;
+			}
+
+			u32 count = 0;
+			g_xr.xrEnumerateSwapchainImages(chain.handle, 0, &count, nullptr);
+			chain.images.assign(count, { XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
+			return check(g_xr.xrEnumerateSwapchainImages(chain.handle, count, &count,
+				reinterpret_cast<XrSwapchainImageBaseHeader*>(chain.images.data())), "xrEnumerateSwapchainImages");
+		}
+
+		void destroy_overlay_chain()
+		{
+			if (g_xr.overlay_chain.handle)
+			{
+				g_xr.xrDestroySwapchain(g_xr.overlay_chain.handle);
+			}
+			g_xr.overlay_chain = {};
+			g_xr.overlay_chain_w = g_xr.overlay_chain_h = 0;
+			g_xr.overlay_chain_format = VK_FORMAT_UNDEFINED;
+		}
+
+		bool ensure_overlay_chain(u32 width, u32 height, VkFormat source_format)
+		{
+			const VkFormat format = choose_swapchain_format(source_format);
+			if (format == VK_FORMAT_UNDEFINED)
+			{
+				return false;
+			}
+
+			if (g_xr.overlay_chain.handle && g_xr.overlay_chain_w == width && g_xr.overlay_chain_h == height && g_xr.overlay_chain_format == format)
+			{
+				return true;
+			}
+
+			destroy_overlay_chain();
+			if (!create_chain(g_xr.overlay_chain, width, height, format))
+			{
+				destroy_overlay_chain();
+				return false;
+			}
+
+			g_xr.overlay_chain_w = width;
+			g_xr.overlay_chain_h = height;
+			g_xr.overlay_chain_format = format;
+			xr_log.success("Overlay swapchain %ux%u, VkFormat %d", width, height, static_cast<s32>(format));
+			return true;
+		}
+
 		bool ensure_swapchains(u32 width, u32 height, VkFormat source_format)
 		{
 			const VkFormat format = choose_swapchain_format(source_format);
@@ -336,27 +421,7 @@ namespace vk::xr
 
 			for (auto& eye : g_xr.eyes)
 			{
-				XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
-				info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-				info.format = static_cast<s64>(format);
-				info.sampleCount = 1;
-				info.width = width;
-				info.height = height;
-				info.faceCount = 1;
-				info.arraySize = 1;
-				info.mipCount = 1;
-
-				if (!check(g_xr.xrCreateSwapchain(g_xr.session, &info, &eye.handle), "xrCreateSwapchain"))
-				{
-					destroy_swapchains();
-					return false;
-				}
-
-				u32 count = 0;
-				g_xr.xrEnumerateSwapchainImages(eye.handle, 0, &count, nullptr);
-				eye.images.assign(count, { XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
-				if (!check(g_xr.xrEnumerateSwapchainImages(eye.handle, count, &count,
-					reinterpret_cast<XrSwapchainImageBaseHeader*>(eye.images.data())), "xrEnumerateSwapchainImages"))
+				if (!create_chain(eye, width, height, format))
 				{
 					destroy_swapchains();
 					return false;
@@ -421,6 +486,8 @@ namespace vk::xr
 	{
 		void frame_thread();
 		void destroy_slots();
+		void destroy_overlay_images();
+		void destroy_overlay_chain();
 	}
 
 	bool prepare()
@@ -673,50 +740,56 @@ namespace vk::xr
 			g_xr.latest = -1;
 		}
 
-		bool create_slots(u32 width, u32 height, VkFormat format)
+		// Device-local transfer image (the frame thread copies it into a swapchain).
+		bool create_device_image(u32 width, u32 height, VkFormat format, VkImage& image, VkDeviceMemory& memory)
 		{
+			VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+			info.imageType = VK_IMAGE_TYPE_2D;
+			info.format = format;
+			info.extent = { width, height, 1 };
+			info.mipLevels = 1;
+			info.arrayLayers = 1;
+			info.samples = VK_SAMPLE_COUNT_1_BIT;
+			info.tiling = VK_IMAGE_TILING_OPTIMAL;
+			info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+			info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			if (vkCreateImage(g_xr.device, &info, nullptr, &image) != VK_SUCCESS)
+			{
+				image = VK_NULL_HANDLE;
+				return false;
+			}
+
 			VkPhysicalDeviceMemoryProperties memory_props{};
 			vkGetPhysicalDeviceMemoryProperties(g_xr.physical_device, &memory_props);
 
+			VkMemoryRequirements req{};
+			vkGetImageMemoryRequirements(g_xr.device, image, &req);
+			u32 type = umax;
+			for (u32 t = 0; t < memory_props.memoryTypeCount; ++t)
+			{
+				if ((req.memoryTypeBits & (1u << t)) &&
+					(memory_props.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
+				{
+					type = t;
+					break;
+				}
+			}
+
+			VkMemoryAllocateInfo alloc{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+			alloc.allocationSize = req.size;
+			alloc.memoryTypeIndex = type;
+			return type != umax && vkAllocateMemory(g_xr.device, &alloc, nullptr, &memory) == VK_SUCCESS &&
+				vkBindImageMemory(g_xr.device, image, memory, 0) == VK_SUCCESS;
+		}
+
+		bool create_slots(u32 width, u32 height, VkFormat format)
+		{
 			for (auto& slot : g_xr.slots)
 			{
 				for (u32 i = 0; i < 2; ++i)
 				{
-					VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-					info.imageType = VK_IMAGE_TYPE_2D;
-					info.format = format;
-					info.extent = { width, height, 1 };
-					info.mipLevels = 1;
-					info.arrayLayers = 1;
-					info.samples = VK_SAMPLE_COUNT_1_BIT;
-					info.tiling = VK_IMAGE_TILING_OPTIMAL;
-					info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-					info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					if (vkCreateImage(g_xr.device, &info, nullptr, &slot.image[i]) != VK_SUCCESS)
-					{
-						destroy_slots();
-						return false;
-					}
-
-					VkMemoryRequirements req{};
-					vkGetImageMemoryRequirements(g_xr.device, slot.image[i], &req);
-					u32 type = umax;
-					for (u32 t = 0; t < memory_props.memoryTypeCount; ++t)
-					{
-						if ((req.memoryTypeBits & (1u << t)) &&
-							(memory_props.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT))
-						{
-							type = t;
-							break;
-						}
-					}
-
-					VkMemoryAllocateInfo alloc{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
-					alloc.allocationSize = req.size;
-					alloc.memoryTypeIndex = type;
-					if (type == umax || vkAllocateMemory(g_xr.device, &alloc, nullptr, &slot.memory[i]) != VK_SUCCESS ||
-						vkBindImageMemory(g_xr.device, slot.image[i], slot.memory[i], 0) != VK_SUCCESS)
+					if (!create_device_image(width, height, format, slot.image[i], slot.memory[i]))
 					{
 						destroy_slots();
 						return false;
@@ -727,6 +800,38 @@ namespace vk::xr
 			g_xr.slot_w = width;
 			g_xr.slot_h = height;
 			g_xr.slot_format = format;
+			return true;
+		}
+
+		void destroy_overlay_images()
+		{
+			for (u32 i = 0; i < 3; ++i)
+			{
+				if (g_xr.overlay_image[i]) vkDestroyImage(g_xr.device, g_xr.overlay_image[i], nullptr);
+				if (g_xr.overlay_memory[i]) vkFreeMemory(g_xr.device, g_xr.overlay_memory[i], nullptr);
+				g_xr.overlay_image[i] = VK_NULL_HANDLE;
+				g_xr.overlay_memory[i] = VK_NULL_HANDLE;
+			}
+			g_xr.overlay_w = g_xr.overlay_h = 0;
+			g_xr.overlay_format = VK_FORMAT_UNDEFINED;
+			g_xr.overlay_latest = -1;
+			g_xr.overlay_shown = false;
+		}
+
+		bool create_overlay_images(u32 width, u32 height, VkFormat format)
+		{
+			for (u32 i = 0; i < 3; ++i)
+			{
+				if (!create_device_image(width, height, format, g_xr.overlay_image[i], g_xr.overlay_memory[i]))
+				{
+					destroy_overlay_images();
+					return false;
+				}
+			}
+
+			g_xr.overlay_w = width;
+			g_xr.overlay_h = height;
+			g_xr.overlay_format = format;
 			return true;
 		}
 
@@ -789,6 +894,66 @@ namespace vk::xr
 			for (s64& v : g_lock_held_us) v = 0;
 		}
 
+		// Copy overlay buffer `index` into the overlay swapchain (frame thread).
+		bool copy_overlay(s32 index)
+		{
+			if (!ensure_overlay_chain(g_xr.overlay_w, g_xr.overlay_h, g_xr.overlay_format))
+			{
+				return false;
+			}
+
+			auto& chain = g_xr.overlay_chain;
+			XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+			XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+			wait.timeout = 100'000'000; // 100 ms
+			const auto lt1 = lock_begin();
+			bool ok = check(g_xr.xrAcquireSwapchainImage(chain.handle, &acquire, &chain.acquired), "xrAcquireSwapchainImage");
+			ok = ok && check(g_xr.xrWaitSwapchainImage(chain.handle, &wait), "xrWaitSwapchainImage");
+			lock_end(1, lt1);
+
+			if (ok)
+			{
+				VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+				begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+				vkResetCommandBuffer(g_xr.cmd, 0);
+				vkBeginCommandBuffer(g_xr.cmd, &begin);
+				const VkImage target = chain.images[chain.acquired].image;
+				image_barrier(g_xr.cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+					0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+				VkImageCopy region{};
+				region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+				region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+				region.extent = { g_xr.overlay_w, g_xr.overlay_h, 1 };
+				vkCmdCopyImage(g_xr.cmd, g_xr.overlay_image[index], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+				image_barrier(g_xr.cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+					VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
+					VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+				vkEndCommandBuffer(g_xr.cmd);
+
+				VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+				submit.commandBufferCount = 1;
+				submit.pCommandBuffers = &g_xr.cmd;
+				const auto lt2 = lock_begin();
+				vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
+				lock_end(2, lt2);
+				vkWaitForFences(g_xr.device, 1, &g_xr.fence, VK_TRUE, UINT64_MAX);
+				vkResetFences(g_xr.device, 1, &g_xr.fence);
+			}
+
+			if (chain.acquired != umax)
+			{
+				XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+				const auto lt3 = lock_begin();
+				ok = check(g_xr.xrReleaseSwapchainImage(chain.handle, &release), "xrReleaseSwapchainImage") && ok;
+				lock_end(3, lt3);
+				chain.acquired = umax;
+			}
+			return ok;
+		}
+
 		void run_frame()
 		{
 			XrFrameState frame_state{ XR_TYPE_FRAME_STATE };
@@ -813,8 +978,22 @@ namespace vk::xr
 			bool screen_world = true;
 			f32 screen_pos[3] = { 0.f, 0.f, -g_xr.screen_distance };
 			f32 screen_width = g_xr.screen_width;
+			s32 overlay_index = -1;
+			bool overlay_world = false;
+			f32 overlay_pos[3]{};
+			f32 overlay_width = 0.f;
 			{
 				std::lock_guard lock(g_xr.slot_mutex);
+				if (g_xr.overlay_shown && g_xr.overlay_latest >= 0)
+				{
+					overlay_index = g_xr.overlay_latest;
+					g_xr.overlay_in_use = overlay_index;
+					overlay_world = g_xr.overlay_world;
+					overlay_pos[0] = g_xr.overlay_x;
+					overlay_pos[1] = g_xr.overlay_y;
+					overlay_pos[2] = -g_xr.overlay_distance;
+					overlay_width = g_xr.overlay_width;
+				}
 				if (g_xr.screen_mode)
 				{
 					screen_mode = true;
@@ -835,7 +1014,8 @@ namespace vk::xr
 			XrCompositionLayerQuad quads[2]{};
 			XrCompositionLayerProjectionView views[2]{};
 			XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-			const XrCompositionLayerBaseHeader* layers[2]{};
+			XrCompositionLayerQuad overlay_quad{ XR_TYPE_COMPOSITION_LAYER_QUAD };
+			const XrCompositionLayerBaseHeader* layers[3]{};
 			u32 layer_count = 0;
 
 			if (index >= 0 && frame_state.shouldRender && ensure_swapchains(g_xr.slot_w, g_xr.slot_h, g_xr.slot_format))
@@ -956,9 +1136,25 @@ namespace vk::xr
 				}
 			}
 
+			// RPCS3's overlays, over the game, blended by their own alpha.
+			if (overlay_index >= 0 && frame_state.shouldRender && copy_overlay(overlay_index))
+			{
+				overlay_quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+				overlay_quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+				overlay_quad.subImage.swapchain = g_xr.overlay_chain.handle;
+				overlay_quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.overlay_chain_w), static_cast<s32>(g_xr.overlay_chain_h) } };
+				overlay_quad.subImage.imageArrayIndex = 0;
+				overlay_quad.space = overlay_world ? g_xr.space : g_xr.view_space;
+				overlay_quad.pose.orientation.w = 1.f;
+				overlay_quad.pose.position = { overlay_pos[0], overlay_pos[1], overlay_pos[2] };
+				overlay_quad.size = { overlay_width, overlay_width * g_xr.overlay_chain_h / g_xr.overlay_chain_w };
+				layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&overlay_quad);
+			}
+
 			{
 				std::lock_guard lock(g_xr.slot_mutex);
 				g_xr.in_use = -1;
+				g_xr.overlay_in_use = -1;
 			}
 
 			XrFrameEndInfo end{ XR_TYPE_FRAME_END_INFO };
@@ -980,6 +1176,7 @@ namespace vk::xr
 		void frame_thread()
 		{
 			u64 presented_seq = 0;
+			u64 presented_overlay_seq = 0;
 			while (!g_xr.stop.load())
 			{
 				poll_events();
@@ -997,8 +1194,9 @@ namespace vk::xr
 				{
 					std::unique_lock lock(g_xr.slot_mutex);
 					g_xr.slot_cv.wait_for(lock, std::chrono::milliseconds(100),
-						[&] { return g_xr.commit_seq != presented_seq || g_xr.stop.load(); });
+						[&] { return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.stop.load(); });
 					presented_seq = g_xr.commit_seq;
+					presented_overlay_seq = g_xr.overlay_seq;
 				}
 				if (g_xr.stop.load())
 				{
@@ -1022,6 +1220,7 @@ namespace vk::xr
 		if (g_xr.instance)
 		{
 			destroy_swapchains();
+			destroy_overlay_chain();
 			if (g_xr.view_space) g_xr.xrDestroySpace(g_xr.view_space);
 			if (g_xr.space) g_xr.xrDestroySpace(g_xr.space);
 			if (g_xr.session)
@@ -1042,6 +1241,7 @@ namespace vk::xr
 				vk::release_global_submit_lock();
 			}
 			destroy_slots();
+			destroy_overlay_images();
 			if (g_xr.fence) vkDestroyFence(g_xr.device, g_xr.fence, nullptr);
 			if (g_xr.cmd_pool) vkDestroyCommandPool(g_xr.device, g_xr.cmd_pool, nullptr);
 		}
@@ -1145,9 +1345,111 @@ namespace vk::xr
 
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
+		if (g_xr.overlay_writing >= 0)
+		{
+			// Published in the same flip: show it with these eyes.
+			g_xr.overlay_latest = g_xr.overlay_writing;
+			g_xr.overlay_writing = -1;
+			g_xr.overlay_shown = true;
+		}
 		g_xr.commit_seq++;
 		lock.unlock();
 		g_xr.slot_cv.notify_one();
+	}
+
+	bool publish_overlay(const vk::command_buffer& cmd, vk::image* source)
+	{
+		if (!is_running() || !source)
+		{
+			return false;
+		}
+
+		const u32 width = source->width();
+		const u32 height = source->height();
+		const VkFormat format = source->format();
+
+		std::unique_lock lock(g_xr.slot_mutex);
+		if (g_xr.overlay_w != width || g_xr.overlay_h != height || g_xr.overlay_format != format)
+		{
+			while (g_xr.overlay_in_use >= 0)
+			{
+				lock.unlock();
+				std::this_thread::yield();
+				lock.lock();
+			}
+			vk::acquire_global_submit_lock();
+			vkQueueWaitIdle(g_xr.queue);
+			vk::release_global_submit_lock();
+			destroy_overlay_images();
+			if (!create_overlay_images(width, height, format))
+			{
+				xr_log.error("Could not create %ux%u overlay buffers", width, height);
+				return false;
+			}
+		}
+
+		s32 slot = 0;
+		while (slot == g_xr.overlay_latest || slot == g_xr.overlay_in_use)
+		{
+			slot++;
+		}
+		g_xr.overlay_writing = slot;
+		lock.unlock();
+
+		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		const VkImage target = g_xr.overlay_image[slot];
+		source->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
+
+		VkImageCopy region{};
+		region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+		region.extent = { width, height, 1 };
+		vkCmdCopyImage(cmd, source->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+		vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, range);
+		source->pop_layout(cmd);
+		return true;
+	}
+
+	void commit_overlay()
+	{
+		std::unique_lock lock(g_xr.slot_mutex);
+		if (g_xr.overlay_writing < 0)
+		{
+			return;
+		}
+
+		g_xr.overlay_latest = g_xr.overlay_writing;
+		g_xr.overlay_writing = -1;
+		g_xr.overlay_shown = true;
+		g_xr.overlay_seq++;
+		lock.unlock();
+		g_xr.slot_cv.notify_one();
+	}
+
+	void hide_overlay()
+	{
+		std::unique_lock lock(g_xr.slot_mutex);
+		if (!g_xr.overlay_shown)
+		{
+			return;
+		}
+
+		g_xr.overlay_shown = false;
+		g_xr.overlay_seq++;
+		lock.unlock();
+		g_xr.slot_cv.notify_one();
+	}
+
+	void set_overlay_placement(bool world_locked, f32 width, f32 x, f32 y, f32 distance)
+	{
+		std::lock_guard lock(g_xr.slot_mutex);
+		g_xr.overlay_world = world_locked;
+		g_xr.overlay_width = width;
+		g_xr.overlay_x = x;
+		g_xr.overlay_y = y;
+		g_xr.overlay_distance = distance;
 	}
 
 	bool projection_mode() { return g_xr.projection; }

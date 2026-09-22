@@ -259,6 +259,7 @@ private:
 	std::vector<vk::image*> m_fbo_images;
 
 	std::unique_ptr<vk::image> m_overlay_recording_img;
+	std::unique_ptr<vk::image> m_xr_overlay_img; // RPCS3 overlays for the OpenXR quad layer
 
 	//Vertex layout
 	rsx::vertex_input_layout m_vertex_layout;
