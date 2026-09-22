@@ -15,6 +15,10 @@ namespace rsx
 
 			add_page(home_menu::fa_icon::audio, std::make_shared<home_menu_settings_audio>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::video, std::make_shared<home_menu_settings_video>(x, y, width, height, use_separators, nullptr));
+			if (g_cfg.video.vr.enabled)
+			{
+				add_page(home_menu::fa_icon::vr, std::make_shared<home_menu_settings_vr>(x, y, width, height, use_separators, nullptr));
+			}
 			add_page(home_menu::fa_icon::gamepad, std::make_shared<home_menu_settings_input>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::settings, std::make_shared<home_menu_settings_advanced>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::settings_sliders, std::make_shared<home_menu_settings_overlays>(x, y, width, height, use_separators, nullptr));
@@ -169,6 +173,21 @@ namespace rsx
 			{
 				add_dropdown(&g_cfg.video.stereo_render_mode, localized_string_id::HOME_MENU_SETTINGS_VIDEO_STEREO_MODE);
 			}
+
+			apply_layout();
+		}
+
+		// Every value is read at each flip, so changes apply to the next frame.
+		home_menu_settings_vr::home_menu_settings_vr(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent)
+			: home_menu_settings_page(x, y, width, height, use_separators, parent, get_localized_string(localized_string_id::HOME_MENU_SETTINGS_VR))
+		{
+			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
+			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
+			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
+			add_signed_slider(&g_cfg.video.vr.hud_offset_x, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X, " %", 1);
+			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);
+			add_unsigned_slider(&g_cfg.video.vr.screen_depth, localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH, " %", 5);
+			add_signed_slider(&g_cfg.video.vr.camera_depth, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH, " cm", 5);
 
 			apply_layout();
 		}

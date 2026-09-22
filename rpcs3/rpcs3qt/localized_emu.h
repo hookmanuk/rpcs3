@@ -254,6 +254,14 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VIDEO_RESOLUTION_SCALE_THRESHOLD: return tr("Resolution Scale Threshold", "Video");
 		case localized_string_id::HOME_MENU_SETTINGS_VIDEO_STRETCH_TO_DISPLAY: return tr("Stretch To Display Area", "Video");
 		case localized_string_id::HOME_MENU_SETTINGS_VIDEO_STEREO_MODE: return tr("Stereo Mode", "Video");
+		case localized_string_id::HOME_MENU_SETTINGS_VR: return tr("VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN: return tr("Fixed Screen (floating 3D window)", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED: return tr("HUD Fixed In Front", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE: return tr("HUD Scale", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X: return tr("HUD Horizontal Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y: return tr("HUD Vertical Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH: return tr("Screen 3D Depth", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Depth Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT: return tr("Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_BACKGROUND_INPUT: return tr("Background Input Enabled", "Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_KEEP_PADS_CONNECTED: return tr("Keep Pads Connected", "Input");

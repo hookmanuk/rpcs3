@@ -26,6 +26,7 @@ namespace rsx::overlays::home_menu
 		settings_sliders,
 		settings_gauge,
 		bug,
+		vr,
 	};
 
 	const image_info* get_icon(fa_icon icon);

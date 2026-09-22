@@ -53,6 +53,8 @@ namespace rsx::overlays::home_menu
 			return "gauge-solid.png";
 		case fa_icon::bug:
 			return "bug-solid.png";
+		case fa_icon::vr:
+			return "vr-headset-solid.png";
 		}
 	}
 

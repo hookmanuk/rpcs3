@@ -324,6 +324,12 @@ namespace rsx
 			home_menu_settings_video(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent);
 		};
 
+		// VR fork: the live VR settings (Video > VR in the game's custom configuration).
+		struct home_menu_settings_vr : public home_menu_settings_page
+		{
+			home_menu_settings_vr(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent);
+		};
+
 		struct home_menu_settings_advanced : public home_menu_settings_page
 		{
 			home_menu_settings_advanced(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent);
