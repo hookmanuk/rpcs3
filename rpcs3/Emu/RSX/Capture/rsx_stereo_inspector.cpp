@@ -4,6 +4,7 @@
 #include "Emu/System.h"
 #include "Emu/IdManager.h"
 #include "Emu/RSX/rsx_methods.h"
+#include "Emu/RSX/RSXThread.h"
 #include "Emu/RSX/Core/RSXFrameBuffer.h"
 #include "Emu/RSX/Program/ProgramStateCache.h"
 #include "Emu/RSX/Utils/rsx_utils.h"
@@ -308,7 +309,8 @@ namespace rsx::vr
 		   << ",\"subdraw\":" << in.subdraw_index
 		   << ",\"vp_storage_hash\":\"" << std::hex << storage_hash << std::dec << '"'
 		   << ",\"vp_ucode_hash\":\"" << std::hex << ucode_hash << std::dec << '"'
-		   << ",\"vp_session_id\":" << in.vp_session_id;
+		   << ",\"vp_session_id\":" << in.vp_session_id
+		   << ",\"fp_session_id\":" << in.fp_session_id;
 
 		// Primitive / vertex signature
 		os << ",\"primitive\":" << static_cast<u32>(regs.current_draw_clause.primitive)
@@ -316,6 +318,18 @@ namespace rsx::vr
 		   << ",\"indexed\":" << (in.indexed ? "true" : "false")
 		   << ",\"vertex_draw_count\":" << in.vertex_draw_count
 		   << ",\"pass_count\":" << in.pass_count;
+
+		// Enabled fragment textures: guest address, size and format.
+		os << ",\"textures\":[";
+		for (u32 i = 0, n = 0; i < rsx::limits::fragment_textures_count; ++i)
+		{
+			const auto& tex = regs.fragment_textures[i];
+			if (!tex.enabled()) continue;
+			if (n++) os << ',';
+			os << "{\"unit\":" << i << ",\"address\":" << rsx::get_address(tex.offset(), tex.location())
+			   << ",\"width\":" << tex.width() << ",\"height\":" << tex.height() << ",\"format\":" << static_cast<u32>(tex.format()) << '}';
+		}
+		os << ']';
 
 		// Render-target identity. Guest addresses are the stable semantic key;
 		// Vulkan handles are deliberately not recorded.

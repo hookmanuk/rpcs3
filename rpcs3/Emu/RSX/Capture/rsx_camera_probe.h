@@ -58,6 +58,10 @@
 //                   (default 0; superseded by the perspective test, which is
 //                   strictly more precise - kept for experiments).
 //
+//   layout=columns  treat camera blocks as DP4 rows, clip[i] = dot(c[base+i], v)
+//                   (the profile's matrix_layout "column_vectors"), for an
+//                   unprofiled game
+//
 //   title=<id>      only act on this title id (default: any title with a profile)
 //
 //   render=1         enable the Gate 5 renderer interface. The renderer calls
@@ -95,9 +99,15 @@ namespace rsx::vr
 		std::string title_id;
 		std::string app_version;             // expected game version; a mismatch is logged
 
-		// 4-slot camera matrices (row vectors), tried in order; the first
-		// perspective one is the draw's camera.
+		// 4-slot camera matrices, tried in order; the first perspective one is
+		// the draw's camera.
 		std::vector<u32> camera_blocks;
+		// false (row_vectors): clip = v.x*c[b] + ... + c[b+3], one slot per matrix row.
+		// true (column_vectors): clip[i] = dot(c[b+i], v), the transpose (PSGL/Cg DP4).
+		bool column_vectors = false;
+		// A camera block must be rigid: its clip x, y and w directions mutually
+		// orthogonal. Rejects unrelated data that happens to sit in a listed block.
+		bool require_rigid_camera = false;
 		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
 
 		u32 camera_position_slot = umax;     // umax: the game has none
@@ -297,6 +307,7 @@ namespace rsx::vr
 
 		bool m_have_xform = false;
 		bool m_require_cam = false;
+		bool m_column_vectors = false;  // layout=columns (probe only; profiles set their own)
 
 		// One-frame classifier report, logged on the first full frame after arming.
 		mutable atomic_t<u32> m_stat_perturbed{0};

@@ -3068,6 +3068,73 @@ void VKGSRender::renderctl(u32 request_code, void* args)
 	}
 }
 
+void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst)
+{
+	// A blit between render targets is a guest operation the right eye has to see
+	// too. Pure copies its finished frame to the display buffer this way
+	// (c0000000 -> c0398000 in 1024- and 256-column chunks); without the mirror the
+	// right eye keeps whatever its own draws last left there, e.g. the unblurred
+	// scene behind the pause menu. Only 1:1 linear copies between two right-eye
+	// colour surfaces are mirrored. Anything else (texture uploads, mip chains in
+	// main memory, scaled or swizzled blits) stays single-shot, as the left eye's
+	// texture cache is what both eyes sample for non-surface addresses anyway.
+	using namespace rsx::blit_engine;
+	const bool src_argb8 = src.format == transfer_source_format::a8r8g8b8;
+	const bool dst_argb8 = dst.format == transfer_destination_format::a8r8g8b8;
+	if (!rsx::fcmp(dst.scale_x, 1.f) || !rsx::fcmp(dst.scale_y, 1.f) || dst.swizzled || dst.clip_x || dst.clip_y || src_argb8 != dst_argb8)
+	{
+		return;
+	}
+
+	const u8 bpp = src_argb8 ? 4 : 2;
+	const u16 width = dst.clip_width;
+	const u16 height = dst.clip_height;
+
+	// The copy rectangle inside a right-eye surface, at the surface's resolution scale.
+	const auto locate = [&](u32 address, u32 pitch, vk::render_target*& surface, areai& rect)
+	{
+		surface = m_vr_right_rtts.find_color_surface(address, pitch);
+		if (!surface || surface->samples() != 1 || surface->get_bpp() != bpp)
+		{
+			return false;
+		}
+
+		const u32 offset = address - surface->base_addr;
+		const u32 x = (offset % pitch) / bpp;
+		const u32 y = offset / pitch;
+		const u32 surface_w = surface->template get_surface_width<rsx::surface_metrics::pixels>();
+		const u32 surface_h = surface->template get_surface_height<rsx::surface_metrics::pixels>();
+		if ((offset % pitch) % bpp || x + width > surface_w || y + height > surface_h)
+		{
+			return false;
+		}
+
+		const f32 kx = static_cast<f32>(surface->width()) / surface_w;
+		const f32 ky = static_cast<f32>(surface->height()) / surface_h;
+		rect = { static_cast<int>(x * kx), static_cast<int>(y * ky),
+			static_cast<int>((x + width) * kx), static_cast<int>((y + height) * ky) };
+		return true;
+	};
+
+	vk::render_target* src_surface = nullptr;
+	vk::render_target* dst_surface = nullptr;
+	areai src_rect, dst_rect;
+	if (!locate(vm::get_addr(src.pixels), src.pitch, src_surface, src_rect) ||
+		!locate(vm::get_addr(dst.pixels), dst.pitch, dst_surface, dst_rect) ||
+		src_rect.width() != dst_rect.width() || src_rect.height() != dst_rect.height())
+	{
+		return;
+	}
+
+	// Batched right-eye draws precede this copy in guest order.
+	vr_batch_flush();
+
+	src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
+	dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
+	vk::copy_image(*m_current_command_buffer, src_surface, dst_surface, src_rect, dst_rect);
+	dst_surface->on_write_copy(rsx::get_shared_tag());
+}
+
 bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate)
 {
 	if (swapchain_unavailable)
@@ -3077,6 +3144,11 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const r
 	{
 		m_samplers_dirty.store(true);
 		m_current_command_buffer->set_flag(vk::command_buffer::cb_has_blit_transfer);
+
+		if (rsx::vr::camera_probe::get().render_enabled())
+		{
+			vr_mirror_blit(src, dst);
+		}
 
 		if (m_current_command_buffer->flags & vk::command_buffer::cb_has_dma_transfer)
 		{

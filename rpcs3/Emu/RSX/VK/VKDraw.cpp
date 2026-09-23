@@ -1254,6 +1254,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			capture_in.has_indexed_constants = m_vertex_prog->has_indexed_constants;
 			capture_in.vp_session_id         = m_vertex_prog->id;
 		}
+		if (m_fragment_prog)
+		{
+			capture_in.fp_session_id         = m_fragment_prog->id;
+		}
 
 		inspector.record_draw(capture_in);
 	}

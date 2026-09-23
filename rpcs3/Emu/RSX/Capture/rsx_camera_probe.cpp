@@ -122,6 +122,110 @@ namespace rsx::vr
 			}
 			return nullptr;
 		}
+
+		// A 4-slot matrix in the row-vector convention all the math here uses:
+		// rows[k] is one row of M (clip = v * M), so column j produces clip[j].
+		// A column_vectors block stores M transposed (slot i is the row DP4 reads
+		// for clip[i]); it is worked on as a transposed copy and written back.
+		// A DP4 program may leave the z slot out and take clip z from the w row
+		// (a sky drawn on the far plane, e.g. Pure's c[26], c[27], c[29]); its z
+		// row is then w, and only the slots it reads are written back.
+		class matrix_block
+		{
+		public:
+			matrix_block() = default;
+			matrix_block(const matrix_block&) = delete;
+			matrix_block& operator=(const matrix_block&) = delete;
+
+			~matrix_block()
+			{
+				if (m_transposed)
+				{
+					for (u32 j = 0; j < 4; ++j)
+					{
+						if (!m_slots[j]) continue;
+						for (u32 i = 0; i < 4; ++i)
+							m_slots[j][i] = m_local[i][j];
+					}
+				}
+			}
+
+			// False (and nothing bound) if the program does not read all 4 slots.
+			bool bind(void* buffer, const u16* reloc, usz reloc_size, u32 base, bool column_vectors)
+			{
+				release();
+				for (u32 k = 0; k < 4; ++k)
+				{
+					m_slots[k] = find_slot(buffer, reloc, reloc_size, base + k);
+					if (!m_slots[k] && !(column_vectors && k == 2))
+					{
+						return false;
+					}
+				}
+
+				m_transposed = column_vectors;
+				for (u32 k = 0; k < 4; ++k)
+				{
+					rows[k] = m_transposed ? m_local[k] : m_slots[k];
+				}
+				if (m_transposed)
+				{
+					for (u32 i = 0; i < 4; ++i)
+						for (u32 j = 0; j < 4; ++j)
+							m_local[i][j] = m_slots[m_slots[j] ? j : 3][i]; // only z may be absent: z = w
+				}
+				return true;
+			}
+
+			// Drop the binding without writing back (the block was not modified).
+			void release()
+			{
+				m_transposed = false;
+				for (f32*& r : rows) r = nullptr;
+			}
+
+			f32* rows[4] = {};
+
+		private:
+			f32* m_slots[4] = {};
+			f32 m_local[4][4] = {};
+			bool m_transposed = false;
+		};
+
+		bool is_perspective(f32* const r[4])
+		{
+			constexpr f32 eps = 1e-6f;
+			return !(std::fabs(r[0][3]) < eps && std::fabs(r[1][3]) < eps &&
+				std::fabs(r[2][3]) < eps && std::fabs(r[3][3] - 1.f) < eps);
+		}
+
+		// Clip x, y and w directions (columns 0, 1, 3 of rows 0..2) mutually orthogonal.
+		bool is_rigid(f32* const r[4])
+		{
+			const auto dot = [&](u32 i, u32 j) { return r[0][i] * r[0][j] + r[1][i] * r[1][j] + r[2][i] * r[2][j]; };
+			const f32 n0 = std::sqrt(dot(0, 0)), n1 = std::sqrt(dot(1, 1)), n3 = std::sqrt(dot(3, 3));
+			constexpr f32 tol = 0.1f;
+			return n0 > 1e-8f && n1 > 1e-8f && n3 > 1e-8f &&
+				std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
+				std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
+				std::fabs(dot(1, 3)) <= tol * n1 * n3;
+		}
+
+		// Bind the first perspective (and, if required, rigid) block of the candidates.
+		bool bind_camera_block(matrix_block& block, void* buffer, const u16* reloc, usz reloc_size,
+			std::span<const u32> candidates, bool column_vectors, bool require_rigid)
+		{
+			for (const u32 candidate : candidates)
+			{
+				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors) && is_perspective(block.rows) &&
+					(!require_rigid || is_rigid(block.rows)))
+				{
+					return true;
+				}
+			}
+			block.release();
+			return false;
+		}
 	}
 
 	const title_profile::stereo_rule& title_profile::stereo_for(u32 target_width, u32 output_width) const
@@ -225,9 +329,16 @@ namespace rsx::vr
 
 		read(root, "app_version", profile->app_version, false);
 
-		if (std::string layout; read(root, "matrix_layout", layout) && layout != "row_vectors")
+		if (std::string layout; read(root, "matrix_layout", layout))
 		{
-			fail(fmt::format("matrix_layout '%s' is not supported (row_vectors only)", layout));
+			if (layout == "column_vectors")
+			{
+				profile->column_vectors = true;
+			}
+			else if (layout != "row_vectors")
+			{
+				fail(fmt::format("matrix_layout '%s' is not supported (row_vectors or column_vectors)", layout));
+			}
 		}
 
 		if (const YAML::Node blocks = child(root, "camera_blocks"); blocks && blocks.IsSequence())
@@ -279,13 +390,17 @@ namespace rsx::vr
 		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
+		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
+		{
+			profile->require_rigid_camera = rigid == "true";
+		}
 		if (std::string match; read(root, "match_headset_refresh_rate", match, false))
 		{
 			profile->match_headset_refresh_rate = match == "true";
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate" });
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate", "require_rigid_camera" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection" });
@@ -388,8 +503,20 @@ namespace rsx::vr
 			m_audit_yaw_deg = static_cast<f32>(std::atof(audit.c_str()));
 			const f32 a = m_audit_yaw_deg * 3.14159265358979323846f / 180.f;
 			const f32 c = std::cos(a), s = std::sin(a);
-			m_audit_rot = { c, 0.f, s, 0.f, 1.f, 0.f, -s, 0.f, c };
-			vr_probe_log.success("Rotation audit: right eye yawed by %f degrees, no stereo separation.", m_audit_yaw_deg);
+			// "pitch:<deg>" pitches instead (up or down, per the clip basis's Y).
+			if (audit.starts_with("pitch:"))
+			{
+				m_audit_yaw_deg = static_cast<f32>(std::atof(audit.c_str() + 6));
+				const f32 p = m_audit_yaw_deg * 3.14159265358979323846f / 180.f;
+				const f32 cp = std::cos(p), sp = std::sin(p);
+				m_audit_rot = { 1.f, 0.f, 0.f, 0.f, cp, -sp, 0.f, sp, cp };
+				vr_probe_log.success("Rotation audit: right eye pitched by %f degrees, no stereo separation.", m_audit_yaw_deg);
+			}
+			else
+			{
+				m_audit_rot = { c, 0.f, s, 0.f, 1.f, 0.f, -s, 0.f, c };
+				vr_probe_log.success("Rotation audit: right eye yawed by %f degrees, no stereo separation.", m_audit_yaw_deg);
+			}
 
 			if (const std::string fov = read_env("RPCS3_VR_AUDIT_FOV"); !fov.empty())
 			{
@@ -450,6 +577,7 @@ namespace rsx::vr
 		m_eye = 0.f;
 		m_have_xform = false;
 		m_require_cam = false;
+		m_column_vectors = false;
 		m_stereo_sep = 0.f;
 		m_stereo_conv = 0.f;
 		m_have_stereo = false;
@@ -555,6 +683,7 @@ namespace rsx::vr
 			else if (k == "comp")  { m_raw_comp = as_u(); }
 			else if (k == "add")   { m_raw_add = as_f(); }
 			else if (k == "reqcam") m_require_cam = (as_u() != 0);
+			else if (k == "layout") m_column_vectors = v == "columns";
 			else if (k == "stereo") { m_stereo_sep = as_f(); m_have_stereo = true; }
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
 			else if (k == "render") { m_render_enabled = (as_u() != 0); }
@@ -593,39 +722,14 @@ namespace rsx::vr
 
 		const title_profile& profile = *ensure(this->profile());
 
-		const auto is_perspective = [](f32* const r[4])
-		{
-			constexpr f32 eps = 1e-6f;
-			return !(std::fabs(r[0][3]) < eps && std::fabs(r[1][3]) < eps &&
-				std::fabs(r[2][3]) < eps && std::fabs(r[3][3] - 1.f) < eps);
-		};
-
 		// The position policy has a wider domain than the matrix policy. Locate a
 		// perspective block first so the camera position's offset follows the exact
 		// camera right axis used by this draw (not a global axis or a stale prior draw).
 		const u32 base_override[2] = { m_base, m_base + 4 };
 		const std::span<const u32> camera_blocks = m_base != umax ? std::span<const u32>(base_override) : std::span<const u32>(profile.camera_blocks);
-		f32* rows[4] = {};
-		bool have_perspective = false;
-		for (const u32 candidate : camera_blocks)
-		{
-			f32* r[4];
-			bool present = true;
-			for (u32 k = 0; k < 4 && present; ++k)
-			{
-				r[k] = find_slot(buffer, reloc, reloc_size, candidate + k);
-				present = r[k] != nullptr;
-			}
-
-			if (present && is_perspective(r))
-			{
-				for (u32 k = 0; k < 4; ++k) rows[k] = r[k];
-				have_perspective = true;
-				break;
-			}
-		}
-
-		if (!have_perspective)
+		matrix_block block;
+		f32* const* const rows = block.rows;
+		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera))
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
@@ -888,24 +992,19 @@ namespace rsx::vr
 			return;
 		}
 
-		f32* rows[4];
-		for (u32 k = 0; k < 4; ++k)
-		{
-			rows[k] = find_slot(buffer, reloc, reloc_size, profile.screen_space_block + k);
-			if (!rows[k])
-			{
-				return;
-			}
-		}
-
-		constexpr f32 eps = 1e-6f;
-		if (!(std::fabs(rows[0][3]) < eps && std::fabs(rows[1][3]) < eps &&
-			std::fabs(rows[2][3]) < eps && std::fabs(rows[3][3] - 1.f) < eps))
+		matrix_block block;
+		if (!block.bind(buffer, reloc, reloc_size, profile.screen_space_block, profile.column_vectors))
 		{
 			return;
 		}
 
-		map_vr_screen_box(rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
+		if (is_perspective(block.rows))
+		{
+			block.release();
+			return;
+		}
+
+		map_vr_screen_box(block.rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
 	}
 
 	void camera_probe::map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const
@@ -1109,6 +1208,8 @@ namespace rsx::vr
 		const u32 cam_slot = m_cam_slot != umax ? m_cam_slot : profile ? profile->camera_position_slot : umax;
 		// Probe default for unprofiled titles: RPCS3's own 2% output-aspect match.
 		const f32 aspect_tolerance = profile ? profile->output_aspect_tolerance : 0.02f;
+		// layout=columns selects the DP4 layout for an unprofiled game.
+		const bool column_vectors = m_column_vectors || (profile && profile->column_vectors);
 		if (camera_blocks.empty())
 		{
 			return;
@@ -1145,34 +1246,9 @@ namespace rsx::vr
 		// Select the camera block: the first of {base, base+4} that is present in
 		// this program and is a PERSPECTIVE matrix. Orthographic blocks (HUD,
 		// shadow cascades, env maps) and affine world matrices are left alone.
-		const auto is_perspective = [](f32* const r[4])
-		{
-			constexpr f32 eps = 1e-6f;
-			return !(std::fabs(r[0][3]) < eps && std::fabs(r[1][3]) < eps &&
-			         std::fabs(r[2][3]) < eps && std::fabs(r[3][3] - 1.f) < eps);
-		};
-
-		f32* rows[4] = {};
-		bool found = false;
-		for (const u32 candidate : camera_blocks)
-		{
-			f32* r[4];
-			bool present = true;
-			for (u32 k = 0; k < 4 && present; ++k)
-			{
-				r[k] = find_slot(buffer, reloc, reloc_size, candidate + k);
-				present = r[k] != nullptr;
-			}
-
-			if (present && is_perspective(r))
-			{
-				for (u32 k = 0; k < 4; ++k) rows[k] = r[k];
-				found = true;
-				break;
-			}
-		}
-
-		if (!found)
+		matrix_block block;
+		f32* const* const rows = block.rows;
+		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, column_vectors, profile && profile->require_rigid_camera))
 		{
 			if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 			{

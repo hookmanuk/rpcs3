@@ -169,6 +169,7 @@ private:
 	bool vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo);
 	void vr_batch_flush();   // run any open batch now (ends the left pass if it is open)
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
+	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst);
 
 	sizeu m_swapchain_dims{};
 	bool swapchain_unavailable = false;

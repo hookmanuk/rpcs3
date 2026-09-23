@@ -755,5 +755,28 @@ namespace vk
 		bool can_collapse_surface(const std::unique_ptr<vk::render_target>& surface, rsx::problem_severity severity) override;
 		bool handle_memory_pressure(vk::command_buffer& cmd, rsx::problem_severity severity) override;
 		void trim(vk::command_buffer& cmd, rsx::problem_severity memory_pressure);
+
+		// VR fork: the most recently used colour surface holding this address with
+		// this pitch, or null (the right-eye blit mirror's lookup).
+		vk::render_target* find_color_surface(u32 address, u32 pitch)
+		{
+			const auto range = utils::address_range32::start_length(address, 1);
+			if (!m_render_targets_memory_range.valid() || !range.overlaps(m_render_targets_memory_range))
+			{
+				return nullptr;
+			}
+
+			vk::render_target* best = nullptr;
+			for (auto it = m_render_targets_storage.begin_range(range); it != m_render_targets_storage.end(); ++it)
+			{
+				vk::render_target* surface = vk::surface_cache_traits::get(it->second);
+				if (surface->get_rsx_pitch() == pitch && surface->get_memory_range().overlaps(range) &&
+					(!best || surface->last_use_tag > best->last_use_tag))
+				{
+					best = surface;
+				}
+			}
+			return best;
+		}
 	};
 }

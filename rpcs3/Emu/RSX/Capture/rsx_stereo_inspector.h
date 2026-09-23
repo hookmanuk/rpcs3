@@ -50,6 +50,7 @@ namespace rsx
 			const std::vector<u16>* constant_ids = nullptr;
 			bool has_indexed_constants = false;
 			u32 vp_session_id = 0;
+			u32 fp_session_id = 0;   // shaderlog/FragmentProgram<id> with "Log shader programs"
 
 			const framebuffer_layout* framebuffer = nullptr;
 		};

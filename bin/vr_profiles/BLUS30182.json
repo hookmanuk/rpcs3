@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30182",
+  "app_version": "01.00",
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [26, 39],
+  "require_rigid_camera": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 18,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.016,
+    "convergence": 2.6
+  },
+
+  "screen_space": {
+    "orthographic_block": 256
+  }
+}
