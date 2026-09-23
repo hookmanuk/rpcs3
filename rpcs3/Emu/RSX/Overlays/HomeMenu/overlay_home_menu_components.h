@@ -25,7 +25,8 @@ namespace rsx
 			back,
 			next,
 			exit,
-			exit_for_screenshot
+			exit_for_screenshot,
+			exit_menu // close the whole menu, even from inside a settings tab
 		};
 
 		struct home_menu_entry : horizontal_layout

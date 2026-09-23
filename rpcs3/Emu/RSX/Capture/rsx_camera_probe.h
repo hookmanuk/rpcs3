@@ -162,6 +162,10 @@ namespace rsx::vr
 		bool enabled() const { return m_active.load(); }
 		bool render_enabled() const;
 
+		// Load the title's profile again on next use (a generated one was just
+		// written). Only safe while no profile is loaded: the old one is freed.
+		void reload_profile();
+
 		// Frame boundary: re-read RPCS3_VR_PROBE_FILE if it changed.
 		void poll();
 

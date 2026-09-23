@@ -792,7 +792,8 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		{
 			vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
 			probe.set_screen_stereo_scale(1.f);
-			probe.set_vr_view(head, head_position, vk::xr::eye_scale(), vk::xr::fov_scale(),
+			// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
+			probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
 				vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
 			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr,
 				g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98259",
+  "app_version": "01.00",
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [60],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0173228,
+    "convergence": 2.56
+  }
+}

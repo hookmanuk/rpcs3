@@ -494,6 +494,7 @@
     <ClCompile Include="Emu\RSX\Capture\rsx_replay.cpp" />
     <ClCompile Include="Emu\RSX\Capture\rsx_stereo_inspector.cpp" />
     <ClCompile Include="Emu\RSX\Capture\rsx_camera_probe.cpp" />
+    <ClCompile Include="Emu\RSX\Capture\rsx_vr_profile_generator.cpp" />
     <ClCompile Include="Emu\RSX\Program\CgBinaryProgram.cpp" />
     <ClCompile Include="Emu\RSX\Program\CgBinaryFragmentProgram.cpp" />
     <ClCompile Include="Emu\RSX\Program\CgBinaryVertexProgram.cpp" />
@@ -1034,6 +1035,7 @@
     <ClInclude Include="Emu\RSX\Capture\rsx_replay.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_stereo_inspector.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_camera_probe.h" />
+    <ClInclude Include="Emu\RSX\Capture\rsx_vr_profile_generator.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_trace.h" />
     <ClInclude Include="Emu\RSX\Program\GLSLCommon.h" />
     <ClInclude Include="Emu\RSX\Common\surface_utils.h" />

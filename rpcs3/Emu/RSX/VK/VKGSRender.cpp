@@ -921,6 +921,7 @@ VKGSRender::~VKGSRender()
 		m_vr_right_draw_fbo->release();
 		m_vr_right_draw_fbo = nullptr;
 	}
+	m_vr_staged.clear();
 	m_vr_right_rtts.destroy();
 	m_rtts.destroy();
 	m_texture_cache.destroy();
@@ -3074,13 +3075,47 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	// too. Pure copies its finished frame to the display buffer this way
 	// (c0000000 -> c0398000 in 1024- and 256-column chunks); without the mirror the
 	// right eye keeps whatever its own draws last left there, e.g. the unblurred
-	// scene behind the pause menu. Only 1:1 linear copies between two right-eye
-	// colour surfaces are mirrored. Anything else (texture uploads, mip chains in
-	// main memory, scaled or swizzled blits) stays single-shot, as the left eye's
-	// texture cache is what both eyes sample for non-surface addresses anyway.
+	// scene behind the pause menu. Mirrored: 1:1 linear copies between two
+	// right-eye colour surfaces, the same staged through memory with no surface
+	// (out and back, ICO), and scaled copies between two depth surfaces (ICO).
+	// Anything else (texture uploads, mip chains in main memory, scaled or
+	// swizzled colour blits) stays single-shot, as the left eye's texture cache is
+	// what both eyes sample for non-surface addresses anyway.
 	using namespace rsx::blit_engine;
 	const bool src_argb8 = src.format == transfer_source_format::a8r8g8b8;
 	const bool dst_argb8 = dst.format == transfer_destination_format::a8r8g8b8;
+
+	// A scaled copy between two depth surfaces: ICO halves its depth buffer
+	// (0xc0f70000 -> 0xc12e0000) for a half-resolution glow and particle pass.
+	if (!dst.swizzled && !dst.clip_x && !dst.clip_y && src_argb8 && dst_argb8)
+	{
+		const u32 src_address = vm::get_addr(src.pixels);
+		const u32 dst_address = vm::get_addr(dst.pixels);
+		auto* src_depth = m_vr_right_rtts.get_surface_at(src_address);
+		auto* dst_depth = m_vr_right_rtts.get_surface_at(dst_address);
+		if (src_depth && dst_depth && src_depth != dst_depth &&
+			src_depth->base_addr == src_address && dst_depth->base_addr == dst_address &&
+			(src_depth->aspect() & VK_IMAGE_ASPECT_DEPTH_BIT) && (dst_depth->aspect() & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+			src_depth->format() == dst_depth->format() && src_depth->samples() == 1 && dst_depth->samples() == 1)
+		{
+			// Guest pixels to the surface's resolution scale.
+			const auto area = [](vk::render_target* surface, u32 w, u32 h)
+			{
+				const f32 kx = static_cast<f32>(surface->width()) / surface->template get_surface_width<rsx::surface_metrics::pixels>();
+				const f32 ky = static_cast<f32>(surface->height()) / surface->template get_surface_height<rsx::surface_metrics::pixels>();
+				return areai{ 0, 0, static_cast<int>(std::min<f32>(w * kx, surface->width())), static_cast<int>(std::min<f32>(h * ky, surface->height())) };
+			};
+
+			vr_batch_flush();
+			src_depth->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
+			dst_depth->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
+			vk::copy_scaled_image(*m_current_command_buffer, src_depth, dst_depth,
+				area(src_depth, src.width, src.height), area(dst_depth, dst.clip_width, dst.clip_height), {}, true, VK_FILTER_NEAREST);
+			dst_depth->on_write_copy(rsx::get_shared_tag());
+			return;
+		}
+	}
+
 	if (!rsx::fcmp(dst.scale_x, 1.f) || !rsx::fcmp(dst.scale_y, 1.f) || dst.swizzled || dst.clip_x || dst.clip_y || src_argb8 != dst_argb8)
 	{
 		return;
@@ -3116,23 +3151,91 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 		return true;
 	};
 
+	const u32 src_address = vm::get_addr(src.pixels);
+	const u32 dst_address = vm::get_addr(dst.pixels);
 	vk::render_target* src_surface = nullptr;
 	vk::render_target* dst_surface = nullptr;
 	areai src_rect, dst_rect;
-	if (!locate(vm::get_addr(src.pixels), src.pitch, src_surface, src_rect) ||
-		!locate(vm::get_addr(dst.pixels), dst.pitch, dst_surface, dst_rect) ||
-		src_rect.width() != dst_rect.width() || src_rect.height() != dst_rect.height())
+	const bool src_found = locate(src_address, src.pitch, src_surface, src_rect);
+	const bool dst_found = locate(dst_address, dst.pitch, dst_surface, dst_rect);
+
+	if (src_found && dst_found)
 	{
+		if (src_rect.width() != dst_rect.width() || src_rect.height() != dst_rect.height())
+		{
+			return;
+		}
+
+		// Batched right-eye draws precede this copy in guest order.
+		vr_batch_flush();
+
+		src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
+		dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
+		vk::copy_image(*m_current_command_buffer, src_surface, dst_surface, src_rect, dst_rect);
+		dst_surface->on_write_copy(rsx::get_shared_tag());
 		return;
 	}
 
-	// Batched right-eye draws precede this copy in guest order.
-	vr_batch_flush();
+	// Staging through memory with no surface: ICO copies its frame out to main
+	// memory (0x30900000) and back into other targets. Keep the right eye's pixels
+	// in a host image keyed by the staging address, for the copy back.
+	if (src_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
+	{
+		const u32 w = src_rect.width(), h = src_rect.height();
+		auto found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s) { return s.address == dst_address && s.pitch == dst.pitch; });
+		auto& staged = found != m_vr_staged.end() ? *found : m_vr_staged.emplace_back();
+		if (!staged.image || staged.image->width() != w || staged.image->height() != h || staged.image->format() != src_surface->format())
+		{
+			if (staged.image)
+			{
+				// Earlier copies may still be in flight.
+				vk::get_resource_manager()->dispose(staged.image);
+			}
+			staged.image =std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				VK_IMAGE_TYPE_2D, src_surface->format(), w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+				0, VMM_ALLOCATION_POOL_SYSTEM);
+		}
+		staged.address = dst_address;
+		staged.pitch = dst.pitch;
+		staged.width = width;
+		staged.height = height;
 
-	src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
-	dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
-	vk::copy_image(*m_current_command_buffer, src_surface, dst_surface, src_rect, dst_rect);
-	dst_surface->on_write_copy(rsx::get_shared_tag());
+		vr_batch_flush();
+		if (staged.image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+		{
+			// copy_image returns the image to its prior layout, which must be a real one.
+			if (vk::is_renderpass_open(*m_current_command_buffer))
+			{
+				vk::end_renderpass(*m_current_command_buffer);
+			}
+			vk::change_image_layout(*m_current_command_buffer, staged.image.get(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		}
+		src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
+		vk::copy_image(*m_current_command_buffer, src_surface, staged.image.get(), src_rect, areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) });
+		return;
+	}
+
+	if (dst_found)
+	{
+		const auto staged = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
+		{
+			return s.address == src_address && s.pitch == src.pitch && s.width >= width && s.height >= height &&
+				s.image->width() >= static_cast<u32>(dst_rect.width()) && s.image->height() >= static_cast<u32>(dst_rect.height()) &&
+				s.image->format() == dst_surface->format();
+		});
+		if (staged != m_vr_staged.end())
+		{
+
+			vr_batch_flush();
+			dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
+			vk::copy_image(*m_current_command_buffer, staged->image.get(), dst_surface,
+				areai{ 0, 0, dst_rect.width(), dst_rect.height() }, dst_rect);
+			dst_surface->on_write_copy(rsx::get_shared_tag());
+			return;
+		}
+	}
+
 }
 
 bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate)

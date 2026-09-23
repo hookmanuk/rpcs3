@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30300",
+  "app_version": "01.00",
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [30],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 16,
+    "eye_baseline": 0.32003
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.013626,
+    "convergence": 12.8012,
+    "by_target_width": [
+      { "output_width_divisor": 4, "per_eye_separation": 0.0141642, "convergence": 12.8012 }
+    ]
+  },
+
+  "screen_space": {
+    "orthographic_block": 256
+  }
+}

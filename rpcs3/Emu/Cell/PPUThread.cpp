@@ -1227,6 +1227,45 @@ static void ppu_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, ppu_int
 	return ppu_cache(ppu.cia)(ppu, {*this_op}, this_op, ppu.state ? &ppu_ret : next_fn);
 }
 
+// VR fork dev hook: a trace breakpoint logs the guest call stack (each distinct
+// stack once, then every 300th hit) and continues. Interpreter only.
+static void ppu_trace_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, ppu_intrp_func* next_fn)
+{
+	const u32 addr = vm::get_addr(this_op);
+	ppu.cia = addr;
+
+	static std::mutex s_mutex;
+	static std::map<u32, u64> s_hits;
+	static std::set<std::string> s_seen;
+	{
+		std::lock_guard lock(s_mutex);
+		const u64 hits = ++s_hits[addr];
+		std::string key = fmt::format("0x%x LR 0x%x", addr, static_cast<u32>(ppu.lr));
+		const auto list = ppu.dump_callstack_list();
+		for (usz i = 0; i < std::min<usz>(list.size(), 10); i++)
+		{
+			fmt::append(key, " <- 0x%x", list[i].first);
+		}
+		if (s_seen.insert(key).second || hits % 300 == 0)
+		{
+			ppu_log.success("TRACE %s [%s, r3=0x%llx r4=0x%llx, hit %u]", key, ppu.get_name(), ppu.gpr[3], ppu.gpr[4], hits);
+		}
+	}
+
+	return ppu_cache(addr)(ppu, {*this_op}, this_op, next_fn);
+}
+
+extern bool ppu_trace_breakpoint(u32 addr)
+{
+	if (addr % 4 || !vm::check_addr(addr, vm::page_executable) || g_cfg.core.ppu_decoder == ppu_decoder_type::llvm || ppu_read(addr) == &ppu_trace_break)
+	{
+		return false;
+	}
+
+	write_to_ptr_unsafe<ppu_intrp_func_t>(ppu_ptr(addr), &ppu_trace_break);
+	return true;
+}
+
 // Set or remove breakpoint
 extern bool ppu_breakpoint(u32 addr, bool is_adding)
 {

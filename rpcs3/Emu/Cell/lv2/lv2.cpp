@@ -56,6 +56,8 @@
 #include <algorithm>
 #include <optional>
 #include <deque>
+#include <map> // TEMP diagnostic
+#include <mutex> // TEMP diagnostic
 #include <thread>
 #include "util/tsc.hpp"
 #include "util/sysinfo.hpp"
@@ -1320,7 +1322,48 @@ extern void ppu_execute_syscall(ppu_thread& ppu, u64 code)
 
 		if (const auto func = g_ppu_syscall_table[code].first)
 		{
+			// TEMP diagnostic (VR fork, frame-rate work): RPCS3_SYSCALL_PROFILE=1 sums the time spent in each
+			// syscall per (thread, syscall, guest caller chain) and logs the top entries every 2 seconds.
+			static const bool s_prof = std::getenv("RPCS3_SYSCALL_PROFILE") != nullptr;
+			const u64 prof_start = s_prof ? get_system_time() : 0;
+			const u64 prof_lr = ppu.lr, prof_sp = ppu.gpr[1];
+
 			func(ppu, {}, vm::_ptr<u32>(ppu.cia), nullptr);
+
+			if (s_prof)
+			{
+				struct entry { u64 count = 0, total_us = 0, max_us = 0; };
+				static std::mutex s_mutex;
+				static std::map<std::string, entry> s_map;
+				static u64 s_window_start = 0;
+				const u64 now = get_system_time();
+
+				std::string key = fmt::format("%s | %s | lr=0x%x", ppu.ppu_tname.load() ? *ppu.ppu_tname.load() : std::string("?"), ppu_syscall_code(code), prof_lr);
+				if (u64 sp = prof_sp; vm::check_addr(static_cast<u32>(sp), vm::page_readable, 8))
+				{
+					if (const u64 back = vm::read64(static_cast<u32>(sp)); back && vm::check_addr(static_cast<u32>(back + 16), vm::page_readable, 8))
+						fmt::append(key, " <- 0x%x", vm::read64(static_cast<u32>(back + 16)));
+				}
+
+				std::lock_guard lock(s_mutex);
+				auto& e = s_map[key];
+				e.count++;
+				e.total_us += now - prof_start;
+				e.max_us = std::max(e.max_us, now - prof_start);
+
+				if (!s_window_start) s_window_start = now;
+				if (now - s_window_start >= 2'000'000)
+				{
+					std::vector<std::pair<std::string, entry>> v(s_map.begin(), s_map.end());
+					std::sort(v.begin(), v.end(), [](const auto& a, const auto& b) { return a.second.total_us > b.second.total_us; });
+					std::string out;
+					for (usz i = 0; i < std::min<usz>(v.size(), 25); i++)
+						fmt::append(out, "\n  %8.1f ms/s %6.1f calls/s max %6.2f ms  %s", v[i].second.total_us / 2000., v[i].second.count / 2., v[i].second.max_us / 1000., v[i].first);
+					ppu_log.notice("SYSPROF window %.2f s:%s", (now - s_window_start) / 1e6, out);
+					s_map.clear();
+					s_window_start = now;
+				}
+			}
 			ppu_log.trace("Syscall '%s' (%llu) finished, r3=0x%llx", ppu_syscall_code(code), code, ppu.gpr[3]);
 			return;
 		}

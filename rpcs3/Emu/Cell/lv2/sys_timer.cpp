@@ -453,6 +453,28 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 
 	sys_timer.trace("sys_timer_usleep(sleep_time=0x%llx)", sleep_time);
 
+	// VR fork dev hooks (for finding a game's main loop).
+	// RPCS3_PPU_TRACE=<hex addr>,<hex addr>,... installs trace breakpoints (PPU interpreter only).
+	extern bool ppu_trace_breakpoint(u32 addr);
+	if (static atomic_t<bool> s_trace_set = false; !s_trace_set.exchange(true))
+	{
+		if (const char* list = std::getenv("RPCS3_PPU_TRACE"))
+		{
+			for (const auto& item : fmt::split(list, {","}))
+			{
+				const u32 addr = static_cast<u32>(std::strtoul(item.c_str(), nullptr, 16));
+				sys_timer.success("Trace breakpoint at 0x%x: %s", addr, ppu_trace_breakpoint(addr) ? "set" : "FAILED");
+			}
+		}
+	}
+
+	// RPCS3_CALLSTACK_AT=<hex address> logs the guest call stack of every 30th sleep made from that address.
+	static const u32 s_callstack_at = [] { const char* v = std::getenv("RPCS3_CALLSTACK_AT"); return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u; }();
+	if (static atomic_t<u32> s_callstack_hits = 0; s_callstack_at && ppu.cia - s_callstack_at <= 4 && s_callstack_hits++ % 30 == 0)
+	{
+		sys_timer.success("Sleep at 0x%x (LR 0x%x): %s", ppu.cia, ppu.lr, ppu.dump_callstack());
+	}
+
 	if (sleep_time)
 	{
 		const s64 add_time = g_cfg.core.usleep_addend;

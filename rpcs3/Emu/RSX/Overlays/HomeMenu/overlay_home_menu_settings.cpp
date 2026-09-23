@@ -2,6 +2,7 @@
 #include "overlay_home_menu_settings.h"
 #include "Emu/system_config.h"
 #include "Emu/RSX/Capture/rsx_camera_probe.h"
+#include "Emu/RSX/Capture/rsx_vr_profile_generator.h"
 
 namespace rsx
 {
@@ -16,10 +17,7 @@ namespace rsx
 
 			add_page(home_menu::fa_icon::audio, std::make_shared<home_menu_settings_audio>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::video, std::make_shared<home_menu_settings_video>(x, y, width, height, use_separators, nullptr));
-			if (g_cfg.video.vr.enabled && rsx::vr::camera_probe::get().profile())
-			{
-				add_page(home_menu::fa_icon::vr, std::make_shared<home_menu_settings_vr>(x, y, width, height, use_separators, nullptr));
-			}
+			add_page(home_menu::fa_icon::vr, std::make_shared<home_menu_settings_vr>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::gamepad, std::make_shared<home_menu_settings_input>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::settings, std::make_shared<home_menu_settings_advanced>(x, y, width, height, use_separators, nullptr));
 			add_page(home_menu::fa_icon::settings_sliders, std::make_shared<home_menu_settings_overlays>(x, y, width, height, use_separators, nullptr));
@@ -182,6 +180,22 @@ namespace rsx
 		home_menu_settings_vr::home_menu_settings_vr(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent)
 			: home_menu_settings_page(x, y, width, height, use_separators, parent, get_localized_string(localized_string_id::HOME_MENU_SETTINGS_VR))
 		{
+			// Without a VR profile the game cannot be rendered in VR; offer to make one
+			// from the running game instead of the settings.
+			if (!rsx::vr::camera_probe::get().profile())
+			{
+				add_item(home_menu::fa_icon::vr, get_localized_string(localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE), [](pad_button btn) -> page_navigation
+				{
+					if (btn != pad_button::cross) return page_navigation::stay;
+
+					rsx_log.notice("User selected VR profile generation in home menu");
+					rsx::vr::profile_generator::get().request();
+					return page_navigation::exit_menu; // sample the game, not the menu
+				});
+				apply_layout();
+				return;
+			}
+
 			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
 			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
 			// Only where the game's VR profile confirms it keeps normal speed at other vblank rates.
@@ -189,6 +203,7 @@ namespace rsx
 			{
 				add_checkbox(&g_cfg.video.vr.match_headset_rate, localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE);
 			}
+			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_x, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X, " %", 1);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);

@@ -4,6 +4,7 @@
 #include "../rsx_methods.h"
 #include "../Capture/rsx_stereo_inspector.h"
 #include "../Capture/rsx_camera_probe.h"
+#include "../Capture/rsx_vr_profile_generator.h"
 
 #include "VKAsyncScheduler.h"
 #include "VKGSRender.h"
@@ -1260,6 +1261,14 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 
 		inspector.record_draw(capture_in);
+	}
+
+	// VR profile generation (home menu): sample this draw's vertex constants.
+	if (auto& generator = rsx::vr::profile_generator::get(); generator.sampling() && m_vertex_prog)
+	{
+		const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || m_vertex_prog->has_indexed_constants;
+		generator.record_draw(full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids),
+			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height);
 	}
 
 	// Keep Vulkan command emission in one host-only callable. Gate 5 invokes it

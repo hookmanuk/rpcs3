@@ -105,6 +105,7 @@ namespace rsx
 			}
 			case page_navigation::exit:
 			case page_navigation::exit_for_screenshot:
+			case page_navigation::exit_menu:
 			{
 				fade_animation.current = color4f(1.f);
 				fade_animation.end = color4f(0.f);

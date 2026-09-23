@@ -121,6 +121,18 @@ private:
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
+	// Right-eye pixels a blit staged in memory with no surface (ICO bounces its
+	// frame through main memory); a later blit back into a surface restores them.
+	struct vr_staged_copy
+	{
+		u32 address = 0;
+		u32 pitch = 0;
+		u16 width = 0;  // guest pixels
+		u16 height = 0;
+		std::unique_ptr<vk::image> image;
+	};
+	std::vector<vr_staged_copy> m_vr_staged;
+
 	// Gate 6: the right-eye draws of one left render pass are recorded into a Vulkan
 	// secondary command buffer and executed in a single right-eye pass when the left
 	// pass ends (vk::g_end_renderpass_hook), instead of switching render passes twice

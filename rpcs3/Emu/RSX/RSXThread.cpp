@@ -4,6 +4,7 @@
 #include "Capture/rsx_capture.h"
 #include "Capture/rsx_stereo_inspector.h"
 #include "Capture/rsx_camera_probe.h"
+#include "Capture/rsx_vr_profile_generator.h"
 #include "Common/surface_store.h"
 #include "Core/RSXReservationLock.hpp"
 #include "Core/RSXEngLock.hpp"
@@ -3389,6 +3390,7 @@ namespace rsx
 		// No-op unless RPCS3_STEREO_INSPECT is set.
 		rsx::vr::stereo_inspector::get().on_frame_end();
 		rsx::vr::camera_probe::get().poll();
+		rsx::vr::profile_generator::get().on_frame_end();
 
 		// Marks the end of a frame scope GPU-side
 		if (g_user_asked_for_frame_capture.exchange(false) && !capture_current_frame)

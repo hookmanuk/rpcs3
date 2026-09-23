@@ -489,6 +489,12 @@ namespace rsx::vr
 		return m_profile.get();
 	}
 
+	void camera_probe::reload_profile()
+	{
+		std::lock_guard lock(m_profile_mutex);
+		m_profile_title.clear();
+	}
+
 	camera_probe& camera_probe::get()
 	{
 		static camera_probe instance;

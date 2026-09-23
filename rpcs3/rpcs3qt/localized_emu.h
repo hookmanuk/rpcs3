@@ -263,6 +263,8 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH: return tr("Screen 3D Depth", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Depth Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE: return tr("Match Headset Refresh Rate", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE: return tr("World Scale", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE: return tr("Generate VR Profile (samples 10 seconds of gameplay)", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT: return tr("Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_BACKGROUND_INPUT: return tr("Background Input Enabled", "Input");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT_KEEP_PADS_CONNECTED: return tr("Keep Pads Connected", "Input");
@@ -349,6 +351,9 @@ private:
 		case localized_string_id::HOME_MENU_TROPHY_SORT_NOT_EARNED: return tr("Sort: Not Earned");
 		case localized_string_id::HOME_MENU_TROPHY_SORT_EARNED_DATE: return tr("Sort: Earned Date");
 		case localized_string_id::HOME_MENU_TROPHY_SORT_GRADE: return tr("Sort: Grade");
+		case localized_string_id::VR_PROFILE_GENERATING: return tr("Generating VR profile: keep playing for 10 seconds...", "VR");
+		case localized_string_id::VR_PROFILE_CREATED: return tr("VR profile created and VR enabled. Restart the game to use a headset.", "VR");
+		case localized_string_id::VR_PROFILE_FAILED: return tr("VR profile generation failed: try again during 3D gameplay (see log).", "VR");
 		case localized_string_id::AUDIO_MUTED: return tr("Audio muted", "Audio");
 		case localized_string_id::AUDIO_UNMUTED: return tr("Audio unmuted", "Audio");
 		case localized_string_id::AUDIO_CHANGED: return tr("Volume changed to %0", "Audio").arg(std::forward<Args>(args)...);
