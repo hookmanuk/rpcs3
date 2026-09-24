@@ -1,0 +1,26 @@
+Version: 1.2
+
+PPU-87bda999eb08ef36bfb8f3abf2cd95a7e8a615d8:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Pure":
+        BLUS30182: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one, and tells the game the vblank frequency so it keeps real-time speed. Set Refresh Rate to the same value as Video > Vblank Rate (or the headset's rate when Match Headset Refresh Rate is on). At 60 the game runs 60 FPS at normal speed."
+    Patch Version: 1.0
+    Configurable Values:
+      "Refresh Rate (Hz)":
+        Type: double_enum
+        Value: 60.0
+        Allowed Values:
+          "60": 60.0
+          "72": 72.0
+          "80": 80.0
+          "90": 90.0
+          "120": 120.0
+          "144": 144.0
+    Patch:
+      - [ be32, 0x007676e4, 0x39600001 ] # li r11,1 (was lwz r11,0x14(r30)): swap interval 1 in the flip wait
+      - [ be32, 0x0076782c, 0x39200001 ] # li r9,1 (was lwz r9,0x14(r31)): swap interval 1 in the vblank-handler wait
+      - [ bef32, 0x00d2f4dc, "Refresh Rate (Hz)" ] # PSGL display refresh (was 60.0); game time = vblank count / this
+      - [ bef32, 0x00d2f4e0, "Refresh Rate (Hz)" ] # PSGL display refresh for 59.94 Hz modes
