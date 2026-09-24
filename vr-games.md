@@ -25,6 +25,9 @@ Then:
 3. Add your games with `File > Add Games` (a folder of disc dumps) or boot one with `File > Boot Game`.
    Install game updates (WipEout needs one, see below) with `File > Install Packages/Raps/Edats`.
 
+Do not use `Help > Check for Updates`: it would replace this VR build with the standard RPCS3, which has
+no VR. Get new VR builds from the same place as this one.
+
 ## Running a game in VR
 
 1. Start SteamVR (or another OpenXR runtime) before launching a game.
