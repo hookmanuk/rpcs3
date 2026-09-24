@@ -30,25 +30,20 @@ VR): get new VR builds from the same place as this one.
 
 ## Running a game in VR
 
-1. Start SteamVR (or another OpenXR runtime) before launching a game.
+1. Start your OpenXR runtime before launching a game.
 2. Launch a game from the list below as normal. VR switches on by itself for a game with a VR profile
    (`Configuration > Video > VR > Enabled`, on by default). Games without a profile play normally.
-3. In-game, the home menu (PS button) has a **VR** tab: HUD size and position, world scale, and the
-   options below.
-
-Defaults, all changeable per game:
-
-| Setting | Default | What it does |
-|---|---|---|
-| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); capped games such as Ico keep a 60 Hz clock. |
-| HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
-| Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
-| Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
-
+3. In-game, the home menu (PS button or Start+Select) has a **VR** tab: HUD size and position, world scale.
 
 ---
 
 ## Playable
+
+| Game | ID | Framerate |
+|---|---|---|
+| WipEout HD Fury | BCES00664 | Headset refresh rate |
+| Pure | BLUS30182 | Headset refresh rate |
+| ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -85,6 +80,18 @@ Only ICO has a profile; Shadow of the Colossus does not.
   `SPU Compatible Savestates Mode`. Patches are applied at boot, not when loading a savestate.
 - Splash screens and videos are shown on a flat screen in front of you.
 - **Known issues:** flames can fade oddly right next to walls; some distant objects may still pop in.
+
+---
+
+
+Defaults, all changeable per game:
+
+| Setting | Default | What it does |
+|---|---|---|
+| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); capped games such as Ico keep a 60 Hz clock. |
+| HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
+| Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
+| Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
 ---
 
