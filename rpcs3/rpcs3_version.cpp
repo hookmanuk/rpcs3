@@ -32,6 +32,12 @@ namespace rpcs3
 
 	std::string get_version_and_branch()
 	{
+		// VR fork: the VR branch shows as "<version> | VR" (branch and build details stay in the log).
+		if (rpcs3::get_branch() == "openxr"sv)
+		{
+			return rpcs3::get_version().to_string() + " | VR";
+		}
+
 		// Add branch and commit hash to version on frame unless it's master.
 		if (rpcs3::get_branch() != "master"sv && rpcs3::get_branch() != "HEAD"sv)
 		{
