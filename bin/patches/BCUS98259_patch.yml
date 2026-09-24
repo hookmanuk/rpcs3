@@ -51,3 +51,61 @@ PPU-9a604c56796a32bf86ff037b682b0a744eb6a0dd:
           "40.0": 25600.0
     Patch:
       - [ bef32, 0x004ca6d0, "Scale" ] # 640.0 divisor of the PS2 screen distance scrz (camera setup 0xd364c, stored at 0xd37a8/0xd37e8); scrz drives the view-screen, view-clip (culling) and RSX projection matrices (0xd3174)
+
+PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colossus) 1.00, disc
+  "Disable MLAA":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "illusion (VR fork copy, on by default)"
+    Notes: "Disables the SPU MLAA pass: needed for resolution scaling and for VR (MLAA is only correct in one eye). Same patch as the community patch.yml entry."
+    Patch Version: 1.1
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00200c58, 0x38000000 ] # li r0 0x0
+      - [ be32, 0x006f8374, 0x40800003 ] # il r3 0x0
+      - [ be32, 0x006f861c, 0x40800017 ] # il r23 0x0
+  "Full Pixel Mode always on":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Forces the Full Pixel Mode option on, whatever the save or the options menu says (the option always reads as on). With it off the game renders 1216x684 with an overscan zoom: measured 19% against the game's projection, which makes the world swim on head turns in VR."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00071568, 0x38600001 ] # li r3,1 (was bl 0x10f644, read saved option 0x11): boot sets the mode on (0x1e9ca0)
+      - [ be32, 0x00070488, 0x38600001 ] # li r3,1 (was bl 0x10f644): the settings copy (+0x48) starts on, so the options menu shows On
+      - [ be32, 0x000706bc, 0x38600001 ] # li r3,1 (was lwz r3,0x48(r29)): "apply settings" passes on (and saves it)
+      - [ be32, 0x00073324, 0x38600001 ] # li r3,1 (was mr r3,r29): the options toggle sets on
+  "Frame rate follows Vblank Rate":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "VR fork (disc port of Margen67's 60 FPS patch)"
+    Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS on a TV, the headset's refresh rate in VR. The VR profile keeps the game's frame time correct at any vblank rate."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384, first init site
+      - [ be32, 0x0031f654, 0x39200001 ] # li r9,1 (was li r9,2): second init site (the PSN version's 60 FPS byte)
+  "Wider view (VR culling)":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "VR fork (from illusion's Extended FOV)"
+    Notes: "Widens the game camera's field of view so objects outside the TV frame are still drawn: the game only draws its own narrow view (44 degrees), so in VR everything beyond it was bright fog. At 3.0 the game view is about 150 x 130 degrees. The headset view is remapped from the game's projection, so the image keeps its scale. Without VR the TV picture becomes a wide-angle view: set 1.0 to play flat."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 3.0
+        Allowed Values:
+          "1.0 (off)": 1.0
+          "1.5": 1.5
+          "2.0": 2.0
+          "3.0": 3.0
+          "4.0": 4.0
+    Patch:
+      - [ bef32, 0x00732894, "Scale" ] # FOV multiplier (1.0; the community Extended FOV sets 1.5)

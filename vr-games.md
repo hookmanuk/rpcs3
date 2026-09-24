@@ -64,8 +64,6 @@ VR): get new VR builds from the same place as this one.
 
 ### 3. ICO (BCUS98259, ICO & Shadow of the Colossus Collection): 30 FPS
 
-Only ICO has a profile; Shadow of the Colossus does not.
-
 - **Frame rate:** 30 FPS, the game's own rate. Its logic is tied to the display clock, so it keeps a 60 Hz
   clock in VR (Match Headset Refresh Rate is not offered). Reprojection Margin Auto renders 10 degrees
   beyond the view so head turns between frames show no black borders.
@@ -81,6 +79,22 @@ Only ICO has a profile; Shadow of the Colossus does not.
 - Splash screens and videos are shown on a flat screen in front of you.
 - **Known issues:** flames can fade oddly right next to walls; some distant objects may still pop in.
 
+### 4. Shadow of the Colossus (BCUS98259, ICO & Shadow of the Colossus Collection): headset refresh rate
+
+New in this release: checked on the desktop (both eyes, head-turn tests, game speed), not yet played
+through in a headset.
+
+- **Frame rate:** follows the headset (90 Hz = 90 FPS) at real-time speed: the game times itself from its
+  frame rate, and the VR profile gives it the headset's rate every frame. On a TV it runs at 60 FPS.
+- **Patches on by default:**
+  - *Disable MLAA*: required, as for ICO.
+  - *Full Pixel Mode always on*: without it the picture is zoomed ~19% and the world swims on head turns.
+  - *Frame rate follows Vblank Rate*: a frame on every display refresh instead of every second one.
+  - *Wider view (VR culling)*, scale 3: the game only draws a narrow 44-degree view, so in VR everything
+    around it was bright fog. Scale 3 draws about 150 x 130 degrees. Without VR this makes the TV picture a
+    wide-angle view: set 1.0 to play flat.
+- **Recommended settings:** raise `Resolution Scale`.
+
 ---
 
 
@@ -88,7 +102,7 @@ Defaults, all changeable per game:
 
 | Setting | Default | What it does |
 |---|---|---|
-| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); capped games such as Ico keep a 60 Hz clock. |
+| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure, Shadow of the Colossus); capped games such as Ico keep a 60 Hz clock. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |

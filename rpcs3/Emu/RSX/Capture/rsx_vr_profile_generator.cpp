@@ -784,7 +784,13 @@ namespace rsx::vr
 		json += "\n}\n";
 
 		const std::string dir = fs::get_executable_dir() + "vr_profiles/";
-		const std::string path = dir + title + ".json";
+		// Never overwrite a title's profile: in a collection it belongs to another game (the
+		// generated one then applies to this executable only, see load_title_profile).
+		std::string path = dir + title + ".json";
+		if (const std::string executable = running_executable_name(); fs::is_file(path) && !executable.empty())
+		{
+			path = dir + title + "." + executable + ".json";
+		}
 		if (!fs::create_path(dir) || !fs::write_file(path, fs::rewrite, json))
 		{
 			fail(fmt::format("cannot write '%s' (%s)", path, fs::g_tls_error));

@@ -270,14 +270,44 @@ namespace rsx::vr
 		return stereo;
 	}
 
-	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id)
+	// The running executable's file name, lower case, without extension ("shadow" for
+	// shadow.self): collections run several games under one title ID (BCUS98259: ICO.self,
+	// shadow.self and the menu's EBOOT.BIN), each with its own shaders and camera.
+	std::string running_executable_name()
+	{
+		std::string name = Emu.GetBoot();
+		if (const usz slash = name.find_last_of("/\\"); slash != umax)
+		{
+			name = name.substr(slash + 1);
+		}
+		if (const usz dot = name.find_last_of('.'); dot != umax && dot)
+		{
+			name = name.substr(0, dot);
+		}
+		for (char& c : name)
+		{
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+		return name;
+	}
+
+	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id, std::string_view executable)
 	{
 		if (title_id.empty())
 		{
 			return nullptr;
 		}
 
-		const std::string path = fs::get_executable_dir() + "vr_profiles/" + std::string(title_id) + ".json";
+		// vr_profiles/<TITLE_ID>.<executable>.json for one game of a collection, else vr_profiles/<TITLE_ID>.json.
+		const std::string dir = fs::get_executable_dir() + "vr_profiles/";
+		std::string path = dir + std::string(title_id) + ".json";
+		if (!executable.empty())
+		{
+			if (std::string specific = dir + std::string(title_id) + "." + std::string(executable) + ".json"; fs::is_file(specific))
+			{
+				path = std::move(specific);
+			}
+		}
 		fs::file file(path);
 		if (!file)
 		{
@@ -566,7 +596,7 @@ namespace rsx::vr
 
 	bool title_has_profile(std::string_view title_id)
 	{
-		return load_title_profile(title_id) != nullptr;
+		return load_title_profile(title_id, {}) != nullptr;
 	}
 
 	namespace
@@ -654,11 +684,12 @@ namespace rsx::vr
 	const title_profile* camera_probe::profile() const
 	{
 		const std::string& title = Emu.GetTitleID();
+		const std::string executable = running_executable_name();
 		std::lock_guard lock(m_profile_mutex);
-		if (title != m_profile_title)
+		if (title + "|" + executable != m_profile_title)
 		{
-			m_profile_title = title;
-			m_profile = load_title_profile(title);
+			m_profile_title = title + "|" + executable;
+			m_profile = load_title_profile(title, executable);
 			if (m_profile)
 			{
 				const title_profile& p = *m_profile;
@@ -669,7 +700,7 @@ namespace rsx::vr
 				}
 				vr_probe_log.success("VR profile loaded for %s: camera blocks %s, camera position c[%d] baseline %.9g, "
 					"stereo sep %.9g conv %.9g (%u width rules), screen space c[%d]%s, aspect tolerance %.9g, reference screen %.9g m.",
-					title, blocks, static_cast<s32>(p.camera_position_slot), p.eye_baseline,
+					m_profile_title, blocks, static_cast<s32>(p.camera_position_slot), p.eye_baseline,
 					p.stereo.per_eye_separation, p.stereo.convergence, ::size32(p.stereo_by_target_width),
 					static_cast<s32>(p.screen_space_block), p.screen_space_bare_projection ? " + bare projections" : "",
 					p.output_aspect_tolerance, p.reference_screen_width);

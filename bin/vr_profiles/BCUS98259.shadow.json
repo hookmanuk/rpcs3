@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98259",
+  "app_version": "01.00",
+  "max_fps": 0,
+  "game_refresh_rate_f32": ["0x736be8"],
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [60, 64],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0261,
+    "convergence": 3.0
+  },
+
+  "screen_space": {
+    "passthrough_hud": true
+  }
+}

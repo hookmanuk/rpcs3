@@ -26,7 +26,7 @@ namespace rpcs3
 
 	// VR fork: builds branched from upstream 0.0.42 are 0.0.42-vr1, -vr2, ... (GitHub release tags v0.0.42-vrN).
 	// The tag leads the version postfix: "0.0.42-vr1-<commit> Alpha".
-#define RPCS3_VR_VERSION "vr1"
+#define RPCS3_VR_VERSION "vr2"
 
 	const utils::version& get_version()
 	{

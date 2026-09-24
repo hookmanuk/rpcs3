@@ -221,7 +221,11 @@ namespace rsx::vr
 
 	// Load and validate bin/vr_profiles/<title_id>.json. Null (with the reason
 	// logged) when the file is missing or invalid.
-	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id);
+	// The running executable's file name, lower case, without extension ("shadow" for shadow.self).
+	std::string running_executable_name();
+
+	// vr_profiles/<TITLE_ID>.<executable>.json if present (one game of a collection), else <TITLE_ID>.json.
+	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id, std::string_view executable = {});
 
 	// True if this title id has a valid VR profile. Only profiled titles can be
 	// rendered in stereo, so the VR options are offered for those alone.
