@@ -99,3 +99,8 @@ the source repository, with instructions for trying them.
 | inFamous | BCUS98119 | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
 | Split/Second | BLUS30300 | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
 | God of War III | BCUS98111 | Early experimental profile. Not tested in a headset. |
+
+---
+
+RPCS3 is licensed under the GNU GPL v2 (see `LICENSE`). Source code for this VR build:
+<https://github.com/hookmanuk/rpcs3/tree/openxr>.
