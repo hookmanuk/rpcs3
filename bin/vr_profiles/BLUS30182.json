@@ -2,10 +2,12 @@
   "schema": 1,
   "title_id": "BLUS30182",
   "app_version": "01.00",
+  "max_fps": 0,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [26, 39],
   "require_rigid_camera": true,
+  "game_refresh_rate_f32": ["[0x1050300]+0x14"],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {

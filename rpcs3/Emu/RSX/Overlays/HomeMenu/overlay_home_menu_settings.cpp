@@ -199,7 +199,7 @@ namespace rsx
 			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
 			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
 			// Only where the game's VR profile confirms it keeps normal speed at other vblank rates.
-			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->match_headset_refresh_rate)
+			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->syncs_to_headset())
 			{
 				add_checkbox(&g_cfg.video.vr.match_headset_rate, localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE);
 			}
@@ -209,7 +209,7 @@ namespace rsx
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);
 			add_unsigned_slider(&g_cfg.video.vr.screen_depth, localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH, " %", 5);
 			add_signed_slider(&g_cfg.video.vr.camera_depth, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH, " cm", 5);
-			add_unsigned_slider(&g_cfg.video.vr.reprojection_margin, localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN, "°", 1);
+			add_signed_slider(&g_cfg.video.vr.reprojection_margin, localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN, "°", 1, { { -1, "Auto" } });
 
 			apply_layout();
 		}

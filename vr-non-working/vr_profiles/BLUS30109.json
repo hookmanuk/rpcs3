@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BLUS30109",
   "app_version": "02.00",
+  "max_fps": 0,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [4, 0, [0, 1, 2, 7], 32],
@@ -16,7 +17,5 @@
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0225,
     "convergence": 2560
-  },
-
-  "match_headset_refresh_rate": true
+  }
 }

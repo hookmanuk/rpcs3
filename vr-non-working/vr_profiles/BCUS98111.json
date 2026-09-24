@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BCUS98111",
   "app_version": "01.00",
+  "max_fps": 30,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [256, 260, 0],

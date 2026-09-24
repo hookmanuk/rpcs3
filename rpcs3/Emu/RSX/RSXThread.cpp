@@ -3390,6 +3390,7 @@ namespace rsx
 		// No-op unless RPCS3_STEREO_INSPECT is set.
 		rsx::vr::stereo_inspector::get().on_frame_end();
 		rsx::vr::camera_probe::get().poll();
+		rsx::vr::update_game_refresh_rate();
 		rsx::vr::profile_generator::get().on_frame_end();
 
 		// VR fork dev hook: RPCS3_VR_SHOT=<file>; creating the file takes a screenshot

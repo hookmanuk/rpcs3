@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BLUS30300",
   "app_version": "01.00",
+  "max_fps": 30,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [30],

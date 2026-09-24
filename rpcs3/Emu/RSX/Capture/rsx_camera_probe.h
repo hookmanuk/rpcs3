@@ -176,9 +176,26 @@ namespace rsx::vr
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 
-		// The game keeps real-time speed with its vblank at the headset's refresh
-		// rate, so "Match Headset Refresh Rate" is offered.
-		bool match_headset_refresh_rate = false;
+		// The game's frame-rate cap in VR, with its default patches. 0 = none: it renders a
+		// frame per vblank and keeps real-time speed at any vblank rate, so "Match Headset
+		// Refresh Rate" runs the vblank at the headset's rate. A cap (Ico: 30) keeps the
+		// configured vblank, and the headset turns older frames to the current head pose, so
+		// Reprojection Margin "Auto" renders a margin. Unset counts as capped: only a game
+		// shown to keep real-time speed (max_fps 0) is synced to the headset.
+		u32 max_fps = 30;
+		bool syncs_to_headset() const { return max_fps == 0; }
+
+		// Guest floats holding the game's idea of the display refresh rate (Pure: PSGL
+		// device+0x14, game time = vblank count / it). Written every frame with the
+		// effective vblank rate, so the game keeps real-time speed at any vblank rate.
+		// "[0x1050300]+0x14" = the pointer at 0x1050300, plus 0x14; "0xd2f4dc" = that address.
+		struct guest_address
+		{
+			u32 address = 0;
+			bool deref = false;
+			u32 offset = 0;
+		};
+		std::vector<guest_address> game_refresh_rate_f32;
 
 		// The game composites the previous frame's scene (ICO: left over from SPU
 		// MLAA) with effects built from the current one (bloom). Each frame carries
@@ -207,6 +224,14 @@ namespace rsx::vr
 	// and "Match Headset Refresh Rate" is on for a title whose profile allows it,
 	// otherwise the configured Vblank Rate (which is never modified).
 	u64 effective_vblank_rate();
+
+	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
+	// Called once per frame by the RSX thread.
+	void update_game_refresh_rate();
+
+	// Reprojection Margin in degrees: the configured value, or for "Auto" (-1) 10 degrees
+	// when the VR profile caps the frame rate (max_fps) and 0 when it does not.
+	u32 effective_reprojection_margin();
 
 	class camera_probe
 	{

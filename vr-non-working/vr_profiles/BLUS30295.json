@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BLUS30295",
   "app_version": "01.00",
+  "max_fps": 0,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [4, 32, 12],
@@ -22,7 +23,5 @@
   "screen_space": {
     "orthographic_block": 32,
     "depth_offset_projection": true
-  },
-
-  "match_headset_refresh_rate": true
+  }
 }

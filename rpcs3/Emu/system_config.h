@@ -249,8 +249,8 @@ struct cfg_root : cfg::node
 		{
 			node_vr(cfg::node* _this) : cfg::node(_this, "VR") {}
 
-			cfg::_bool enabled{ this, "Enabled", false };
-			cfg::_bool hud_fixed{ this, "HUD Fixed In Front", false, true };
+			cfg::_bool enabled{ this, "Enabled", true }; // only acts for games with a VR profile
+			cfg::_bool hud_fixed{ this, "HUD Fixed In Front", true, true };
 			cfg::_bool fixed_screen{ this, "Fixed Screen", false, true }; // flat stereo window placed by the HUD settings
 			cfg::uint<0, 200> screen_depth{ this, "Screen 3D Depth", 100, true };      // % of the automatic fixed-screen stereo strength
 			cfg::uint<10, 200> hud_scale{ this, "HUD Scale", 65, true };
@@ -259,7 +259,7 @@ struct cfg_root : cfg::node
 			cfg::_int<-500, 500> camera_depth{ this, "Camera Depth Offset", 0, true };   // hundredths of a metre, + moves the viewpoint forward
 			cfg::_bool match_headset_rate{ this, "Match Headset Refresh Rate", true, true }; // vblank at the headset's rate; only if the VR profile allows it
 			cfg::uint<25, 400> world_scale{ this, "World Scale", 100, true }; // % apparent size of the game world; corrects the profile's eye_baseline
-			cfg::uint<0, 30> reprojection_margin{ this, "Reprojection Margin", 0, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges
+			cfg::_int<-1, 30> reprojection_margin{ this, "Reprojection Margin", -1, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges; -1 = Auto (from the VR profile's max_fps)
 
 		} vr{ this };
 

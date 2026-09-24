@@ -1,28 +1,18 @@
 Version: 1.2
 
 PPU-9a604c56796a32bf86ff037b682b0a744eb6a0dd:
-  "Unlocked frame rate (follows Vblank Rate)":
+  "Disable MLAA":
     Games:
       "ICO":
         BCUS98259: [ 01.00 ]
-    Author: "VR fork"
-    Notes: "Presents a frame on every vblank instead of every second one, and tells the game the vblank frequency so it keeps real-time speed. Set Refresh Rate to the same value as Video > Vblank Rate. At 60 the game runs 60 FPS at normal speed."
-    Patch Version: 1.0
-    Configurable Values:
-      "Refresh Rate (Hz)":
-        Type: double_enum
-        Value: 60.0
-        Allowed Values:
-          "60": 60.0
-          "72": 72.0
-          "80": 80.0
-          "90": 90.0
-          "120": 120.0
-          "144": 144.0
+    Author: "illusion (VR fork copy, on by default)"
+    Notes: "Disables the SPU MLAA pass. Required for VR: with MLAA the frame comes back from the SPUs at the native resolution (resolution scaling lost) and only for one eye. Same patch as the community patch.yml entry, carried here so it is present and on without downloading patches."
+    Patch Version: 1.1
+    Enabled By Default: true
     Patch:
-      - [ be32, 0x0016e580, 0x38000001 ] # li r0,1 (was lwz r0,0x384(r31)): swap interval 1 in the vblank handler's frame time
-      - [ be32, 0x0016e5b4, 0x38000001 ] # li r0,1 (was lwz r0,0x384(r31)): countdown to the next flip = 1 vblank
-      - [ bef32, 0x004cc47c, "Refresh Rate (Hz)" ] # vblank frequency (was 60.0); frame time = vblanks / this (device+0x138)
+      - [ be32, 0x00045a50, 0x38800000 ] # li r4 0x0
+      - [ be32, 0x00475f74, 0x40800003 ] # il r3 0x0
+      - [ be32, 0x0047621c, 0x40800017 ] # il r23 0x0
   "Full Pixel Mode always on":
     Games:
       "ICO":
@@ -30,6 +20,7 @@ PPU-9a604c56796a32bf86ff037b682b0a744eb6a0dd:
     Author: "VR fork"
     Notes: "Forces the Full Pixel Mode option on, whatever the save or the options menu says. With it off the final image is zoomed about 16% against the game's projection (overscan), which makes the world swim in VR."
     Patch Version: 1.0
+    Enabled By Default: true
     Patch:
       - [ be32, 0x0018eca4, 0x39200001 ] # li r9,1 (was lwz r9,0x10(r31)): the per-frame mode check (object 0xc34270) always sees Full Pixel Mode requested
       - [ be32, 0x0018ec58, 0x38600001 ] # li r3,1 (was lwz r3,0x10(r9)): the mode getter returns on
@@ -39,12 +30,13 @@ PPU-9a604c56796a32bf86ff037b682b0a744eb6a0dd:
       "ICO":
         BCUS98259: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Widens the game camera's field of view so objects outside the TV frame are still drawn (the game culls to its own frustum). For VR: the headset view is remapped from the game's projection, so the image keeps its scale. Scales tan(FOV/2) both ways; larger values draw more but cost frame rate and may lower LOD."
+    Notes: "Widens the game camera's field of view so objects outside the TV frame are still drawn (the game culls to its own frustum). For VR: the headset view is remapped from the game's projection, so the image keeps its scale. Scales tan(FOV/2) both ways; larger values draw more but cost frame rate and may lower LOD. Without VR the TV picture becomes a wide-angle view: set 1.0 to play flat."
     Patch Version: 1.0
+    Enabled By Default: true
     Configurable Values:
       "Scale":
         Type: double_enum
-        Value: 1920.0
+        Value: 12800.0
         Allowed Values:
           "1.0 (off)": 640.0
           "1.25": 800.0

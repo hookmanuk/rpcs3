@@ -1234,7 +1234,7 @@ void VKGSRender::vr_update_view()
 	// HUD stereo distance, and the fixed screen's distance (metres).
 	constexpr f32 vr_hud_distance = 2.f;
 	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
-		static_cast<f32>(g_cfg.video.vr.reprojection_margin.get()));
+		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
 	const bool located = pose != 0;
 	m_vr_applied_pose = 0;
 

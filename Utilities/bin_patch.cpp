@@ -276,6 +276,11 @@ bool patch_engine::load(patch_map& patches_map, const std::string& path, std::st
 			info.version     = version;
 			info.source_path = path;
 
+			if (const auto default_node = patches_entry.second[patch_key::enabled_by_default])
+			{
+				info.enabled_by_default = default_node.as<bool>(false);
+			}
+
 			if (const auto games_node = patches_entry.second[patch_key::games])
 			{
 				if (const auto yml_type = games_node.Type(); yml_type != YAML::NodeType::Map)
@@ -368,7 +373,12 @@ bool patch_engine::load(patch_map& patches_map, const std::string& path, std::st
 							}
 
 							// Get this patch's config values
-							const patch_config_values& config_values = patch_config[main_key].patch_info_map[description].titles[title][serial][app_version];
+							patch_config_values config_values = patch_config[main_key].patch_info_map[description].titles[title][serial][app_version];
+
+							if (info.enabled_by_default && !config_values.enabled_set)
+							{
+								config_values.enabled = true;
+							}
 
 							app_versions[app_version] = config_values;
 						}
@@ -1662,7 +1672,8 @@ void patch_engine::save_config(const patch_map& patches_map)
 					{
 						const bool config_values_dirty = !patch.default_config_values.empty() && !config_values.config_values.empty() && patch.default_config_values != config_values.config_values;
 
-						if (config_values.enabled || config_values_dirty)
+						// A patch enabled by default is saved when switched off, so it stays off.
+						if (config_values.enabled || config_values_dirty || patch.enabled_by_default)
 						{
 							config_map[hash].patch_info_map[description].titles[title][serial][app_version] = config_values;
 						}
@@ -1691,12 +1702,13 @@ void patch_engine::save_config(const patch_map& patches_map)
 						{
 							const auto& default_config_values = ::at32(container.patch_info_map, description).default_config_values;
 							const bool config_values_dirty = !default_config_values.empty() && !config_values.config_values.empty() && default_config_values != config_values.config_values;
+							const bool enabled_by_default = ::at32(container.patch_info_map, description).enabled_by_default;
 
-							if (config_values.enabled || config_values_dirty)
+							if (config_values.enabled || config_values_dirty || enabled_by_default)
 							{
 								out << app_version << YAML::BeginMap;
 
-								if (config_values.enabled)
+								if (config_values.enabled || enabled_by_default)
 								{
 									out << patch_key::enabled << config_values.enabled;
 								}
@@ -2026,6 +2038,7 @@ patch_engine::patch_map patch_engine::load_config()
 								if (const auto enable_node = app_version_node.second[patch_key::enabled])
 								{
 									config_values.enabled = enable_node.as<bool>(false);
+									config_values.enabled_set = true;
 								}
 
 								if (const auto config_values_node = app_version_node.second[patch_key::config_values])
@@ -2041,6 +2054,7 @@ patch_engine::patch_map patch_engine::load_config()
 							{
 								// Legacy
 								config_values.enabled = app_version_node.second.as<bool>(false);
+								config_values.enabled_set = true;
 							}
 						}
 					}

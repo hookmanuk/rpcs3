@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BCUS98119",
   "app_version": "01.00",
+  "max_fps": 0,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [263, 256, 260, 259],
@@ -21,7 +22,5 @@
 
   "screen_space": {
     "orthographic_block": 263
-  },
-
-  "match_headset_refresh_rate": true
+  }
 }

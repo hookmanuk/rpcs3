@@ -591,7 +591,7 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	// (including the global settings) the VR section is hidden.
 	const auto vr_profile = game ? rsx::vr::load_title_profile(game->serial) : nullptr;
 	const bool vr_profiled_title = vr_profile != nullptr;
-	const bool vr_rate_supported = vr_profile && vr_profile->match_headset_refresh_rate;
+	const bool vr_rate_supported = vr_profile && vr_profile->syncs_to_headset();
 	ui->gb_vr->setVisible(vr_profiled_title);
 	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
 	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
@@ -644,7 +644,7 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		const auto degree_text = [](int value) { return tr("%1\u00b0", "VR slider").arg(value); };
 		enhance_vr_slider(ui->vrReprojectionMargin, ui->vrReprojectionMarginMin, ui->vrReprojectionMarginMax, ui->vrReprojectionMarginVal,
 			ui->vrReprojectionMarginReset, emu_settings_type::VRReprojectionMargin, ui->gb_vrReprojectionMargin,
-			tooltips.settings.vr_reprojection_margin, degree_text, 1);
+			tooltips.settings.vr_reprojection_margin, [degree_text](int value) { return value < 0 ? tr("Auto", "VR reprojection margin") : degree_text(value); }, 1);
 
 		const auto enable_vr_options = [this, vr_profiled_title, vr_rate_supported]()
 		{

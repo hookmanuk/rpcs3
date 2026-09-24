@@ -3,6 +3,7 @@
 #include <set>
 
 #include "Emu/System.h"
+#include "Emu/Memory/vm.h"
 #include "Emu/system_config.h"
 #include "Utilities/File.h"
 #include "Emu/IdManager.h"
@@ -478,9 +479,47 @@ namespace rsx::vr
 		{
 			profile->require_camera_aspect = aspect == "true";
 		}
-		if (std::string match; read(root, "match_headset_refresh_rate", match, false))
+		read(root, "max_fps", profile->max_fps, false);
+		if (const YAML::Node targets = child(root, "game_refresh_rate_f32"); targets && targets.IsSequence())
 		{
-			profile->match_headset_refresh_rate = match == "true";
+			for (const auto& target : targets)
+			{
+				// "0xADDR", "[0xPTR]" or "[0xPTR]+0xOFF"
+				const std::string text = target.as<std::string>();
+				title_profile::guest_address a;
+				std::string rest = text;
+				if (rest.starts_with("["))
+				{
+					const usz close = rest.find(']');
+					if (close == umax)
+					{
+						fail("game_refresh_rate_f32: '" + text + "' has no closing ]");
+						continue;
+					}
+					a.deref = true;
+					a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
+					rest = rest.substr(close + 1);
+					if (rest.starts_with("+"))
+					{
+						a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
+					}
+					else if (!rest.empty())
+					{
+						fail("game_refresh_rate_f32: '" + text + "' expected +offset after ]");
+						continue;
+					}
+				}
+				else
+				{
+					a.address = static_cast<u32>(std::strtoul(rest.c_str(), nullptr, 16));
+				}
+				if (!a.address)
+				{
+					fail("game_refresh_rate_f32: '" + text + "' is not an address");
+					continue;
+				}
+				profile->game_refresh_rate_f32.push_back(a);
+			}
 		}
 		if (std::string current; read(root, "current_frame_copies", current, false))
 		{
@@ -488,7 +527,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
@@ -538,7 +577,63 @@ namespace rsx::vr
 		}
 
 		const title_profile* profile = camera_probe::get().profile();
-		return profile && profile->match_headset_refresh_rate ? headset : configured;
+		return profile && profile->syncs_to_headset() ? headset : configured;
+	}
+
+	u32 effective_reprojection_margin()
+	{
+		const s64 configured = g_cfg.video.vr.reprojection_margin.get();
+		if (configured >= 0)
+		{
+			return static_cast<u32>(configured);
+		}
+		const title_profile* profile = camera_probe::get().profile();
+		return profile && profile->max_fps != 0 ? 10 : 0;
+	}
+
+	void update_game_refresh_rate()
+	{
+		const title_profile* profile = camera_probe::get().profile();
+		if (!profile || profile->game_refresh_rate_f32.empty())
+		{
+			return;
+		}
+
+		const f32 rate = static_cast<f32>(effective_vblank_rate());
+		for (const auto& target : profile->game_refresh_rate_f32)
+		{
+			u32 address = target.address;
+			if (target.deref)
+			{
+				if (!vm::check_addr(address, vm::page_readable, 4))
+				{
+					continue;
+				}
+				const u32 base = vm::_ref<be_t<u32>>(address);
+				if (!base)
+				{
+					continue;
+				}
+				address = base + target.offset;
+			}
+			if (!vm::check_addr(address, vm::page_writable, 4))
+			{
+				continue;
+			}
+
+			// Only over a value that looks like a refresh rate: the game has set it up.
+			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+			const f32 current = value;
+			if (current >= 20.f && current <= 1000.f && current != rate)
+			{
+				value = rate;
+				static u32 s_logged = 0;
+				if (s_logged++ < 4)
+				{
+					vr_probe_log.notice("Game refresh rate at 0x%x: %.2f -> %.2f Hz (effective vblank rate)", address, current, rate);
+				}
+			}
+		}
 	}
 
 	const title_profile* camera_probe::profile() const
