@@ -304,14 +304,15 @@ void main_window::show()
 	}
 
 	// Check for updates when the main window is shown for the first time
-#ifdef RPCS3_UPDATE_SUPPORTED
-	if (const auto update_value = m_gui_settings->GetValue(gui::m_check_upd_start).toString(); update_value != gui::update_off)
-	{
-		const bool in_background = m_with_cli_boot || update_value == gui::update_bkg;
-		const bool auto_accept   = !in_background && update_value == gui::update_auto;
-		m_updater.check_for_updates(true, in_background, auto_accept, this);
-	}
-#endif
+	// VR fork: disabled; the updater would install the standard RPCS3 over this build.
+//#ifdef RPCS3_UPDATE_SUPPORTED
+//	if (const auto update_value = m_gui_settings->GetValue(gui::m_check_upd_start).toString(); update_value != gui::update_off)
+//	{
+//		const bool in_background = m_with_cli_boot || update_value == gui::update_bkg;
+//		const bool auto_accept   = !in_background && update_value == gui::update_auto;
+//		m_updater.check_for_updates(true, in_background, auto_accept, this);
+//	}
+//#endif
 
 	// Refresh gamelist when the main window is shown for the first time
 	m_game_list_frame->Refresh(true);
@@ -3619,14 +3620,16 @@ void main_window::CreateConnects()
 		set_cat_count(ui->showCatOtherAct, tr("Other"));
 	});
 
-	connect(ui->updateAct, &QAction::triggered, this, [this]()
-	{
-#ifdef RPCS3_UPDATE_SUPPORTED
-		m_updater.check_for_updates(false, false, false, this);
-#else
-		QMessageBox::warning(this, tr("Auto-updater"), tr("The auto-updater isn't available for your OS currently."));
-#endif
-	});
+	// VR fork: Check for Updates removed from the Help menu (main_window.ui); the updater would
+	// install the standard RPCS3 over this build.
+	//connect(ui->updateAct, &QAction::triggered, this, [this]()
+	//{
+//#ifdef RPCS3_UPDATE_SUPPORTED
+	//	m_updater.check_for_updates(false, false, false, this);
+//#else
+	//	QMessageBox::warning(this, tr("Auto-updater"), tr("The auto-updater isn't available for your OS currently."));
+//#endif
+	//});
 
 	connect(ui->downloadIntegrityDbAct, &QAction::triggered, this, [this]()
 	{

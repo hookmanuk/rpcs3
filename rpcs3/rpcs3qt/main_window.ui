@@ -480,7 +480,9 @@
     </widget>
     <addaction name="languageMenu"/>
     <addaction name="separator"/>
+    <!-- VR fork: no Check for Updates; it would install the standard RPCS3 over this build.
     <addaction name="updateAct"/>
+    -->
     <addaction name="welcomeAct"/>
     <addaction name="supportAct"/>
     <addaction name="separator"/>
