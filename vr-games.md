@@ -56,8 +56,9 @@ Defaults, all changeable per game:
   2.10, 2.30, 2.50 and 2.51 in order (`File > Install Packages/Raps/Edats`).
 - **Frame rate:** follows the headset (90 Hz = 90 FPS) at real-time speed. No patch needed.
 - **Recommended settings** (for 90 FPS): Video > `Relaxed ZCULL Sync` on, `Accurate ZCULL stats` off,
-  `Shader Precision` Low; CPU > `Thread Scheduler` RPCS3 Scheduler. Raise `Resolution Scale` as far as
-  your GPU holds the headset's frame rate.
+  `Shader Precision` Low; CPU > `Thread Scheduler` RPCS3 Scheduler. `Resolution Scale` around 300-400%:
+  every render target exists once per eye, so at very high scales (750%) even a 32 GB card runs out of video
+  memory and the game slows to a crawl.
 
 ### 2. Pure (BLUS30182): headset refresh rate
 
