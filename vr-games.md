@@ -45,7 +45,6 @@ Defaults, all changeable per game:
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
-Splash screens, videos and menus without 3D are shown on a flat screen in front of you.
 
 ---
 
@@ -83,6 +82,7 @@ Only ICO has a profile; Shadow of the Colossus does not.
     TV picture a wide-angle view: set 1.0 to play flat.
 - **Recommended settings:** raise `Resolution Scale`. For savestates, turn on Advanced >
   `SPU Compatible Savestates Mode`. Patches are applied at boot, not when loading a savestate.
+- Splash screens and videos are shown on a flat screen in front of you.
 - **Known issues:** flames can fade oddly right next to walls; some distant objects may still pop in.
 
 ---

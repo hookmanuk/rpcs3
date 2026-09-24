@@ -458,6 +458,10 @@ namespace rsx::vr
 		{
 			profile->screen_space_passthrough_hud = hud == "true";
 		}
+		if (std::string screen; read(screen_space, "frames_without_3d_as_screen", screen, false))
+		{
+			profile->screen_space_frames_without_3d_as_screen = screen == "true";
+		}
 		if (const YAML::Node programs = child(screen_space, "preprojected_programs"); programs && programs.IsSequence())
 		{
 			for (const auto& program : programs)
@@ -531,7 +535,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "frames_without_3d_as_screen" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)

@@ -173,6 +173,10 @@ namespace rsx::vr
 		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
 		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
 		std::vector<u64> screen_space_preprojected_programs;
+		// Frames without any camera draw (Ico's splash screens and videos) are shown as the
+		// fixed screen instead of over the whole view. Off by default: games whose pause
+		// freezes the 3D (Pure, WipEout) would show the paused frame as a screen, HUD twice.
+		bool screen_space_frames_without_3d_as_screen = false;
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 

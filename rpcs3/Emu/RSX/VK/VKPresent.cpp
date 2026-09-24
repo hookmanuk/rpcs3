@@ -1224,7 +1224,8 @@ void VKGSRender::vr_update_view()
 	// frame with a camera draw (that frame is still shown as the screen).
 	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
 	m_vr_camera_draws = 0;
-	const bool no_3d = m_vr_frames_without_camera >= 3;
+	const auto* no_3d_profile = probe.profile();
+	const bool no_3d = m_vr_frames_without_camera >= 3 && no_3d_profile && no_3d_profile->screen_space_frames_without_3d_as_screen;
 	if (static bool s_no_3d = false; no_3d != s_no_3d)
 	{
 		s_no_3d = no_3d;
