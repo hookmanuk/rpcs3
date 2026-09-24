@@ -1,0 +1,12 @@
+Version: 1.2
+
+PPU-3b47310f79296f8852107bb54e5522b797961998:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Blur":
+        BLUS30295: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Flips on every vblank instead of every second one, so the game runs at the Vblank Rate (60 at 60 Hz, up to 90 at 90 Hz if the PC keeps up). Blur times its simulation with the real clock, so game speed does not change. Works with Match Headset Refresh Rate."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x00349f80, 0x39800001 ] # li r12,1 (was lwz r12,0x1c8(r4)): vblank countdown between flips = 1 (interval from *(toc-0x3f4c)+0x24, set to 2 at 0x699960)

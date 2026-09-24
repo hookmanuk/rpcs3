@@ -1,0 +1,12 @@
+Version: 1.2
+
+PPU-33e09a0bd8fa2a3b28780a3feeb7b0e018bae381:
+  "Frame rate follows Vblank Rate":
+    Games:
+      "Metal Gear Solid 4: Guns of the Patriots":
+        BLUS30109: [ 02.00 ]
+    Author: "VR fork"
+    Notes: "Waits one vblank per frame instead of the game's interval (2), so the game runs at the Vblank Rate (60 at 60 Hz, up to 90 at 90 Hz). Unlike the community Unlock FPS patch (which removes the wait) frames stay paced to vblank. The game keeps real time (its clocks advance 1.0 s per second at 45 and 90 FPS)."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x000fa33c, 0x38600001 ] # li r3,1 (was lwz r3,0(r9)): vblanks to wait per frame = 1 (0xdb720 waits on the vblank-handler counter)

@@ -1,0 +1,95 @@
+Version: 1.2
+
+Anchors:
+  nfsmw_step_code: &nfsmw_step_code
+    - [ be32, 0x000678cc, 0x38800001 ] # li r4,1 (was extsb r4,r7): frame pacer 0x635a20 waits 1 period per frame (the game uses 2 in play, 1 in menus)
+    - [ be32, 0x007400cc, 0x38a00001 ] # li r5,1 (was lwz r5,0x28e0(r5)): vblanks per flip written to the flip-wait label = 1
+    - [ be32, 0x00069658, 0x489f09b0 ] # b cave (was lfs f1,0x9c(r30): sim step dt)
+    - [ be32, 0x00069644, 0x489f09d0 ] # b cave (was lfs f1,0xa0(r30): double (catch-up) step dt)
+    - [ be32, 0x00067960, 0x489f26c0 ] # b cave (was lfs f1,0x9c(r31): game-time accumulation step)
+    - [ be32, 0x00a5a008, 0x3c6000a6 ]
+    - [ be32, 0x00a5a00c, 0xc023a000 ]
+    - [ be32, 0x00a5a010, 0x4b60f64c ]
+    - [ be32, 0x00a5a014, 0x3c6000a6 ]
+    - [ be32, 0x00a5a018, 0xc023a004 ]
+    - [ be32, 0x00a5a01c, 0x4b60f62c ]
+    - [ be32, 0x00a5a020, 0x3c6000a6 ]
+    - [ be32, 0x00a5a024, 0xc023a000 ]
+    - [ be32, 0x00a5a028, 0x4b60d93c ]
+  nfsmw_rate_60: &nfsmw_rate_60
+    - [ bef32, 0x00a5a000, 0.016666667 ] # cave constant: sim step 1/60 s
+    - [ bef32, 0x00a5a004, 0.033333333 ] # cave constant: catch-up step 2/60 s
+    - [ bef32, 0x000667f4, 1000.0000 ] # was 1000.0: pacer period = 1/60 s * this / 1000 = 1/60 s
+  nfsmw_rate_72: &nfsmw_rate_72
+    - [ bef32, 0x00a5a000, 0.013888889 ] # cave constant: sim step 1/72 s
+    - [ bef32, 0x00a5a004, 0.027777778 ] # cave constant: catch-up step 2/72 s
+    - [ bef32, 0x000667f4, 833.3333 ] # was 1000.0: pacer period = 1/60 s * this / 1000 = 1/72 s
+  nfsmw_rate_80: &nfsmw_rate_80
+    - [ bef32, 0x00a5a000, 0.012500000 ] # cave constant: sim step 1/80 s
+    - [ bef32, 0x00a5a004, 0.025000000 ] # cave constant: catch-up step 2/80 s
+    - [ bef32, 0x000667f4, 750.0000 ] # was 1000.0: pacer period = 1/60 s * this / 1000 = 1/80 s
+  nfsmw_rate_90: &nfsmw_rate_90
+    - [ bef32, 0x00a5a000, 0.011111111 ] # cave constant: sim step 1/90 s
+    - [ bef32, 0x00a5a004, 0.022222222 ] # cave constant: catch-up step 2/90 s
+    - [ bef32, 0x000667f4, 666.6667 ] # was 1000.0: pacer period = 1/60 s * this / 1000 = 1/90 s
+  nfsmw_rate_120: &nfsmw_rate_120
+    - [ bef32, 0x00a5a000, 0.008333333 ] # cave constant: sim step 1/120 s
+    - [ bef32, 0x00a5a004, 0.016666667 ] # cave constant: catch-up step 2/120 s
+    - [ bef32, 0x000667f4, 500.0000 ] # was 1000.0: pacer period = 1/60 s * this / 1000 = 1/120 s
+
+PPU-98af44a0b9e296d01619c79bced9a1985b4b6908:
+  "Frame rate 60 FPS (set Vblank Rate 60)":
+    Games:
+      "Need for Speed Most Wanted":
+        BLUS31010: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gameplay runs at 60 FPS with real-time speed. The game paces frames with its own timer (2 periods of 1/60 s per frame in play) and a 2-vblank flip gate, and steps its simulation by a fixed 1/60 s. This sets 1 period of 1/60 s per frame, 1 vblank per flip and a 1/60 s simulation step (code cave at 0xa5a000). Needs Vblank Rate 60. Enable only one of these."
+    Group: FrameRate
+    Patch Version: 1.0
+    Patch:
+      - [ load, *nfsmw_step_code ]
+      - [ load, *nfsmw_rate_60 ]
+  "Frame rate 72 FPS (set Vblank Rate 72)":
+    Games:
+      "Need for Speed Most Wanted":
+        BLUS31010: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gameplay runs at 72 FPS with real-time speed. The game paces frames with its own timer (2 periods of 1/60 s per frame in play) and a 2-vblank flip gate, and steps its simulation by a fixed 1/60 s. This sets 1 period of 1/72 s per frame, 1 vblank per flip and a 1/72 s simulation step (code cave at 0xa5a000). Needs Vblank Rate 72. Enable only one of these."
+    Group: FrameRate
+    Patch Version: 1.0
+    Patch:
+      - [ load, *nfsmw_step_code ]
+      - [ load, *nfsmw_rate_72 ]
+  "Frame rate 80 FPS (set Vblank Rate 80)":
+    Games:
+      "Need for Speed Most Wanted":
+        BLUS31010: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gameplay runs at 80 FPS with real-time speed. The game paces frames with its own timer (2 periods of 1/60 s per frame in play) and a 2-vblank flip gate, and steps its simulation by a fixed 1/60 s. This sets 1 period of 1/80 s per frame, 1 vblank per flip and a 1/80 s simulation step (code cave at 0xa5a000). Needs Vblank Rate 80. Enable only one of these."
+    Group: FrameRate
+    Patch Version: 1.0
+    Patch:
+      - [ load, *nfsmw_step_code ]
+      - [ load, *nfsmw_rate_80 ]
+  "Frame rate 90 FPS (set Vblank Rate 90)":
+    Games:
+      "Need for Speed Most Wanted":
+        BLUS31010: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gameplay runs at 90 FPS with real-time speed. The game paces frames with its own timer (2 periods of 1/60 s per frame in play) and a 2-vblank flip gate, and steps its simulation by a fixed 1/60 s. This sets 1 period of 1/90 s per frame, 1 vblank per flip and a 1/90 s simulation step (code cave at 0xa5a000). Needs Vblank Rate 90. Enable only one of these."
+    Group: FrameRate
+    Patch Version: 1.0
+    Patch:
+      - [ load, *nfsmw_step_code ]
+      - [ load, *nfsmw_rate_90 ]
+  "Frame rate 120 FPS (set Vblank Rate 120)":
+    Games:
+      "Need for Speed Most Wanted":
+        BLUS31010: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gameplay runs at 120 FPS with real-time speed. The game paces frames with its own timer (2 periods of 1/60 s per frame in play) and a 2-vblank flip gate, and steps its simulation by a fixed 1/60 s. This sets 1 period of 1/120 s per frame, 1 vblank per flip and a 1/120 s simulation step (code cave at 0xa5a000). Needs Vblank Rate 120. Enable only one of these."
+    Group: FrameRate
+    Patch Version: 1.0
+    Patch:
+      - [ load, *nfsmw_step_code ]
+      - [ load, *nfsmw_rate_120 ]
