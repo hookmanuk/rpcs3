@@ -1,9 +1,31 @@
 # VR games
 
-Games with a VR profile in this build, from most to least playable. The VR profiles (`vr_profiles/`)
-and game patches (`patches/`) ship with the release, so there is nothing extra to download.
+This is a VR build of the RPCS3 PlayStation 3 emulator: selected games are rendered in stereo 3D in a
+PC VR headset, with head tracking. Below are the games with a VR profile, from most to least playable.
+The VR profiles (`vr_profiles/`) and game patches (`patches/`) come with the release, so there is nothing
+extra to download.
 
-## Getting started
+## Installing
+
+You need:
+
+- Windows 10 or 11, 64-bit, and a graphics card with Vulkan support.
+- A PC VR headset with an OpenXR runtime, such as SteamVR.
+- The [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe), if it
+  is not installed already.
+- The PS3 system software: download the official update file `PS3UPDAT.PUP` from
+  [PlayStation's PS3 system software page](https://www.playstation.com/support/hardware/ps3/system-software/).
+- Your own copies of the games, dumped from discs you own.
+
+Then:
+
+1. Extract the zip to a folder you can write to (not `Program Files`). RPCS3 keeps its settings, installed
+   firmware and game data in that folder.
+2. Run `rpcs3.exe`. Install the firmware with `File > Install Firmware` and pick `PS3UPDAT.PUP`.
+3. Add your games with `File > Add Games` (a folder of disc dumps) or boot one with `File > Boot Game`.
+   Install game updates (WipEout needs one, see below) with `File > Install Packages/Raps/Edats`.
+
+## Running a game in VR
 
 1. Start SteamVR (or another OpenXR runtime) before launching a game.
 2. Launch a game from the list below as normal. VR switches on by itself for a game with a VR profile
