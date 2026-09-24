@@ -259,6 +259,7 @@ struct cfg_root : cfg::node
 			cfg::_int<-500, 500> camera_depth{ this, "Camera Depth Offset", 0, true };   // hundredths of a metre, + moves the viewpoint forward
 			cfg::_bool match_headset_rate{ this, "Match Headset Refresh Rate", true, true }; // vblank at the headset's rate; only if the VR profile allows it
 			cfg::uint<25, 400> world_scale{ this, "World Scale", 100, true }; // % apparent size of the game world; corrects the profile's eye_baseline
+			cfg::uint<0, 30> reprojection_margin{ this, "Reprojection Margin", 0, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges
 
 		} vr{ this };
 

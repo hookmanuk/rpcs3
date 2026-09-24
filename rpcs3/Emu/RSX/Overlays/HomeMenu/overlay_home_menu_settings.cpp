@@ -209,6 +209,7 @@ namespace rsx
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);
 			add_unsigned_slider(&g_cfg.video.vr.screen_depth, localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH, " %", 5);
 			add_signed_slider(&g_cfg.video.vr.camera_depth, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH, " cm", 5);
+			add_unsigned_slider(&g_cfg.video.vr.reprojection_margin, localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN, "°", 1);
 
 			apply_layout();
 		}

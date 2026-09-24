@@ -1490,7 +1490,7 @@ namespace vk::xr
 		}
 	}
 
-	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4])
+	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg)
 	{
 		// A frame rendered without a located pose must not be declared with an old one.
 		g_xr.render_pose_valid = false;
@@ -1537,14 +1537,26 @@ namespace vk::xr
 				g_xr.ipd = d;
 			}
 		}
+		// Widened by the margin, kept short of 90 degrees where the tangent diverges.
+		const f32 margin = margin_deg * 0.01745329f;
+		constexpr f32 max_angle = 80.f * 0.01745329f;
 		for (u32 i = 0; i < 2; ++i)
 		{
 			const XrFovf& f = located[i].fov;
-			g_xr.render_eye_fov[i] = f;
 			eye_fov[i][0] = std::tan(f.angleLeft);
 			eye_fov[i][1] = std::tan(f.angleRight);
 			eye_fov[i][2] = std::tan(f.angleUp);
 			eye_fov[i][3] = std::tan(f.angleDown);
+
+			XrFovf& r = g_xr.render_eye_fov[i];
+			r.angleLeft = std::max(f.angleLeft - margin, -max_angle);
+			r.angleRight = std::min(f.angleRight + margin, max_angle);
+			r.angleUp = std::min(f.angleUp + margin, max_angle);
+			r.angleDown = std::max(f.angleDown - margin, -max_angle);
+			render_fov[i][0] = std::tan(r.angleLeft);
+			render_fov[i][1] = std::tan(r.angleRight);
+			render_fov[i][2] = std::tan(r.angleUp);
+			render_fov[i][3] = std::tan(r.angleDown);
 		}
 		g_xr.render_pose_valid = true;
 

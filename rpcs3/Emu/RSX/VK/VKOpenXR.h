@@ -87,9 +87,12 @@ namespace vk::xr
 	// the latest headset display time). commit_eyes() tags that frame with it.
 	// Returns false if tracking is unavailable.
 	// eye_fov receives the located per-eye tangents (left, right, up, down).
+	// render_fov receives them widened by margin_deg on every side: the frame is
+	// rendered and declared with that FOV, so when the headset turns an older frame
+	// to the current head pose it still has picture at the edges.
 	// position_xyz receives the head position in LOCAL space (metres), zero when
 	// the runtime cannot track it or RPCS3_OPENXR_POSITION=0.
-	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4]);
+	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg);
 
 	// Distance between the located eyes (metres), from the latest locate_render_pose.
 	f32 ipd();

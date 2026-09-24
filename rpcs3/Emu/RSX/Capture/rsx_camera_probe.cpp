@@ -1044,8 +1044,8 @@ namespace rsx::vr
 		m_vr_view = true;
 	}
 
-	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale, bool hud_fixed, f32 hud_offset_x, f32 hud_offset_y,
-		f32 hud_depth, f32 ipd)
+	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], const f32 (*visible)[4], f32 hud_scale, bool hud_fixed,
+		f32 hud_offset_x, f32 hud_offset_y, f32 hud_depth, f32 ipd)
 	{
 		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
 		m_vr_hud_depth = hud_depth;
@@ -1061,6 +1061,7 @@ namespace rsx::vr
 				for (u32 i = 0; i < 4; ++i)
 				{
 					m_vr_eye_fov[e][i] = tangents[e][i];
+					m_vr_eye_fov_visible[e][i] = visible ? visible[e][i] : tangents[e][i];
 				}
 			}
 		}
@@ -1134,13 +1135,16 @@ namespace rsx::vr
 		// eye's headset frustum and scaled by the HUD scale. The mapping is linear
 		// in (X, Y, W), so it also carries perspective blocks (W != 1) whose game
 		// NDC image belongs to the screen, e.g. the menu background.
+		// Sized from the visible frustum, mapped into the rendered one (wider by the
+		// reprojection margin).
 		const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
-		f32 fit_x = std::min(-t[0], t[1]);
-		f32 fit_y = std::min(t[2], -t[3]);
+		const f32* v = m_vr_eye_fov_visible[eye_sign < 0.f ? 0 : 1];
+		f32 fit_x = std::min(-v[0], v[1]);
+		f32 fit_y = std::min(v[2], -v[3]);
 		if (m_vr_hud_fixed)
 		{
 			// One box for both eyes, so the fixed HUD carries no stray disparity.
-			const f32* o = m_vr_eye_fov[eye_sign < 0.f ? 1 : 0];
+			const f32* o = m_vr_eye_fov_visible[eye_sign < 0.f ? 1 : 0];
 			fit_x = std::min({ fit_x, -o[0], o[1] });
 			fit_y = std::min({ fit_y, o[2], -o[3] });
 		}

@@ -735,12 +735,14 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		f32 head[4];
 		f32 head_position[3];
 		f32 eye_fov[2][4];
+		f32 render_fov[2][4];
 		auto& probe = rsx::vr::camera_probe::get();
 		const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode();
 		// HUD stereo distance, and the fixed screen's distance (metres).
 		constexpr f32 vr_hud_distance = 2.f;
 		// Overlay flips (paused emulation) draw nothing, so the pose waits for the next game flip.
-		const bool located = info.emu_flip && vk::xr::locate_render_pose(head, head_position, eye_fov);
+		const bool located = info.emu_flip && vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
+			static_cast<f32>(g_cfg.video.vr.reprojection_margin.get()));
 
 		// The HUD box: the game's output aspect, fitted in the central symmetric part of
 		// both eyes' views, scaled by the HUD settings, at 2 m. The fixed screen and
@@ -795,7 +797,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
 			probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
 				vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
-			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? eye_fov : nullptr,
+			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
 				g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
 				g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
 				vr_hud_distance, vk::xr::ipd());

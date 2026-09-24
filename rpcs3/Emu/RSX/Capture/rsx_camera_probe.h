@@ -257,8 +257,10 @@ namespace rsx::vr
 		// hud_offset_x/y move the box centre by that fraction of the central view's
 		// half-width/half-height (+ is right/up). hud_depth (metres, 0 = infinity)
 		// places it at that stereo distance for eyes ipd metres apart.
-		void set_vr_eye_fov(const f32 (*tangents)[4], f32 hud_scale, bool hud_fixed, f32 hud_offset_x, f32 hud_offset_y,
-			f32 hud_depth, f32 ipd);
+		// tangents are the rendered eye frustums (the visible ones plus the
+		// reprojection margin); the HUD box is sized from the visible ones.
+		void set_vr_eye_fov(const f32 (*tangents)[4], const f32 (*visible)[4], f32 hud_scale, bool hud_fixed,
+			f32 hud_offset_x, f32 hud_offset_y, f32 hud_depth, f32 ipd);
 
 		// tan of the rendered half-angles, measured from the camera draws
 		// (including fov_scale). False until a rigid camera block has been seen.
@@ -327,7 +329,8 @@ namespace rsx::vr
 		std::array<f32, 3> m_vr_head_m{};
 		f32 m_vr_hud_depth = 0.f;   // metres
 		f32 m_vr_hud_parallax = 0.f; // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
-		f32 m_vr_eye_fov[2][4]{};
+		f32 m_vr_eye_fov[2][4]{};         // rendered
+		f32 m_vr_eye_fov_visible[2][4]{}; // shown by the headset
 		// Projection x/y scales relative to w, from the latest rigid camera block.
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;
