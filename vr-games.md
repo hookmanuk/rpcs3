@@ -19,11 +19,11 @@ You need:
 
 Then:
 
-1. [Download and extract the zip](https://github.com/hookmanuk/rpcs3/releases/latest) from to a folder you can write to (not `Program Files`). RPCS3 keeps its settings, installed
+1. [Download and extract the zip](https://github.com/hookmanuk/rpcs3/releases/latest) to a folder you can write to (not `Program Files`). RPCS3 keeps its settings, installed
    firmware and game data in that folder.
 2. Run `rpcs3.exe`. Install the firmware with `File > Install Firmware` and pick `PS3UPDAT.PUP`.
 3. Add your games with `File > Add Games` (a folder of disc dumps) or boot one with `File > Boot Game`.
-   Install game updates (WipEout needs one, see below) with `File > Install Packages/Raps/Edats`.
+   Optionally install game updates with `File > Install Packages/Raps/Edats`.
 
 This build has no automatic updater (the standard RPCS3 updater would replace it with a build without
 VR): get new VR builds from the same place as this one.
