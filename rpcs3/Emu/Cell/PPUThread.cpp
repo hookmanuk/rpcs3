@@ -1255,6 +1255,121 @@ static void ppu_trace_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, p
 	return ppu_cache(addr)(ppu, {*this_op}, this_op, next_fn);
 }
 
+// VR fork dev hook: a write watch. Every store instruction in a code range is
+// replaced by this check, which logs each distinct store address (with the
+// value and call stack) that writes into [s_watch_addr, s_watch_addr + s_watch_len).
+// Interpreter only.
+static u32 s_watch_addr = 0;
+static u32 s_watch_len = 0;
+
+static void ppu_watch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, ppu_intrp_func* next_fn)
+{
+	const u32 addr = vm::get_addr(this_op);
+	const ppu_opcode_t op{*this_op};
+	const u64 base = op.ra ? ppu.gpr[op.ra] : 0;
+	u32 ea = 0, size = 4;
+	bool is_float = false;
+	switch (op.main)
+	{
+	case 36: case 37: ea = static_cast<u32>(base + op.simm16); break; // stw(u)
+	case 38: case 39: ea = static_cast<u32>(base + op.simm16); size = 1; break; // stb(u)
+	case 44: case 45: ea = static_cast<u32>(base + op.simm16); size = 2; break; // sth(u)
+	case 47: ea = static_cast<u32>(base + op.simm16); size = (32 - op.rs) * 4; break; // stmw
+	case 52: case 53: ea = static_cast<u32>(base + op.simm16); is_float = true; break; // stfs(u)
+	case 54: case 55: ea = static_cast<u32>(base + op.simm16); size = 8; break; // stfd(u)
+	case 62: ea = static_cast<u32>(base + (op.simm16 & ~3)); size = 8; break; // std(u)
+	case 31:
+	{
+		ea = static_cast<u32>(base + ppu.gpr[op.rb]);
+		switch (op.opcode >> 1 & 0x3ff)
+		{
+		case 231: case 487: ea &= ~15u; size = 16; break; // stvx(l)
+		case 199: ea &= ~3u; break; // stvewx
+		case 663: case 695: is_float = true; break; // stfsx, stfsux
+		case 727: case 759: case 149: case 181: size = 8; break; // stfdx(u), stdx(u)
+		case 215: case 247: size = 1; break; // stbx(u)
+		case 407: case 439: size = 2; break; // sthx(u)
+		default: break; // stwx(u)
+		}
+		break;
+	}
+	default: size = 0; break;
+	}
+
+	if (size && ea < s_watch_addr + s_watch_len && ea + size > s_watch_addr)
+	{
+		static std::mutex s_mutex;
+		static std::map<u32, u64> s_hits;
+		std::lock_guard lock(s_mutex);
+		const u64 hits = ++s_hits[addr];
+		if (hits == 1 || hits % 1000 == 0)
+		{
+			std::string key = fmt::format("0x%x LR 0x%x", addr, static_cast<u32>(ppu.lr));
+			const auto list = ppu.dump_callstack_list();
+			for (usz i = 0; i < std::min<usz>(list.size(), 8); i++)
+			{
+				fmt::append(key, " <- 0x%x", list[i].first);
+			}
+			std::string value;
+			if (is_float)
+			{
+				value = fmt::format("f%u=%g", op.frs, ppu.fpr[op.frs]);
+			}
+			else if (size == 16)
+			{
+				const v128 v = ppu.vr[op.vs];
+				value = fmt::format("v%u=(%g %g %g %g)", op.vs, v._f[3], v._f[2], v._f[1], v._f[0]);
+			}
+			else
+			{
+				value = fmt::format("r%u=0x%llx", op.rs, ppu.gpr[op.rs]);
+			}
+			ppu_log.success("WATCH store to 0x%x (%u bytes) %s at %s [%s, hit %u]", ea, size, value, key, ppu.get_name(), hits);
+		}
+	}
+
+	return ppu_cache(addr)(ppu, {*this_op}, this_op, next_fn);
+}
+
+// Installs the watch on every store instruction in [start, end). Returns the count.
+extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end)
+{
+	if (g_cfg.core.ppu_decoder == ppu_decoder_type::llvm)
+	{
+		return 0;
+	}
+
+	s_watch_addr = watch_addr;
+	s_watch_len = watch_len;
+	u32 count = 0;
+	for (u32 addr = start; addr < end; addr += 4)
+	{
+		if (!vm::check_addr(addr, vm::page_executable))
+		{
+			continue;
+		}
+		const ppu_opcode_t op{vm::read32(addr)};
+		bool store = (op.main >= 36 && op.main <= 39) || op.main == 44 || op.main == 45 || op.main == 47 || (op.main >= 52 && op.main <= 55) || (op.main == 62 && (op.opcode & 3) < 2);
+		if (op.main == 31)
+		{
+			switch (op.opcode >> 1 & 0x3ff)
+			{
+			case 151: case 183: case 215: case 247: case 407: case 439: case 149: case 181:
+			case 663: case 695: case 727: case 759: case 231: case 487: case 199:
+				store = true;
+				break;
+			default: break;
+			}
+		}
+		if (store && ppu_read(addr) != &ppu_watch_break && ppu_read(addr) != &ppu_trace_break)
+		{
+			write_to_ptr_unsafe<ppu_intrp_func_t>(ppu_ptr(addr), &ppu_watch_break);
+			count++;
+		}
+	}
+	return count;
+}
+
 extern bool ppu_trace_breakpoint(u32 addr)
 {
 	if (addr % 4 || !vm::check_addr(addr, vm::page_executable) || g_cfg.core.ppu_decoder == ppu_decoder_type::llvm || ppu_read(addr) == &ppu_trace_break)

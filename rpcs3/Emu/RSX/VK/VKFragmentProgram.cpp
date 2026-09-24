@@ -438,7 +438,8 @@ void VKFragmentDecompilerThread::insertGlobalFunctions(std::stringstream &OS)
 
 	OS <<
 		"#define texture_base_index _fs_texture_base_index\n"
-		"#define TEX_PARAM(index) texture_parameters_##index\n\n";
+		"#define TEX_PARAM(index) texture_parameters_##index\n"
+		"#define _VR_REPROJECT\n\n";
 
 	glsl::insert_glsl_legacy_function(OS, m_shader_props);
 }

@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "rsx_camera_probe.h"
+#include <set>
 
 #include "Emu/System.h"
 #include "Emu/system_config.h"
@@ -452,6 +453,21 @@ namespace rsx::vr
 		{
 			profile->screen_space_rotation_only_passthrough = rotation == "true";
 		}
+		if (std::string hud; read(screen_space, "passthrough_hud", hud, false))
+		{
+			profile->screen_space_passthrough_hud = hud == "true";
+		}
+		if (const YAML::Node programs = child(screen_space, "preprojected_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("screen_space.preprojected_programs: '" + text + "' is not a hex program hash");
+				profile->screen_space_preprojected_programs.push_back(hash);
+			}
+		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
 		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
@@ -466,13 +482,17 @@ namespace rsx::vr
 		{
 			profile->match_headset_refresh_rate = match == "true";
 		}
+		if (std::string current; read(root, "current_frame_copies", current, false))
+		{
+			profile->current_frame_copies = current == "true";
+		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate", "require_rigid_camera", "require_camera_aspect",
-			"game_camera_target_widths" });
+			"game_camera_target_widths", "current_frame_copies" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -818,6 +838,15 @@ namespace rsx::vr
 			return false;
 		}
 
+		f32 game_block[4][4];
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				game_block[r][c] = rows[r][c];
+			}
+		}
+
 		// A full-screen pass building view rays from a translation-free camera block
 		// (see screen_space_rotation_only_passthrough): it follows head rotation, but
 		// takes no eye offset, head translation or stereo shear.
@@ -860,6 +889,7 @@ namespace rsx::vr
 				const f32 t[4] = { -m_audit_fov_tan, m_audit_fov_tan, m_audit_fov_tan, -m_audit_fov_tan };
 				remap_to_eye_fov(rows, t, m_vr_proj_x, m_vr_proj_y);
 			}
+			store_eye_block(eye_sign, game_block, rows);
 			if (m_vr_proj_valid && !m_audit_logged)
 			{
 				m_audit_logged = true;
@@ -989,6 +1019,7 @@ namespace rsx::vr
 					rows[r][1] *= zoom;
 				}
 			}
+			store_eye_block(eye_sign, game_block, rows);
 			return true;
 		}
 
@@ -997,6 +1028,7 @@ namespace rsx::vr
 			rows[r][0] += sep * rows[r][3];
 		}
 		rows[3][0] -= sep * convergence;
+		store_eye_block(eye_sign, game_block, rows);
 		return true;
 	}
 
@@ -1172,6 +1204,7 @@ namespace rsx::vr
 				rows[r][0] = (rows[r][0] * tx + rows[r][3] * (cx + parallax)) * fx + rows[r][3] * ox;
 				rows[r][1] = (rows[r][1] * ty + rows[r][3] * cy) * fy + rows[r][3] * oy;
 			}
+			undo_viewport(rows);
 			return;
 		}
 
@@ -1210,6 +1243,7 @@ namespace rsx::vr
 			rows[r][1] = v1 * fy + v2 * oy;
 			rows[r][3] = v2;
 		}
+		undo_viewport(rows);
 	}
 
 	void camera_probe::remap_to_eye_fov(f32* const rows[4], const f32* t, f32 A, f32 B) const
@@ -1225,6 +1259,155 @@ namespace rsx::vr
 		{
 			rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
 			rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
+		}
+		undo_viewport(rows);
+	}
+
+	bool camera_probe::map_vr_passthrough_hud(f32 m[4][4], f32 eye_sign, f32 aspect) const
+	{
+		const title_profile* p = profile();
+		if (!p || !p->screen_space_passthrough_hud || !m_vr_view || !m_vr_hmd_fov)
+		{
+			return false;
+		}
+		f32 r0[4] = { 1.f, 0.f, 0.f, 0.f };
+		f32 r1[4] = { 0.f, 1.f, 0.f, 0.f };
+		f32 r2[4] = { 0.f, 0.f, 1.f, 0.f };
+		f32 r3[4] = { 0.f, 0.f, 0.f, 1.f };
+		f32* const rows[4] = { r0, r1, r2, r3 };
+		map_vr_screen_box(rows, eye_sign, aspect);
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 col = 0; col < 4; ++col)
+			{
+				m[r][col] = rows[r][col];
+			}
+		}
+		return true;
+	}
+
+	void camera_probe::store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const
+	{
+		const u32 eye = eye_sign < 0.f ? 0 : 1;
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				m_vr_last_block[eye][r][c] = game[r][c];
+				m_vr_last_eye_block[eye][r][c] = rows[r][c];
+			}
+		}
+		m_vr_last_block_valid[eye] = true;
+	}
+
+	bool camera_probe::map_vr_preprojected(f32 m[4][4], f32 eye_sign, u64 program_hash) const
+	{
+		const title_profile* p = profile();
+		const u32 eye = eye_sign < 0.f ? 0 : 1;
+		if (!p || !m_vr_last_block_valid[eye] || std::find(p->screen_space_preprojected_programs.begin(),
+			p->screen_space_preprojected_programs.end(), program_hash) == p->screen_space_preprojected_programs.end())
+		{
+			return false;
+		}
+
+		// A pre-projected vertex c is a point in the game's clip space: c * B^-1 is that
+		// point (homogeneous, in the space B was applied to), and * B_eye draws it for
+		// this eye exactly as the camera draws were, eye offset and head position
+		// included. Inverse by Gauss-Jordan with partial pivoting.
+		f64 a[4][8];
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				a[r][c] = m_vr_last_block[eye][r][c];
+				a[r][c + 4] = r == c ? 1.0 : 0.0;
+			}
+		}
+		for (u32 c = 0; c < 4; ++c)
+		{
+			u32 pivot = c;
+			for (u32 r = c + 1; r < 4; ++r)
+			{
+				if (std::fabs(a[r][c]) > std::fabs(a[pivot][c])) pivot = r;
+			}
+			if (std::fabs(a[pivot][c]) < 1e-12)
+			{
+				return false;
+			}
+			if (pivot != c)
+			{
+				for (u32 k = 0; k < 8; ++k) std::swap(a[c][k], a[pivot][k]);
+			}
+			const f64 inv = 1.0 / a[c][c];
+			for (u32 k = 0; k < 8; ++k) a[c][k] *= inv;
+			for (u32 r = 0; r < 4; ++r)
+			{
+				if (r == c || a[r][c] == 0.0) continue;
+				const f64 f = a[r][c];
+				for (u32 k = 0; k < 8; ++k) a[r][k] -= f * a[c][k];
+			}
+		}
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				f64 sum = 0.0;
+				for (u32 k = 0; k < 4; ++k)
+				{
+					sum += a[r][k + 4] * m_vr_last_eye_block[eye][k][c];
+				}
+				m[r][c] = static_cast<f32>(sum);
+			}
+		}
+		return true;
+	}
+
+	void camera_probe::undo_viewport(f32* const rows[4]) const
+	{
+		// Target NDC = NDC * k + o, with k = scale / (clip size / 2) and o the offset from
+		// the target centre; a viewport covering the target exactly is k = +-1, o = 0.
+		// The mapping above wants target NDC = its NDC (in the viewport's own y sense),
+		// so X' = (X - o*W) / k.
+		const f32 half_w = rsx::method_registers.surface_clip_width() / 2.f;
+		const f32 half_h = rsx::method_registers.surface_clip_height() / 2.f;
+		if (half_w <= 0.f || half_h <= 0.f)
+		{
+			return;
+		}
+		const f32 kx = rsx::method_registers.viewport_scale_x() / half_w;
+		const f32 ky = rsx::method_registers.viewport_scale_y() / half_h;
+		const f32 ox = (rsx::method_registers.viewport_offset_x() - half_w) / half_w;
+		const f32 oy = (rsx::method_registers.viewport_offset_y() - half_h) / half_h;
+		const f32 ax = std::fabs(kx), ay = std::fabs(ky);
+		{
+			// Diagnostic: each distinct viewport scale seen by a remapped draw (first 16).
+			static std::set<u64> s_seen;
+			const u64 key = (static_cast<u64>(std::lround(ax * 1000.f)) << 32) | static_cast<u32>(std::lround(ay * 1000.f));
+			if (s_seen.size() < 16 && s_seen.insert(key).second)
+			{
+				vr_probe_log.notice("VR viewport: scale %.4f x %.4f, offset %.4f, %.4f (clip %.0fx%.0f)", kx, ky, ox, oy, half_w * 2.f, half_h * 2.f);
+			}
+		}
+		if (ax < 0.25f || ay < 0.25f || ax > 4.f || ay > 4.f ||
+			(std::fabs(ax - 1.f) < 1e-3f && std::fabs(ay - 1.f) < 1e-3f && std::fabs(ox) < 1e-3f && std::fabs(oy) < 1e-3f))
+		{
+			return;
+		}
+		// In the viewport's own orientation: divide by |k|; the offset in NDC units of
+		// that orientation is o / sign(k).
+		const f32 sox = ox / (kx < 0.f ? -1.f : 1.f);
+		const f32 soy = oy / (ky < 0.f ? -1.f : 1.f);
+		for (u32 r = 0; r < 4; ++r)
+		{
+			rows[r][0] = (rows[r][0] - sox * rows[r][3]) / ax;
+			rows[r][1] = (rows[r][1] - soy * rows[r][3]) / ay;
+		}
+
+		static bool s_reported = false;
+		if (!std::exchange(s_reported, true))
+		{
+			vr_probe_log.success("VR: camera draws use a viewport %.4fx%.4f the render target's (offset %.4f, %.4f); the headset mapping compensates.",
+				ax, ay, sox, soy);
 		}
 	}
 

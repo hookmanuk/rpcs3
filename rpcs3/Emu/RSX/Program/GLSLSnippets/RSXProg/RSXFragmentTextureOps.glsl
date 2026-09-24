@@ -125,6 +125,22 @@ vec2 _texcoord_xform(const in vec2 coord, const in sampler_info params)
 		vec2(params.bias_x, params.bias_y)
 	);
 
+#ifdef _VR_REPROJECT
+	if (_test_bit(params.flags, VR_REPROJECT_BIT))
+	{
+		// VR fork: the texture holds an image rendered with an older head pose. Map
+		// this frame's image coordinate through the head rotation since (a homography
+		// in the TIU slot named by bias_z: rows in scale, bias and clamp_min/max.x).
+		const sampler_info h = texture_parameters[texture_base_index + uint(params.bias_z)];
+		const vec3 p = vec3(result, 1.);
+		const vec3 q = vec3(
+			dot(vec3(h.scale_x, h.scale_y, h.scale_z), p),
+			dot(vec3(h.bias_x, h.bias_y, h.bias_z), p),
+			dot(vec3(h.clamp_min_x, h.clamp_min_y, h.clamp_max_x), p));
+		result = q.xy / q.z;
+	}
+#endif
+
 	if (_test_bit(params.flags, CLAMP_COORDS_BIT))
 	{
 		result = clamp(

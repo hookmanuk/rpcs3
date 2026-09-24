@@ -906,6 +906,61 @@
                     </layout>
                    </widget>
                   </item>
+                  <item>
+                   <widget class="QGroupBox" name="gb_vrReprojectionMargin">
+                    <property name="title">
+                     <string>Reprojection Margin</string>
+                    </property>
+                    <layout class="QVBoxLayout" name="gb_vrReprojectionMargin_layout">
+                     <item>
+                      <layout class="QHBoxLayout" name="vrReprojectionMarginLayoutTop" stretch="0,1,0">
+                       <item>
+                        <widget class="QLabel" name="vrReprojectionMarginMin">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QSlider" name="vrReprojectionMargin">
+                         <property name="orientation">
+                          <enum>Qt::Orientation::Horizontal</enum>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QLabel" name="vrReprojectionMarginMax">
+                         <property name="text">
+                          <string>30</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                     <item>
+                      <layout class="QHBoxLayout" name="vrReprojectionMarginLayoutBottom" stretch="1,0">
+                       <item>
+                        <widget class="QLabel" name="vrReprojectionMarginVal">
+                         <property name="text">
+                          <string>0</string>
+                         </property>
+                         <property name="alignment">
+                          <set>Qt::AlignmentFlag::AlignCenter</set>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="vrReprojectionMarginReset">
+                         <property name="text">
+                          <string>Reset</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </item>
+                    </layout>
+                   </widget>
+                  </item>
                  </layout>
                 </widget>
                </item>

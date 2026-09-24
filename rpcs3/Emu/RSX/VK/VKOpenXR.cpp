@@ -146,11 +146,17 @@ namespace vk::xr
 			bool fb_refresh_rate = false;  // extension enabled
 			f32 fb_display_hz = 0.f;       // updated on change events
 			f32 ipd = 0.063f;
-			// Pose the pending game frame is rendered with; declared at the next flip.
-			bool render_pose_valid = false;
-			XrQuaternionf render_orientation{ 0.f, 0.f, 0.f, 1.f };
-			XrVector3f render_eye_position[2]{};
-			XrFovf render_eye_fov[2]{};
+			// Recently located render poses, by id (RSX thread). A game frame is declared
+			// with the pose its camera draws used, which need not be the newest one.
+			struct render_pose_t
+			{
+				u32 id = 0;
+				XrQuaternionf orientation{ 0.f, 0.f, 0.f, 1.f };
+				XrVector3f eye_position[2]{};
+				XrFovf eye_fov[2]{};
+			};
+			render_pose_t render_poses[8]{};
+			u32 render_pose_count = 0;
 
 #define XR_FN(name) PFN_##name name = nullptr
 			XR_FN(xrCreateInstance);
@@ -1339,7 +1345,7 @@ namespace vk::xr
 		return true;
 	}
 
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
 		if (g_xr.writing < 0)
@@ -1347,14 +1353,16 @@ namespace vk::xr
 			return;
 		}
 
-		// The pose this frame's draws were rotated by (located at the previous flip).
+		// The pose this frame's draws were rotated by. Too old to be in the history
+		// (or never located): not declared as a projection.
 		auto& slot = g_xr.slots[g_xr.writing];
-		slot.pose_valid = g_xr.render_pose_valid;
-		slot.orientation = g_xr.render_orientation;
-		slot.eye_position[0] = g_xr.render_eye_position[0];
-		slot.eye_position[1] = g_xr.render_eye_position[1];
-		slot.eye_fov[0] = g_xr.render_eye_fov[0];
-		slot.eye_fov[1] = g_xr.render_eye_fov[1];
+		const auto& pose = g_xr.render_poses[pose_id % std::size(g_xr.render_poses)];
+		slot.pose_valid = pose_id && pose.id == pose_id;
+		slot.orientation = pose.orientation;
+		slot.eye_position[0] = pose.eye_position[0];
+		slot.eye_position[1] = pose.eye_position[1];
+		slot.eye_fov[0] = pose.eye_fov[0];
+		slot.eye_fov[1] = pose.eye_fov[1];
 		slot.have_fov = have_fov;
 		slot.tan_half_x = tan_half_x;
 		slot.tan_half_y = tan_half_y;
@@ -1490,15 +1498,142 @@ namespace vk::xr
 		}
 	}
 
-	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg)
+	bool render_pose_shift(u32 from_id, u32 to_id, f32& du, f32& dv)
 	{
-		// A frame rendered without a located pose must not be declared with an old one.
-		g_xr.render_pose_valid = false;
+		const auto& from = g_xr.render_poses[from_id % std::size(g_xr.render_poses)];
+		const auto& to = g_xr.render_poses[to_id % std::size(g_xr.render_poses)];
+		if (!from_id || !to_id || from.id != from_id || to.id != to_id)
+		{
+			return false;
+		}
 
+		// v = conj(q_from) * q_to * forward: the new view's forward direction seen
+		// from the old view (OpenXR view space: +x right, +y up, -z forward).
+		const auto mul = [](const XrQuaternionf& a, const XrQuaternionf& b) -> XrQuaternionf
+		{
+			return {
+				a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+				a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+				a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+				a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
+		};
+		const XrQuaternionf& f = from.orientation;
+		const XrQuaternionf q = mul({ -f.x, -f.y, -f.z, f.w }, to.orientation);
+		// Rotate (0, 0, -1) by q.
+		const f32 vx = -(2.f * (q.x * q.z + q.w * q.y));
+		const f32 vy = -(2.f * (q.y * q.z - q.w * q.x));
+		const f32 vz = -(1.f - 2.f * (q.x * q.x + q.y * q.y));
+		if (vz > -0.5f)
+		{
+			return false;
+		}
+
+		f32 span_x = 0.f, span_y = 0.f;
+		for (const XrFovf& fov : to.eye_fov)
+		{
+			span_x += std::tan(fov.angleRight) - std::tan(fov.angleLeft);
+			span_y += std::tan(fov.angleUp) - std::tan(fov.angleDown);
+		}
+		if (span_x <= 0.f || span_y <= 0.f)
+		{
+			return false;
+		}
+		span_x *= 0.5f;
+		span_y *= 0.5f;
+
+		du = (vx / -vz) / span_x;
+		dv = -(vy / -vz) / span_y;
+		return true;
+	}
+
+	f32 render_pose_step_mm(u32 from_id, u32 to_id)
+	{
+		const auto& a = g_xr.render_poses[from_id % std::size(g_xr.render_poses)];
+		const auto& b = g_xr.render_poses[to_id % std::size(g_xr.render_poses)];
+		if (!from_id || !to_id || a.id != from_id || b.id != to_id)
+		{
+			return std::numeric_limits<f32>::quiet_NaN();
+		}
+		const XrVector3f& p = a.eye_position[0];
+		const XrVector3f& q = b.eye_position[0];
+		return std::sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y) + (p.z - q.z) * (p.z - q.z)) * 1000.f;
+	}
+
+	bool render_pose_homography(u32 from_id, u32 to_id, f32 h[9])
+	{
+		const auto& from = g_xr.render_poses[from_id % std::size(g_xr.render_poses)];
+		const auto& to = g_xr.render_poses[to_id % std::size(g_xr.render_poses)];
+		if (!from_id || !to_id || from.id != from_id || to.id != to_id)
+		{
+			return false;
+		}
+
+		// Q = R_from^T R_to: directions of the new view expressed in the old one.
+		const XrQuaternionf& a = from.orientation;
+		const XrQuaternionf& b = to.orientation;
+		const f32 ax = -a.x, ay = -a.y, az = -a.z, aw = a.w;
+		const f32 x = aw * b.x + ax * b.w + ay * b.z - az * b.y;
+		const f32 y = aw * b.y - ax * b.z + ay * b.w + az * b.x;
+		const f32 z = aw * b.z + ax * b.y - ay * b.x + az * b.w;
+		const f32 w = aw * b.w - ax * b.x - ay * b.y - az * b.z;
+		const f32 q[9] = {
+			1.f - 2.f * (y * y + z * z), 2.f * (x * y - w * z), 2.f * (x * z + w * y),
+			2.f * (x * y + w * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - w * x),
+			2.f * (x * z - w * y), 2.f * (y * z + w * x), 1.f - 2.f * (x * x + y * y) };
+
+		// The rendered eye frustum (both eyes averaged): T maps (u, v, 1), v down, to
+		// view tangents (tx, ty, 1); the direction is (tx, ty, -1) = S (tx, ty, 1).
+		f32 l = 0.f, r = 0.f, up = 0.f, dn = 0.f;
+		for (const XrFovf& fov : to.eye_fov)
+		{
+			l += std::tan(fov.angleLeft) * 0.5f;
+			r += std::tan(fov.angleRight) * 0.5f;
+			up += std::tan(fov.angleUp) * 0.5f;
+			dn += std::tan(fov.angleDown) * 0.5f;
+		}
+		const f32 sx = r - l, sy = up - dn;
+		if (sx <= 0.f || sy <= 0.f)
+		{
+			return false;
+		}
+
+		// H = T^-1 S Q S T
+		const f32 t[9] = { sx, 0.f, l, 0.f, -sy, up, 0.f, 0.f, 1.f };
+		const f32 ti[9] = { 1.f / sx, 0.f, -l / sx, 0.f, -1.f / sy, up / sy, 0.f, 0.f, 1.f };
+		const f32 s[3] = { 1.f, 1.f, -1.f };
+		f32 sqs[9];
+		for (u32 i = 0; i < 3; ++i)
+			for (u32 j = 0; j < 3; ++j)
+				sqs[i * 3 + j] = s[i] * q[i * 3 + j] * s[j];
+		const auto mul = [](const f32* m, const f32* n, f32* o)
+		{
+			for (u32 i = 0; i < 3; ++i)
+				for (u32 j = 0; j < 3; ++j)
+					o[i * 3 + j] = m[i * 3] * n[j] + m[i * 3 + 1] * n[3 + j] + m[i * 3 + 2] * n[6 + j];
+		};
+		f32 tmp[9];
+		mul(sqs, t, tmp);
+		mul(ti, tmp, h);
+		return true;
+	}
+
+	f32 render_pose_yaw(u32 pose_id)
+	{
+		const auto& pose = g_xr.render_poses[pose_id % std::size(g_xr.render_poses)];
+		if (!pose_id || pose.id != pose_id)
+		{
+			return std::numeric_limits<f32>::quiet_NaN();
+		}
+		const XrQuaternionf& q = pose.orientation;
+		return std::atan2(2.f * (q.w * q.y + q.x * q.z), 1.f - 2.f * (q.y * q.y + q.x * q.x)) * 57.29578f;
+	}
+
+	u32 locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg)
+	{
 		const XrTime last_display = g_xr.last_display_time.load();
 		if (!is_running() || !g_xr.view_space || !last_display)
 		{
-			return false;
+			return 0;
 		}
 
 		// The next game frame is published at the next guest flip and shown on the
@@ -1510,7 +1645,7 @@ namespace vk::xr
 		if (!XR_SUCCEEDED(g_xr.xrLocateSpace(g_xr.view_space, g_xr.space, time, &head)) ||
 			!(head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
 		{
-			return false;
+			return 0;
 		}
 
 		XrViewLocateInfo info{ XR_TYPE_VIEW_LOCATE_INFO };
@@ -1522,12 +1657,15 @@ namespace vk::xr
 		u32 count = 0;
 		if (!XR_SUCCEEDED(g_xr.xrLocateViews(g_xr.session, &info, &state, 2, &count, located)) || count != 2)
 		{
-			return false;
+			return 0;
 		}
 
-		g_xr.render_orientation = head.pose.orientation;
-		g_xr.render_eye_position[0] = located[0].pose.position;
-		g_xr.render_eye_position[1] = located[1].pose.position;
+		const u32 id = ++g_xr.render_pose_count;
+		auto& pose = g_xr.render_poses[id % std::size(g_xr.render_poses)];
+		pose.id = id;
+		pose.orientation = head.pose.orientation;
+		pose.eye_position[0] = located[0].pose.position;
+		pose.eye_position[1] = located[1].pose.position;
 		{
 			const XrVector3f& a = located[0].pose.position;
 			const XrVector3f& b = located[1].pose.position;
@@ -1548,7 +1686,7 @@ namespace vk::xr
 			eye_fov[i][2] = std::tan(f.angleUp);
 			eye_fov[i][3] = std::tan(f.angleDown);
 
-			XrFovf& r = g_xr.render_eye_fov[i];
+			XrFovf& r = pose.eye_fov[i];
 			r.angleLeft = std::max(f.angleLeft - margin, -max_angle);
 			r.angleRight = std::min(f.angleRight + margin, max_angle);
 			r.angleUp = std::min(f.angleUp + margin, max_angle);
@@ -1558,7 +1696,6 @@ namespace vk::xr
 			render_fov[i][2] = std::tan(r.angleUp);
 			render_fov[i][3] = std::tan(r.angleDown);
 		}
-		g_xr.render_pose_valid = true;
 
 		position_xyz[0] = position_xyz[1] = position_xyz[2] = 0.f;
 		if (g_xr.position_tracking && (head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
@@ -1572,6 +1709,6 @@ namespace vk::xr
 		quat_xyzw[1] = head.pose.orientation.y;
 		quat_xyzw[2] = head.pose.orientation.z;
 		quat_xyzw[3] = head.pose.orientation.w;
-		return true;
+		return id;
 	}
 }

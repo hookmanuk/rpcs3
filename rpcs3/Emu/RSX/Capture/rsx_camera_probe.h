@@ -164,12 +164,28 @@ namespace rsx::vr
 		// (inFamous 2 also renders world geometry camera-relative with such a block,
 		// but always with depth test.)
 		bool screen_space_rotation_only_passthrough = false;
+		// HUD and menus drawn with no matrix at all (positions come out of the vertex
+		// shader in screen space; ICO's pause menu): a draw that uses no camera block,
+		// samples only ordinary textures and targets a buffer no camera draw wrote this
+		// frame goes into the HUD box through the vertex context's viewport matrix.
+		bool screen_space_passthrough_hud = false;
+		// Vertex programs (ucode hashes) whose positions come out already projected by
+		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
+		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
+		std::vector<u64> screen_space_preprojected_programs;
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 
 		// The game keeps real-time speed with its vblank at the headset's refresh
 		// rate, so "Match Headset Refresh Rate" is offered.
 		bool match_headset_refresh_rate = false;
+
+		// The game composites the previous frame's scene (ICO: left over from SPU
+		// MLAA) with effects built from the current one (bloom). Each frame carries
+		// its own head rotation, so the two disagree when the head turns. Copies
+		// (blits) of a scene target drawn in an earlier frame read the matching
+		// target drawn in this frame instead.
+		bool current_frame_copies = false;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
@@ -335,6 +351,12 @@ namespace rsx::vr
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;
 		mutable bool m_vr_proj_valid = false;
+		// The latest output-aspect camera block per eye, as the game wrote it (B) and as
+		// drawn for that eye (B_eye), for pre-projected draws (see map_vr_preprojected).
+		mutable f32 m_vr_last_block[2][4][4]{};
+		mutable f32 m_vr_last_eye_block[2][4][4]{};
+		mutable bool m_vr_last_block_valid[2]{};
+		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
 
 		// Rotation-invariance audit, RPCS3_VR_AUDIT=<degrees> (desktop only, no
 		// headset): both eyes share one eye position and the right eye is yawed by
@@ -350,6 +372,21 @@ namespace rsx::vr
 		f32 m_audit_fov_tan = 0.f;
 
 		void remap_to_eye_fov(f32* const rows[4], const f32* tangents, f32 A, f32 B) const;
+		// Undo the draw's viewport scale/offset where they differ from the render
+		// target's (ICO sets a 1360x768 viewport on a 1216x688 target), so clip space
+		// lands on the target exactly as the headset frustum mapping assumes.
+		void undo_viewport(f32* const rows[4]) const;
+
+	public:
+		// The HUD-box mapping as a clip-space matrix (row-vector: clip' = clip * m) for a
+		// draw of the profile's passthrough HUD. False unless the headset view is active.
+		bool map_vr_passthrough_hud(f32 m[4][4], f32 eye_sign, f32 aspect) const;
+		// For a draw of a profile pre-projected program: the clip-space matrix
+		// (row-vector) taking the game's clip space to this eye's, B^-1 * B_eye of the
+		// latest camera draw. False when the program is not listed or no camera draw
+		// was transformed yet.
+		bool map_vr_preprojected(f32 m[4][4], f32 eye_sign, u64 program_hash) const;
+	private:
 
 		bool m_have_xform = false;
 		bool m_require_cam = false;

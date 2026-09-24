@@ -8,12 +8,19 @@
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
-    "eye_baseline": 0.064
+    "eye_baseline": 6.4
   },
 
   "stereo": {
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0173228,
     "convergence": 2.56
-  }
+  },
+
+  "screen_space": {
+    "passthrough_hud": true,
+    "preprojected_programs": ["46c0e502317ab819"]
+  },
+
+  "current_frame_copies": true
 }

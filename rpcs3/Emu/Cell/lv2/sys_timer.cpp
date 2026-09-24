@@ -468,6 +468,31 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		}
 	}
 
+	// RPCS3_PPU_WATCH=<addr>,<len>,<code start>,<code end>[,<gate addr>,<gate word>] logs the
+	// store instructions writing [addr, addr+len) (PPU interpreter only). Installed once the
+	// word at <gate addr> equals <gate word> (e.g. after a launcher has loaded the game).
+	extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
+	if (static atomic_t<bool> s_watch_set = false; !s_watch_set)
+	{
+		if (const char* spec = std::getenv("RPCS3_PPU_WATCH"))
+		{
+			std::vector<u32> v;
+			for (const auto& item : fmt::split(spec, {","}))
+			{
+				v.push_back(static_cast<u32>(std::strtoul(item.c_str(), nullptr, 16)));
+			}
+			const bool gated = v.size() >= 6;
+			if (v.size() >= 4 && (!gated || (vm::check_addr(v[4]) && vm::read32(v[4]) == v[5])) && !s_watch_set.exchange(true))
+			{
+				sys_timer.success("Write watch on 0x%x+0x%x: %u store instructions", v[0], v[1], ppu_watch_install(v[0], v[1], v[2], v[3]));
+			}
+		}
+		else
+		{
+			s_watch_set = true;
+		}
+	}
+
 	// RPCS3_CALLSTACK_AT=<hex address> logs the guest call stack of every 30th sleep made from that address.
 	static const u32 s_callstack_at = [] { const char* v = std::getenv("RPCS3_CALLSTACK_AT"); return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u; }();
 	if (static atomic_t<u32> s_callstack_hits = 0; s_callstack_at && ppu.cia - s_callstack_at <= 4 && s_callstack_hits++ % 30 == 0)

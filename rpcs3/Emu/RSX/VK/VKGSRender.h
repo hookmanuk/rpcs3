@@ -121,6 +121,64 @@ private:
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
+	// Headset pose per game frame. A frame must be declared with the pose its camera
+	// draws were rotated by.
+	// - Where a game's frames end in a display buffer, the pose changes only when the
+	//   game moves on from one (a frame boundary). A flip requested from the game's
+	//   vblank handler (ICO) can land mid-frame; it then cannot split a frame between
+	//   two poses. Games that never render into a display buffer take it at each flip.
+	// - The pose follows the image: camera draws stamp their targets
+	//   (render_target::vr_pose), other draws pass on the newest stamp they sample,
+	//   blits copy it, and the flip declares the displayed buffer's stamp. ICO draws
+	//   each frame's scene into one of two buffers but composites the other (the
+	//   previous frame's), then flips a frame later.
+	u32 m_vr_applied_pose = 0;       // pose the camera draws are rotated by now
+	s32 m_vr_display_target = -1;    // display buffer bound as the colour target, or -1
+	u32 vr_sampled_pose();           // newest pose stamp among the render targets the current draw samples
+	void vr_stamp_targets(u32 pose, bool camera);
+	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
+	// Screen-space passes that read a full-screen target drawn with an older head
+	// pose (ICO blends last frame's scene and glow into each new frame) sample it
+	// shifted by the head rotation in between, so the blended copy lines up instead
+	// of trailing the head.
+	bool m_vr_params_shifted = false;  // the last uploaded texture parameters carry such a shift
+	u16 m_vr_params_extra_mask = 0;    // TIU slots holding homographies for this upload
+	bool vr_is_feedback_texture(const vk::render_target* rtt) const;
+	// A pass that blends onto a full-screen target still holding an older pose's image
+	// (ICO's glow accumulates across frames) first moves that image by the head
+	// rotation since, in both eyes.
+	void vr_realign_blend_targets();
+	// Profile screen_space.passthrough_hud: this draw is HUD/menu drawn without a matrix.
+	bool vr_is_passthrough_hud();
+	// Point the vertex context at a copy whose viewport matrix also maps the draw
+	// into this eye's HUD box, or, for a profile pre-projected program (hash), from
+	// the game's clip space into this eye's. Returns false if not applicable.
+	bool vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program = 0);
+	// The ucode hash of the current vertex program when the profile lists it as
+	// pre-projected (screen_space.preprojected_programs), else 0.
+	u64 vr_preprojected_program();
+	bool vr_shift_feedback_textures(rsx::fragment_program_texture_config& params);
+	void vr_redirect_previous_frame_copy(rsx::blit_src_info& src); // profile current_frame_copies
+	bool m_vr_frame_boundaries = false;
+	u32 m_vr_flips_since_boundary = 0;
+	void vr_update_view();           // locate the head and rotate the next frame's camera draws by it
+	// Camera draws since the last view update, and view updates in a row without any:
+	// frames with no 3D at all (splash screens, videos, menus) are shown as the fixed screen.
+	u32 m_vr_camera_draws = 0;
+	u32 m_vr_frames_without_camera = 0;
+	// TEMPORARY diagnostic: per-frame trace of targets, boundaries, camera draws, blits and flips,
+	// logged for 6 consecutive frames every 150 flips.
+	std::string m_vr_trace;
+	u32 m_vr_trace_flips = 0;
+	u32 m_vr_trace_addr = 0;
+	u32 m_vr_trace_cam_pose = 0;
+	u32 m_vr_trace_cam_count = 0;
+	u32 m_vr_trace_other_count = 0; // non-camera draws into the latest camera target
+	bool vr_tracing() const { return (m_vr_trace_flips % 150) < 6; }
+	void vr_trace_copy_reads(bool camera); // textures read from copies of render-target memory
+	void vr_trace_flush_cam();
+	void vr_track_frame_boundary();  // prepare_rtts: detect the move away from a display buffer
+
 	// Right-eye pixels a blit staged in memory with no surface (ICO bounces its
 	// frame through main memory). One
 	// image covers a full row of the pitch, so column chunks (1024 + 256) land in

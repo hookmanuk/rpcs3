@@ -1595,6 +1595,18 @@ void VKGSRender::clear_surface(u32 mask)
 	{
 		begin_render_pass();
 		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
+
+		// A fully cleared target holds nothing from an older head pose.
+		if (full_frame && update_color && m_vr_applied_pose)
+		{
+			for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+			{
+				if (auto* surface = std::get<1>(m_rtts.m_bound_render_targets[index]))
+				{
+					surface->vr_pose = m_vr_applied_pose;
+				}
+			}
+		}
 	}
 
 	// A guest clear defines identical contents for both eyes inside the cleared
@@ -2234,7 +2246,10 @@ void VKGSRender::load_program_env()
 	const bool update_fragment_constants = !!(m_graphics_state & rsx::pipeline_state::fragment_constants_dirty);
 	const bool update_vertex_env = !!(m_graphics_state & rsx::pipeline_state::vertex_state_dirty);
 	const bool update_fragment_env = !!(m_graphics_state & rsx::pipeline_state::fragment_state_dirty);
-	const bool update_fragment_texture_env = !!(m_graphics_state & rsx::pipeline_state::fragment_texture_state_dirty);
+	rsx::fragment_program_texture_config vr_texture_params;
+	const bool vr_shifted = vk::xr::is_running() && vr_shift_feedback_textures(vr_texture_params);
+	const bool vr_was_shifted = std::exchange(m_vr_params_shifted, vr_shifted);
+	const bool update_fragment_texture_env = !!(m_graphics_state & rsx::pipeline_state::fragment_texture_state_dirty) || vr_shifted || vr_was_shifted;
 	const bool update_instruction_buffers = (!!m_interpreter_state && is_interpreter);
 	const bool update_raster_env = (ctx->polygon_stipple_enabled() && !!(m_graphics_state & rsx::pipeline_state::polygon_stipple_pattern_dirty));
 	const bool update_instancing_data = ctx->current_draw_clause.is_trivial_instanced_draw;
@@ -2344,7 +2359,8 @@ void VKGSRender::load_program_env()
 		m_texture_parameters_dynamic_offset = m_fragment_texture_params_ring_info.static_alloc<256, 768>();
 		auto buf = m_fragment_texture_params_ring_info.map(m_texture_parameters_dynamic_offset, 768);
 
-		current_fragment_program.texture_params.write_to(buf, current_fp_metadata.referenced_textures_mask);
+		(vr_shifted ? vr_texture_params : current_fragment_program.texture_params).write_to(buf,
+			current_fp_metadata.referenced_textures_mask | (vr_shifted ? m_vr_params_extra_mask : 0));
 		m_fragment_texture_params_ring_info.unmap();
 
 		m_fragment_texture_params_buffer_info = m_fragment_texture_params_ring_info.window<768>(m_texture_parameters_dynamic_offset, 768, gpu_limits.maxUniformBufferRange);
@@ -2822,6 +2838,11 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_framebuffer_layout.actual_color_pitch, m_framebuffer_layout.actual_zeta_pitch,
 		resolution_scaling_config);
 
+	if (vk::xr::is_running())
+	{
+		vr_track_frame_boundary();
+	}
+
 	// Gate 5: bind an isomorphic, host-only target set for the right eye. This
 	// deliberately uses a separate surface cache: guest addresses remain the
 	// semantic key, but no right-eye image is ever exposed to guest memory or
@@ -3283,10 +3304,19 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 }
 
-bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate)
+bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src_in, const rsx::blit_dst_info& dst, bool interpolate)
 {
 	if (swapchain_unavailable)
 		return false;
+
+	rsx::blit_src_info src = src_in;
+	if (vk::xr::is_running())
+	{
+		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->current_frame_copies)
+		{
+			vr_redirect_previous_frame_copy(src);
+		}
+	}
 
 	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
 	{
@@ -3297,9 +3327,34 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const r
 			dst.swizzled ? 1 : 0, dst.clip_x, dst.clip_y));
 	}
 
+	if (vk::xr::is_running() && vr_tracing())
+	{
+		vr_trace_flush_cam();
+		m_vr_trace += fmt::format(" T%x>%x", vm::get_addr(src.pixels), vm::get_addr(dst.pixels));
+	}
+
 	if (m_texture_cache.blit(src, dst, interpolate, m_rtts, *m_current_command_buffer))
 	{
 		m_samplers_dirty.store(true);
+
+		if (vk::xr::is_running())
+		{
+			// The copy carries the pose its source was drawn with.
+			const auto find = [&](u32 address, u32 pitch) -> vk::render_target*
+			{
+				if (auto* surface = m_rtts.find_color_surface(address, pitch))
+				{
+					return surface;
+				}
+				return m_rtts.get_surface_at(address);
+			};
+			auto* from = find(vm::get_addr(src.pixels), src.pitch);
+			auto* to = find(vm::get_addr(dst.pixels), dst.pitch);
+			if (from && to && from->vr_pose)
+			{
+				to->vr_pose = from->vr_pose;
+			}
+		}
 		m_current_command_buffer->set_flag(vk::command_buffer::cb_has_blit_transfer);
 
 		if (rsx::vr::camera_probe::get().render_enabled())
@@ -3641,4 +3696,44 @@ void VKGSRender::begin_conditional_rendering(const std::vector<rsx::reports::occ
 void VKGSRender::end_conditional_rendering()
 {
 	thread::end_conditional_rendering();
+}
+
+void VKGSRender::vr_redirect_previous_frame_copy(rsx::blit_src_info& src)
+{
+	// A scene target drawn with an earlier pose than the current frame's, while a
+	// twin (same size, format and pitch) was drawn in this frame: read the twin.
+	auto* from = m_rtts.find_color_surface(src.rsx_address, src.pitch);
+	if (!from || !from->vr_pose || from->vr_pose >= m_vr_applied_pose)
+	{
+		return;
+	}
+
+	for (auto it = m_vr_camera_targets.rbegin(); it != m_vr_camera_targets.rend(); ++it)
+	{
+		if (*it == from->base_addr)
+		{
+			continue;
+		}
+
+		auto* to = m_rtts.find_color_surface(*it, from->get_rsx_pitch());
+		if (!to || to->base_addr != *it || to->vr_pose != m_vr_applied_pose || to->format() != from->format() ||
+			to->width() != from->width() || to->height() != from->height() || to->samples() != from->samples())
+		{
+			continue;
+		}
+
+		const s64 delta = static_cast<s64>(to->base_addr) - static_cast<s64>(from->base_addr);
+		static bool s_reported = false;
+		if (!std::exchange(s_reported, true))
+		{
+			rsx_log.success("VR: copies of the previous frame's scene read this frame's (0x%x instead of 0x%x).", to->base_addr, from->base_addr);
+		}
+		if (vr_tracing())
+		{
+			m_vr_trace += fmt::format(" R%x>%x", src.rsx_address, static_cast<u32>(src.rsx_address + delta));
+		}
+		src.rsx_address = static_cast<u32>(src.rsx_address + delta);
+		src.pixels += delta;
+		return;
+	}
 }

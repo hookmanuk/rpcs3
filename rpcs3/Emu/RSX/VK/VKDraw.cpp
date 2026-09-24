@@ -9,6 +9,7 @@
 
 #include "VKAsyncScheduler.h"
 #include "VKGSRender.h"
+#include "VKOpenXR.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/chip_class.h"
 
@@ -1212,10 +1213,74 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_vertex_layout_dynamic_offset = m_vertex_layout_ring_info.alloc<8>(alloc_size);
 	}
 
-	if (vr_render)
+	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
+	m_vr_camera_draws += vr_camera_draw;
+	if (vr_render && vk::xr::is_running())
 	{
-		bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
+		if (vr_tracing())
+		{
+			vr_trace_copy_reads(vr_camera_draw);
+			if (!vr_camera_draw && !m_vr_camera_targets.empty() && m_framebuffer_layout.color_addresses[0] == m_vr_camera_targets.back())
+			{
+				if (m_vr_trace_cam_count)
+				{
+					vr_trace_flush_cam();
+				}
+				m_vr_trace_other_count++;
+			}
+		}
+		// A camera draw stamps its targets with the pose it is rotated by; any other
+		// draw passes on what it samples (post-processing, the final composite). A pass
+		// that samples no traced target made its output now (ICO turns this frame's
+		// stencil shadow volumes into a shadow mask that way): it is current too, except
+		// in a display buffer, where such draws are the HUD over an older image.
+		u32 vr_pose = vr_camera_draw ? m_vr_applied_pose : vr_sampled_pose();
+		if (!vr_pose && m_vr_display_target < 0)
+		{
+			vr_pose = m_vr_applied_pose;
+		}
+		vr_stamp_targets(vr_pose, vr_camera_draw);
+		if (vr_camera_draw && vr_tracing())
+		{
+			// Reads by 3D draws (traced only; they keep their own stamp).
+			const std::string before = m_vr_trace;
+			vr_sampled_pose();
+			if (m_vr_trace != before)
+			{
+				m_vr_trace.insert(before.size(), " 3d");
+			}
+			if (m_vr_trace_other_count || (m_vr_trace_cam_count && m_vr_trace_cam_pose != m_vr_applied_pose))
+			{
+				vr_trace_flush_cam();
+			}
+			m_vr_trace_cam_pose = m_vr_applied_pose;
+			m_vr_trace_cam_count++;
+		}
 	}
+
+	// HUD/menu drawn without a matrix: its own vertex context per eye (restored below).
+	const bool vr_hud = vr_render && !vr_camera_draw && vk::xr::is_running() && vr_is_passthrough_hud();
+	const VkDescriptorBufferInfoEx vr_saved_env_info = m_vertex_env_buffer_info;
+	const u64 vr_saved_env_offset = m_vertex_env_dynamic_offset;
+	// Sprites the game projected itself (ICO's flames): through the camera's eye transform.
+	// Only into this frame's scene with depth test: the same program also draws ICO's pause
+	// menu, which must stay in the HUD box (or as drawn).
+	const u32 vr_target = m_framebuffer_layout.color_addresses[0];
+	const u64 vr_listed = vr_render && !vr_camera_draw ? vr_preprojected_program() : 0;
+	const bool vr_in_scene = vr_target && std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), vr_target) != m_vr_camera_targets.end();
+	const u64 vr_preprojected = vr_listed && !vr_hud && rsx::method_registers.depth_test_enabled() && vr_in_scene ? vr_listed : 0;
+	if (vr_listed)
+	{
+		// Diagnostic: each distinct way a listed program is drawn (first 16).
+		static std::set<u64> s_seen;
+		const u64 key = (u64{vr_target} << 3) | (rsx::method_registers.depth_test_enabled() ? 4 : 0) | (vr_hud ? 2 : 0) | (vr_in_scene ? 1 : 0);
+		if (s_seen.size() < 16 && s_seen.insert(key).second)
+		{
+			rsx_log.notice("VR: pre-projected program %016llx into 0x%x: depth test %d, HUD %d, scene %d -> %s", vr_listed, vr_target,
+				rsx::method_registers.depth_test_enabled(), vr_hud, vr_in_scene, vr_preprojected ? "eye transform" : vr_hud ? "HUD box" : "as drawn");
+		}
+	}
+	const bool vr_hud_env = (vr_hud || vr_preprojected) && vr_hud_vertex_env(-1.f, vr_preprojected);
 
 	// Update vertex fetch parameters
 	update_vertex_env(vr_render ? sub_index * 2 : sub_index, upload_info);
@@ -1433,6 +1498,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			auto* const primary = m_current_command_buffer;
 			m_current_command_buffer = &m_vr_batch_cb;
 			m_vr_batch_cb.flags |= vk::command_buffer::cb_reload_dynamic_state;
+			if (vr_hud_env)
+			{
+				vr_hud_vertex_env(1.f, vr_preprojected);
+			}
 			update_vertex_env(sub_index * 2 + 1, upload_info);
 			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			update_draw_state();
@@ -1474,6 +1543,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_fbo_images = m_vr_right_fbo_images;
 
 		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
+		if (vr_hud_env)
+		{
+			vr_hud_vertex_env(1.f, vr_preprojected);
+		}
 		update_vertex_env(sub_index * 2 + 1, upload_info);
 		bind_texture_env(true);
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
@@ -1511,6 +1584,14 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
+	}
+
+	if (vr_hud_env)
+	{
+		// Later draws use the guest's own viewport again.
+		m_vertex_env_buffer_info = vr_saved_env_info;
+		m_vertex_env_dynamic_offset = vr_saved_env_offset;
+		m_program->bind_uniform(m_vertex_env_buffer_info, vk::glsl::binding_set_index_vertex, m_vs_binding_table->context_buffer_location);
 	}
 
 	m_frame_stats.draw_exec_time += m_profiler.duration();
@@ -1588,6 +1669,11 @@ void VKGSRender::end()
 	// Load program execution environment
 	load_program_env();
 	m_frame_stats.setup_time += m_profiler.duration();
+
+	if (vk::xr::is_running() && m_vr_applied_pose && rsx::method_registers.blend_enabled())
+	{
+		vr_realign_blend_targets();
+	}
 
 	// Apply write memory barriers
 	if (auto ds = std::get<1>(m_rtts.m_bound_depth_stencil))
@@ -1691,4 +1777,428 @@ void VKGSRender::end()
 	m_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
 
 	rsx::thread::end();
+}
+
+u32 VKGSRender::vr_sampled_pose()
+{
+	u32 pose = 0;
+	std::string reads;
+	const bool trace = vr_tracing();
+	const auto stamp = [&](vk::image* image)
+	{
+		if (auto* rtt = dynamic_cast<vk::render_target*>(image))
+		{
+			pose = std::max(pose, vr_is_feedback_texture(rtt) ? m_vr_applied_pose : rtt->vr_pose);
+			if (trace)
+			{
+				reads += rtt->vr_pose ? fmt::format("%s%x:%d", reads.empty() ? "" : ",", rtt->base_addr, static_cast<s32>(m_vr_applied_pose - rtt->vr_pose))
+					: fmt::format("%s%x:-", reads.empty() ? "" : ",", rtt->base_addr);
+			}
+		}
+	};
+
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
+	{
+		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+		if (!(textures_ref & 1) || !sampler_state || sampler_state->upload_context != rsx::texture_upload_context::framebuffer_storage)
+		{
+			continue;
+		}
+
+		if (sampler_state->image_handle)
+		{
+			stamp(sampler_state->image_handle->image());
+		}
+		else
+		{
+			// A copy of (parts of) render targets.
+			const auto& desc = sampler_state->external_subresource_desc;
+			if (desc.external_handle)
+			{
+				stamp(desc.external_handle);
+			}
+			for (const auto& section : desc.sections_to_copy)
+			{
+				stamp(section.src);
+			}
+		}
+	}
+
+	if (trace && !reads.empty())
+	{
+		// Reads of render targets as address:frames-old (- = no 3D content traced).
+		const std::string entry = fmt::format(" S{%s}", reads);
+		if (!m_vr_trace.ends_with(entry))
+		{
+			vr_trace_flush_cam();
+			m_vr_trace += entry;
+		}
+	}
+	return pose;
+}
+
+void VKGSRender::vr_stamp_targets(u32 pose, bool camera)
+{
+	if (!pose)
+	{
+		return;
+	}
+
+	// A camera draw's image is as new as its pose. Another draw's output is at least
+	// as new as what it samples (it may blend into newer content already there).
+	const auto stamp = [&](vk::render_target* surface)
+	{
+		if (surface)
+		{
+			surface->vr_pose = camera ? pose : std::max(surface->vr_pose, pose);
+		}
+	};
+	for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+	{
+		stamp(std::get<1>(m_rtts.m_bound_render_targets[index]));
+		if (camera)
+		{
+			const u32 address = m_framebuffer_layout.color_addresses[index];
+			if (address && (m_vr_camera_targets.empty() || m_vr_camera_targets.back() != address))
+			{
+				std::erase(m_vr_camera_targets, address);
+				m_vr_camera_targets.push_back(address);
+				if (m_vr_camera_targets.size() > 8)
+				{
+					m_vr_camera_targets.erase(m_vr_camera_targets.begin());
+				}
+			}
+		}
+	}
+	if (camera)
+	{
+		stamp(std::get<1>(m_rtts.m_bound_depth_stencil));
+	}
+}
+
+bool VKGSRender::vr_is_feedback_texture(const vk::render_target* rtt) const
+{
+	// Drawn with an older pose than this frame's, and a full-screen image: same aspect
+	// as the target being drawn, at most 8x smaller or larger (downsampled glow chains).
+	if (!rtt || !rtt->vr_pose || !m_vr_applied_pose || rtt->vr_pose >= m_vr_applied_pose)
+	{
+		return false;
+	}
+	const f32 tw = rtt->get_surface_width<rsx::surface_metrics::pixels>();
+	const f32 th = rtt->get_surface_height<rsx::surface_metrics::pixels>();
+	const f32 ow = m_framebuffer_layout.width;
+	const f32 oh = m_framebuffer_layout.height;
+	if (tw <= 0.f || th <= 0.f || ow <= 0.f || oh <= 0.f)
+	{
+		return false;
+	}
+	const f32 aspect = (tw / th) / (ow / oh);
+	return aspect > 0.95f && aspect < 1.05f && tw * 8.f >= ow && ow * 8.f >= tw;
+}
+
+bool VKGSRender::vr_shift_feedback_textures(rsx::fragment_program_texture_config& params)
+{
+	bool shifted = false;
+	m_vr_params_extra_mask = 0;
+	u32 homography_slot = umax; // slot holding the homography of homography_pose
+	u32 homography_pose = 0;
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
+	{
+		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+		if (!(textures_ref & 1) || !sampler_state || sampler_state->upload_context != rsx::texture_upload_context::framebuffer_storage)
+		{
+			continue;
+		}
+
+		vk::image* image = sampler_state->image_handle ? sampler_state->image_handle->image() :
+			sampler_state->external_subresource_desc.external_handle ? sampler_state->external_subresource_desc.external_handle :
+			!sampler_state->external_subresource_desc.sections_to_copy.empty() ? sampler_state->external_subresource_desc.sections_to_copy.front().src : nullptr;
+		const auto* rtt = dynamic_cast<const vk::render_target*>(image);
+		f32 du = 0.f, dv = 0.f;
+		if (!vr_is_feedback_texture(rtt) || !vk::xr::render_pose_shift(rtt->vr_pose, m_vr_applied_pose, du, dv))
+		{
+			continue;
+		}
+
+		static const f32 s_flip_v = []()
+		{
+			const char* v = std::getenv("RPCS3_VR_FEEDBACK_FLIP_V");
+			return v && v[0] == '1' ? -1.f : 1.f;
+		}();
+		dv *= s_flip_v;
+
+		if (!shifted)
+		{
+			params = current_fragment_program.texture_params;
+			shifted = true;
+		}
+
+		// Exact: a homography in a slot the program does not use (one per source pose).
+		if (homography_pose != rtt->vr_pose)
+		{
+			homography_slot = umax;
+			const u16 used = current_fp_metadata.referenced_textures_mask | m_vr_params_extra_mask;
+			for (u32 j = 15; j < 16; --j)
+			{
+				if (!(used & (1u << j)))
+				{
+					f32 h[9];
+					if (vk::xr::render_pose_homography(rtt->vr_pose, m_vr_applied_pose, h))
+					{
+						auto& slot = params[j];
+						slot.scale[0] = h[0]; slot.scale[1] = h[1]; slot.scale[2] = h[2];
+						slot.bias[0] = h[3]; slot.bias[1] = h[4]; slot.bias[2] = h[5];
+						slot.clamp_min[0] = h[6]; slot.clamp_min[1] = h[7]; slot.clamp_max[0] = h[8];
+						m_vr_params_extra_mask |= static_cast<u16>(1u << j);
+						homography_slot = j;
+						homography_pose = rtt->vr_pose;
+					}
+					break;
+				}
+			}
+		}
+
+		if (homography_slot != umax)
+		{
+			params[i].bias[2] = static_cast<f32>(homography_slot);
+			params[i].control |= (1u << rsx::texture_control_bits::VR_REPROJECT_BIT);
+		}
+		else
+		{
+			// No free slot: the shift that is exact at the centre of the view.
+			params[i].bias[0] += du;
+			params[i].bias[1] += dv;
+		}
+
+		if (vr_tracing())
+		{
+			vr_trace_flush_cam();
+			m_vr_trace += fmt::format(" X{%x:%d %.4f,%.4f%s}", rtt->base_addr, static_cast<s32>(m_vr_applied_pose - rtt->vr_pose), du, dv,
+				homography_slot != umax ? " h" : "");
+		}
+	}
+	return shifted;
+}
+
+void VKGSRender::vr_trace_copy_reads(bool camera)
+{
+	// TEMPORARY diagnostic. K{address:context:age}: a texture that is not a live render
+	// target view but holds render-target memory (a blit/DMA copy, or an ordinary texture
+	// over a surface), with the frames since that surface's pose (- = none traced).
+	std::string reads;
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
+	{
+		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+		if (!(textures_ref & 1) || !sampler_state || sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
+		{
+			continue;
+		}
+
+		const auto& tex = rsx::method_registers.fragment_textures[i];
+		const u32 address = rsx::get_address(tex.offset(), tex.location());
+		const auto* rtt = m_rtts.find_color_surface(address, tex.pitch());
+		if (!rtt)
+		{
+			rtt = m_rtts.get_surface_at(address);
+		}
+		if (sampler_state->upload_context == rsx::texture_upload_context::shader_read && !rtt)
+		{
+			// Any screen-shaped ordinary texture (an image made elsewhere, e.g. on the SPUs).
+			const f32 w = tex.width(), h = tex.height();
+			if (w >= 64.f && h >= 32.f && w / h > 1.6f && w / h < 1.9f)
+			{
+				reads += fmt::format("%sM%x:%ux%u", reads.empty() ? "" : ",", address, tex.width(), tex.height());
+			}
+			continue;
+		}
+
+		reads += fmt::format("%s%x:%u:%s", reads.empty() ? "" : ",", address, static_cast<u32>(sampler_state->upload_context),
+			rtt && rtt->vr_pose ? std::to_string(static_cast<s32>(m_vr_applied_pose - rtt->vr_pose)) : std::string("-"));
+	}
+
+	if (!reads.empty())
+	{
+		const std::string entry = fmt::format(" %sK{%s}", camera ? "3d" : "", reads);
+		if (!m_vr_trace.ends_with(entry))
+		{
+			vr_trace_flush_cam();
+			m_vr_trace += entry;
+		}
+	}
+}
+
+void VKGSRender::vr_realign_blend_targets()
+{
+	// Full-screen: the same aspect as the latest camera target, at most 8x smaller.
+	const vk::render_target* scene = m_vr_camera_targets.empty() ? nullptr : m_rtts.get_surface_at(m_vr_camera_targets.back());
+	if (!scene)
+	{
+		return;
+	}
+	const f32 sw = scene->get_surface_width<rsx::surface_metrics::pixels>();
+	const f32 sh = scene->get_surface_height<rsx::surface_metrics::pixels>();
+
+	for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+	{
+		auto* surface = std::get<1>(m_rtts.m_bound_render_targets[index]);
+		if (!surface || !surface->vr_pose || surface->vr_pose >= m_vr_applied_pose || surface->samples() != 1)
+		{
+			continue;
+		}
+
+		const f32 tw = surface->get_surface_width<rsx::surface_metrics::pixels>();
+		const f32 th = surface->get_surface_height<rsx::surface_metrics::pixels>();
+		const f32 aspect = sw > 0.f && sh > 0.f && th > 0.f ? (tw / th) / (sw / sh) : 0.f;
+		f32 du = 0.f, dv = 0.f;
+		if (aspect < 0.95f || aspect > 1.05f || tw * 8.f < sw || tw > sw * 1.05f ||
+			!vk::xr::render_pose_shift(surface->vr_pose, m_vr_applied_pose, du, dv))
+		{
+			if (vr_tracing())
+			{
+				vr_trace_flush_cam();
+				m_vr_trace += fmt::format(" D{%x:%d}", surface->base_addr, static_cast<s32>(m_vr_applied_pose - surface->vr_pose));
+			}
+			continue;
+		}
+
+		// new(x) = old(x + dx): the content moves against the head rotation.
+		const auto shift = [&](vk::image* image)
+		{
+			const int w = static_cast<int>(image->width());
+			const int h = static_cast<int>(image->height());
+			const int dx = static_cast<int>(std::lround(du * w));
+			const int dy = static_cast<int>(std::lround(dv * h));
+			if ((!dx && !dy) || std::abs(dx) >= w || std::abs(dy) >= h)
+			{
+				return std::pair<int, int>{ dx, dy };
+			}
+			auto* scratch = vk::get_typeless_helper(image->format(), image->format_class(), w, h);
+			vk::copy_image(*m_current_command_buffer, image, scratch, areai{ 0, 0, w, h }, areai{ 0, 0, w, h });
+			const areai src{ std::max(dx, 0), std::max(dy, 0), w + std::min(dx, 0), h + std::min(dy, 0) };
+			const areai dst{ std::max(-dx, 0), std::max(-dy, 0), w - std::max(dx, 0), h - std::max(dy, 0) };
+			vk::copy_image(*m_current_command_buffer, scratch, image, src, dst);
+			return std::pair<int, int>{ dx, dy };
+		};
+
+		const auto [dx, dy] = shift(surface);
+		if (auto* right = m_vr_right_rtts.get_surface_at(surface->base_addr);
+			right && right->width() == surface->width() && right->height() == surface->height() && right->samples() == 1)
+		{
+			vr_batch_flush();
+			shift(right);
+		}
+		surface->vr_pose = m_vr_applied_pose;
+		invalidate_render_pass();
+
+		if (vr_tracing())
+		{
+			vr_trace_flush_cam();
+			m_vr_trace += fmt::format(" A{%x:%dpx,%dpx}", surface->base_addr, dx, dy);
+		}
+	}
+}
+
+bool VKGSRender::vr_is_passthrough_hud()
+{
+	// Into a buffer no camera draw wrote (the finished frame or a display buffer), with
+	// at least one ordinary texture and no colour render target (post-processing reads those).
+	const u32 target = m_framebuffer_layout.color_addresses[0];
+	if (!target || std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end())
+	{
+		return false;
+	}
+	// Full frame or larger: smaller buffers are intermediate passes (ICO's shadow mask).
+	const vk::render_target* scene = m_vr_camera_targets.empty() ? nullptr : m_rtts.get_surface_at(m_vr_camera_targets.back());
+	if (!scene || m_framebuffer_layout.width * 20 < scene->get_surface_width<rsx::surface_metrics::pixels>() * 19)
+	{
+		return false;
+	}
+
+	bool ordinary = false;
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
+	{
+		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+		if (!(textures_ref & 1) || !sampler_state || !rsx::method_registers.fragment_textures[i].enabled())
+		{
+			continue;
+		}
+		if (sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
+		{
+			vk::image* image = sampler_state->image_handle ? sampler_state->image_handle->image() : sampler_state->external_subresource_desc.external_handle;
+			if (!image || (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
+			{
+				return false;
+			}
+			continue;
+		}
+		ordinary = true;
+	}
+	return ordinary;
+}
+
+u64 VKGSRender::vr_preprojected_program()
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->screen_space_preprojected_programs.empty())
+	{
+		return 0;
+	}
+	const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	const auto& list = profile->screen_space_preprojected_programs;
+	return std::find(list.begin(), list.end(), hash) != list.end() ? hash : 0;
+}
+
+bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
+{
+	f32 box[4][4];
+	const f32 aspect = m_framebuffer_layout.height ? static_cast<f32>(m_framebuffer_layout.width) / m_framebuffer_layout.height : 16.f / 9.f;
+	if (preprojected_program ? !rsx::vr::camera_probe::get().map_vr_preprojected(box, eye_sign, preprojected_program) :
+		!rsx::vr::camera_probe::get().map_vr_passthrough_hud(box, eye_sign, aspect))
+	{
+		return false;
+	}
+
+	// The guest's viewport matrix V (vec4 k = output k's coefficients over x, y, z, w),
+	// applied after the box: column k of the result is sum_c V[k][c] * box[.][c].
+	alignas(16) f32 base[24];
+	m_draw_processor.fill_scale_offset_data(base, false);
+	f32 combined[16];
+	for (u32 k = 0; k < 4; ++k)
+	{
+		for (u32 r = 0; r < 4; ++r)
+		{
+			f32 sum = 0.f;
+			for (u32 c = 0; c < 4; ++c)
+			{
+				sum += base[k * 4 + c] * box[r][c];
+			}
+			combined[k * 4 + r] = sum;
+		}
+	}
+
+	const auto* ctx = &rsx::method_registers;
+	const auto& gpu_limits = m_device->gpu().get_limits();
+	const auto mem = m_vertex_env_allocator->alloc();
+	auto buf = m_vertex_env_ring_info.map<char>(mem, 96);
+	std::memcpy(buf, combined, 64);
+	m_draw_processor.fill_user_clip_data(buf + 64);
+	*(reinterpret_cast<u32*>(buf + 68)) = ctx->transform_branch_bits();
+	*(reinterpret_cast<f32*>(buf + 72)) = ctx->point_size() * resolution_scaling_config.scale_factor();
+	*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
+	*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
+	m_vertex_env_ring_info.unmap();
+
+	m_vertex_env_buffer_info = m_vertex_env_ring_info.window<256>(mem, 96, gpu_limits.maxUniformBufferRange);
+	m_vertex_env_dynamic_offset = mem - m_vertex_env_buffer_info.offset;
+	m_program->bind_uniform(m_vertex_env_buffer_info, vk::glsl::binding_set_index_vertex, m_vs_binding_table->context_buffer_location);
+
+	static bool s_reported = false, s_reported_pre = false;
+	if (preprojected_program ? !std::exchange(s_reported_pre, true) : !std::exchange(s_reported, true))
+	{
+		if (preprojected_program)
+			rsx_log.success("VR: pre-projected program %016llx drawn through the camera's eye transform (target 0x%x).", preprojected_program, m_framebuffer_layout.color_addresses[0]);
+		else
+			rsx_log.success("VR: HUD drawn without a matrix is mapped into the HUD box (target 0x%x).", m_framebuffer_layout.color_addresses[0]);
+	}
+	return true;
 }

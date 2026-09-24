@@ -641,6 +641,10 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 		const auto plain_text = [](int value) { return QString::number(value); };
 		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
 			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
+		const auto degree_text = [](int value) { return tr("%1\u00b0", "VR slider").arg(value); };
+		enhance_vr_slider(ui->vrReprojectionMargin, ui->vrReprojectionMarginMin, ui->vrReprojectionMarginMax, ui->vrReprojectionMarginVal,
+			ui->vrReprojectionMarginReset, emu_settings_type::VRReprojectionMargin, ui->gb_vrReprojectionMargin,
+			tooltips.settings.vr_reprojection_margin, degree_text, 1);
 
 		const auto enable_vr_options = [this, vr_profiled_title, vr_rate_supported]()
 		{
@@ -653,6 +657,7 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 			ui->gb_vrHudOffsetY->setEnabled(vr);
 			ui->gb_vrScreenDepth->setEnabled(vr && ui->vrFixedScreen->isChecked());
 			ui->gb_vrCameraDepth->setEnabled(vr && !ui->vrFixedScreen->isChecked());
+			ui->gb_vrReprojectionMargin->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 		};
 		connect(ui->vrEnabled, &QCheckBox::toggled, this, enable_vr_options);
 		connect(ui->vrFixedScreen, &QCheckBox::toggled, this, enable_vr_options);

@@ -94,6 +94,7 @@ enum class emu_settings_type
 	VRHudOffsetX,
 	VRHudOffsetY,
 	VRCameraDepth,
+	VRReprojectionMargin,
 	AnisotropicFilterOverride,
 	TextureLodBias,
 	ResolutionScale,

@@ -718,7 +718,25 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			// Also shows an overlay published in this flip.
 			f32 tan_x = 0.f, tan_y = 0.f;
 			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
-			vk::xr::commit_eyes(have_fov, tan_x, tan_y);
+			// The pose the displayed image was drawn with, if it can be traced.
+			u32 pose = m_vr_applied_pose;
+			if (info.buffer < display_buffers_count)
+			{
+				if (auto* surface = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
+					surface && surface->vr_pose)
+				{
+					pose = surface->vr_pose;
+				}
+			}
+			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose);
+			if (vr_tracing())
+			{
+				vr_trace_flush_cam();
+				rsx_log.notice("VR trace:%s F[d%u] declared %u(%.1f) applied %u(%.1f)", m_vr_trace, info.buffer,
+					pose, vk::xr::render_pose_yaw(pose), m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose));
+			}
+			m_vr_trace.clear();
+			m_vr_trace_flips++;
 		}
 		else if (xr_overlay)
 		{
@@ -730,81 +748,17 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			vk::xr::hide_overlay();
 		}
 
-		// Head pose for the next game frame: its camera draws are rotated by it,
-		// and it is declared with that frame when the frame thread presents it.
-		f32 head[4];
-		f32 head_position[3];
-		f32 eye_fov[2][4];
-		f32 render_fov[2][4];
-		auto& probe = rsx::vr::camera_probe::get();
-		const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode();
-		// HUD stereo distance, and the fixed screen's distance (metres).
-		constexpr f32 vr_hud_distance = 2.f;
-		// Overlay flips (paused emulation) draw nothing, so the pose waits for the next game flip.
-		const bool located = info.emu_flip && vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
-			static_cast<f32>(g_cfg.video.vr.reprojection_margin.get()));
-
-		// The HUD box: the game's output aspect, fitted in the central symmetric part of
-		// both eyes' views, scaled by the HUD settings, at 2 m. The fixed screen and
-		// RPCS3's overlays use it.
-		const size2u output_size = avconfig.video_frame_size();
-		const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
-		const f32 depth = vr_hud_distance;
-		f32 box_y = 0.f;
-		f32 width = 0.f;
-		if (located)
+		// Head pose for the next game frame. Overlay flips (paused emulation) draw
+		// nothing, so the pose waits for the next game flip. Games whose frames end in
+		// a display buffer take it at the frame boundary instead (prepare_rtts); the
+		// flip falls back to it if no boundary has been seen for two flips.
+		if (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2))
 		{
-			const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
-			const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
-			box_y = std::min(fit_y, fit_x / aspect);
-			width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
-			vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
-				depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
-				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
-				depth);
-		}
-
-		if (!info.emu_flip)
-		{
-			// Keep the current view until the game draws again.
-		}
-		else if (fixed_screen && located)
-		{
-			// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
-			// place the window where the HUD box would be (depth 0 = 2 m).
-			probe.clear_vr_view();
-
-			// The game's stereo separates far objects by a fixed fraction of the picture,
-			// tuned for the profile's reference screen (WipEout: a 0.53 m, 24" TV). On a
-			// wider window that would make the eyes diverge, so keep that screen's physical
-			// disparity by scaling the separation by reference width / window width, then
-			// by the user's strength.
-			const auto* profile = probe.profile();
-			const f32 reference_width = profile ? profile->reference_screen_width : 0.f;
-			const f32 auto_scale = reference_width > 0.f && width > reference_width ? reference_width / width : 1.f;
-			probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
-
-			vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
-				width,
-				depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
-				depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
-				depth);
-		}
-		else if (!fixed_screen && located)
-		{
-			vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
-			probe.set_screen_stereo_scale(1.f);
-			// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
-			probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
-				vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
-			probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
-				g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
-				g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
-				vr_hud_distance, vk::xr::ipd());
-		}
-		else
-		{
-			probe.clear_vr_view();
+			vr_update_view();
+			if (vr_tracing())
+			{
+				m_vr_trace += fmt::format(" L%u(%.1f)", m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose));
+			}
 		}
 	}
 	else
@@ -1252,5 +1206,161 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		{
 			flush_command_queue(true);
 		}
+	}
+}
+
+// Locate the head for the next game frame: its camera draws are rotated by that
+// pose, and the frame is declared with it when the frame thread presents it.
+void VKGSRender::vr_update_view()
+{
+	f32 head[4];
+	f32 head_position[3];
+	f32 eye_fov[2][4];
+	f32 render_fov[2][4];
+	auto& probe = rsx::vr::camera_probe::get();
+	// A game frame with no camera draws has no 3D to follow the head (splash screens,
+	// videos, 2D menus): show it as the fixed screen, which respects the HUD settings,
+	// instead of stretched over the whole view. Back to the headset view on the first
+	// frame with a camera draw (that frame is still shown as the screen).
+	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
+	m_vr_camera_draws = 0;
+	const bool no_3d = m_vr_frames_without_camera >= 3;
+	if (static bool s_no_3d = false; no_3d != s_no_3d)
+	{
+		s_no_3d = no_3d;
+		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
+	}
+	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
+	// HUD stereo distance, and the fixed screen's distance (metres).
+	constexpr f32 vr_hud_distance = 2.f;
+	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
+		static_cast<f32>(g_cfg.video.vr.reprojection_margin.get()));
+	const bool located = pose != 0;
+	m_vr_applied_pose = 0;
+
+	// The HUD box: the game's output aspect, fitted in the central symmetric part of
+	// both eyes' views, scaled by the HUD settings, at 2 m. The fixed screen and
+	// RPCS3's overlays use it.
+	const size2u output_size = g_fxo->get<rsx::avconf>().video_frame_size();
+	const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
+	const f32 depth = vr_hud_distance;
+	f32 box_y = 0.f;
+	f32 width = 0.f;
+	if (located)
+	{
+		const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
+		const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
+		box_y = std::min(fit_y, fit_x / aspect);
+		width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
+		vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
+			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
+			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
+			depth);
+	}
+
+	if (fixed_screen && located)
+	{
+		// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
+		// place the window where the HUD box would be (depth 0 = 2 m).
+		probe.clear_vr_view();
+
+		// The game's stereo separates far objects by a fixed fraction of the picture,
+		// tuned for the profile's reference screen (WipEout: a 0.53 m, 24" TV). On a
+		// wider window that would make the eyes diverge, so keep that screen's physical
+		// disparity by scaling the separation by reference width / window width, then
+		// by the user's strength.
+		const auto* profile = probe.profile();
+		const f32 reference_width = profile ? profile->reference_screen_width : 0.f;
+		const f32 auto_scale = reference_width > 0.f && width > reference_width ? reference_width / width : 1.f;
+		probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
+
+		vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
+			width,
+			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
+			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
+			depth);
+	}
+	else if (!fixed_screen && located)
+	{
+		vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
+		probe.set_screen_stereo_scale(1.f);
+		// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
+		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
+			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
+		probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
+			g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
+			g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
+			vr_hud_distance, vk::xr::ipd());
+		m_vr_applied_pose = pose;
+	}
+	else
+	{
+		probe.clear_vr_view();
+	}
+}
+
+void VKGSRender::vr_track_frame_boundary()
+{
+	s32 index = -1;
+	for (const u32 address : m_framebuffer_layout.color_addresses)
+	{
+		if (!address)
+		{
+			continue;
+		}
+		for (u32 i = 0; i < display_buffers_count; ++i)
+		{
+			if (display_buffers[i].valid() && rsx::get_address(display_buffers[i].offset, CELL_GCM_LOCATION_LOCAL) == address)
+			{
+				index = static_cast<s32>(i);
+				break;
+			}
+		}
+		break;
+	}
+
+	if (vr_tracing())
+	{
+		const u32 address = m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address;
+		if (address != m_vr_trace_addr)
+		{
+			vr_trace_flush_cam();
+			m_vr_trace += index >= 0 ? fmt::format(" B%x[d%d]", address, index) : fmt::format(" B%x", address);
+			m_vr_trace_addr = address;
+		}
+	}
+
+	if (m_vr_display_target >= 0 && index != m_vr_display_target)
+	{
+		// The game has finished writing a display buffer and moves on: its next frame
+		// starts here, and all of it is rotated by one pose.
+		if (!m_vr_frame_boundaries)
+		{
+			rsx_log.success("VR: head pose changes at frame boundaries (leaving display buffer %d).", m_vr_display_target);
+		}
+		m_vr_frame_boundaries = true;
+		m_vr_flips_since_boundary = 0;
+		vr_update_view();
+		if (vr_tracing())
+		{
+			m_vr_trace += fmt::format(" Y%u(%.1f, %.1fmm)", m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose),
+				vk::xr::render_pose_step_mm(m_vr_applied_pose - 1, m_vr_applied_pose));
+		}
+	}
+
+	m_vr_display_target = index;
+}
+
+void VKGSRender::vr_trace_flush_cam()
+{
+	if (m_vr_trace_other_count)
+	{
+		m_vr_trace += fmt::format(" N x%u", m_vr_trace_other_count);
+		m_vr_trace_other_count = 0;
+	}
+	if (m_vr_trace_cam_count)
+	{
+		m_vr_trace += fmt::format(" C%u x%u", m_vr_trace_cam_pose, m_vr_trace_cam_count);
+		m_vr_trace_cam_count = 0;
 	}
 }

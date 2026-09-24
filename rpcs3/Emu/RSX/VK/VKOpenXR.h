@@ -60,8 +60,9 @@ namespace vk::xr
 	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
 
 	// Make the just-submitted eye pair the newest one, tagged with the pose it was
-	// rendered with and (game-FOV mode) its FOV. The frame thread presents it.
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y);
+	// rendered with (pose_id from locate_render_pose; 0 = none) and (game-FOV mode)
+	// its FOV. The frame thread presents it.
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
 	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)
@@ -84,15 +85,28 @@ namespace vk::xr
 	bool flip_y();    // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
 
 	// Locate the head for the next game frame (predicted one 60 Hz frame after
-	// the latest headset display time). commit_eyes() tags that frame with it.
-	// Returns false if tracking is unavailable.
+	// the latest headset display time). Returns its id for commit_eyes() (the
+	// last few are kept), or 0 if tracking is unavailable.
 	// eye_fov receives the located per-eye tangents (left, right, up, down).
 	// render_fov receives them widened by margin_deg on every side: the frame is
 	// rendered and declared with that FOV, so when the headset turns an older frame
 	// to the current head pose it still has picture at the edges.
 	// position_xyz receives the head position in LOCAL space (metres), zero when
 	// the runtime cannot track it or RPCS3_OPENXR_POSITION=0.
-	bool locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg);
+	u32 locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg);
+
+	// Where the centre of a frame rendered with pose to_id appears in a frame rendered
+	// with pose from_id, as a texture-coordinate offset (u right, v down; fractions of
+	// the rendered eye image). False if either pose is no longer kept.
+	bool render_pose_shift(u32 from_id, u32 to_id, f32& du, f32& dv);
+	// The same, exactly: a homography h (row-major 3x3) mapping a texture coordinate
+	// (u, v, 1) of the to_id frame to the from_id frame's image (divide by the third).
+	bool render_pose_homography(u32 from_id, u32 to_id, f32 h[9]);
+
+	// Diagnostic: head yaw (degrees) of a pose from locate_render_pose, NaN if no longer kept.
+	f32 render_pose_yaw(u32 pose_id);
+	// Diagnostic: distance (mm) between the left-eye positions of two kept poses, NaN otherwise.
+	f32 render_pose_step_mm(u32 from_id, u32 to_id);
 
 	// Distance between the located eyes (metres), from the latest locate_render_pose.
 	f32 ipd();
