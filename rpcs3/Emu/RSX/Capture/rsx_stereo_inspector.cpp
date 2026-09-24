@@ -237,6 +237,16 @@ namespace rsx::vr
 		m_file.write("\n", 1);
 	}
 
+	void stereo_inspector::record_note(const std::string& kind, const std::string& fields)
+	{
+		if (!m_enabled || !m_capturing.load())
+		{
+			return;
+		}
+
+		write_line(fmt::format("{\"type\":\"note\",\"kind\":\"%s\",\"after_draw\":%u,%s}", kind, m_draw_ordinal, fields));
+	}
+
 	void stereo_inspector::begin_draw_clause()
 	{
 		if (!m_enabled || !m_capturing.load())

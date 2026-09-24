@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "title_id": "BLUS31010",
+  "app_version": "01.00",
+
+  "matrix_layout": "column_vectors_xyw",
+  "camera_blocks": [212, 216],
+  "require_rigid_camera": true,
+  "output_aspect_tolerance": 0.03,
+
+  "camera_position": {
+    "slot": 219,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0144031,
+    "convergence": 2.56,
+    "by_target_width": [
+      { "output_width_divisor": 2, "per_eye_separation": 0.0126822, "convergence": 2.56 }
+    ]
+  },
+
+  "screen_space": {
+    "depth_offset_projection": true
+  }
+}

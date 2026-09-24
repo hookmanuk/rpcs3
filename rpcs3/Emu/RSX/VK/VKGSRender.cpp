@@ -1,5 +1,6 @@
 #include "Emu/RSX/VK/vkutils/descriptors.h"
 #include "stdafx.h"
+#include "Emu/RSX/Capture/rsx_stereo_inspector.h"
 #include "../Overlays/overlay_compile_notification.h"
 #include "../Overlays/Shaders/shader_loading_dialog_native.h"
 
@@ -1596,11 +1597,13 @@ void VKGSRender::clear_surface(u32 mask)
 		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
 	}
 
-	// A full guest clear defines identical initial contents for both eyes. Copy
-	// the completed authoritative attachments into the isolated right cache;
-	// subsequent eye-specific draws diverge them. Partial clears require their
-	// own mirrored command and are deliberately left fail-closed for now.
-	if (full_frame && (update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() &&
+	// A guest clear defines identical contents for both eyes inside the cleared
+	// rectangle. Copy that rectangle of the cleared attachments into the isolated
+	// right cache; subsequent eye-specific draws diverge them. Partial (scissored)
+	// clears are mirrored the same way: without them a right-eye target that is
+	// only ever cleared in part keeps accumulating old frames (inFamous 2 smears).
+	// Attachments this clear did not touch are left alone.
+	if ((update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() &&
 		m_vr_right_fbo_images.size() == m_fbo_images.size())
 	{
 		// Batched right-eye draws precede this clear in guest order.
@@ -1610,7 +1613,19 @@ void VKGSRender::clear_surface(u32 mask)
 		{
 			auto* src = m_fbo_images[i];
 			auto* dst = m_vr_right_fbo_images[i];
-			const areai rect{0, 0, static_cast<int>(src->width()), static_cast<int>(src->height())};
+			const bool is_color = (src->aspect() & VK_IMAGE_ASPECT_COLOR_BIT) != 0;
+			if (is_color ? !update_color : !update_z)
+			{
+				continue;
+			}
+			const int x2 = std::min<int>(scissor_x + scissor_w, std::min(src->width(), dst->width()));
+			const int y2 = std::min<int>(scissor_y + scissor_h, std::min(src->height(), dst->height()));
+			const areai rect = full_frame ? areai{0, 0, static_cast<int>(src->width()), static_cast<int>(src->height())}
+				: areai{scissor_x, scissor_y, x2, y2};
+			if (rect.x2 <= rect.x1 || rect.y2 <= rect.y1)
+			{
+				continue;
+			}
 			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect);
 		}
 		m_vr_right_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
@@ -3069,7 +3084,7 @@ void VKGSRender::renderctl(u32 request_code, void* args)
 	}
 }
 
-void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst)
+void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate)
 {
 	// A blit between render targets is a guest operation the right eye has to see
 	// too. Pure copies its finished frame to the display buffer this way
@@ -3118,6 +3133,12 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 	if (!rsx::fcmp(dst.scale_x, 1.f) || !rsx::fcmp(dst.scale_y, 1.f) || dst.swizzled || dst.clip_x || dst.clip_y || src_argb8 != dst_argb8)
 	{
+		// Scaled copies between two right-eye surfaces go through the texture cache's
+		// own blit on the right-eye store: Blur resolves its 4x MSAA scene
+		// (0xc0af0000, 2560 pitch) and depth (0xc1220000) to 1280x720 targets with
+		// 0.5x blits in 1024/1024/512-column chunks.
+		vr_batch_flush();
+		m_texture_cache.blit_vr_right(src, dst, interpolate, m_vr_right_rtts, *m_current_command_buffer);
 		return;
 	}
 
@@ -3181,25 +3202,46 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	// in a host image keyed by the staging address, for the copy back.
 	if (src_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
 	{
-		const u32 w = src_rect.width(), h = src_rect.height();
-		auto found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s) { return s.address == dst_address && s.pitch == dst.pitch; });
+		// Host pixels per guest pixel of the source surface (resolution scale).
+		const f32 kx = static_cast<f32>(src_rect.width()) / width;
+		const u16 row_width = static_cast<u16>(dst.pitch / bpp);
+		const u32 w = static_cast<u32>(row_width * kx + 0.5f), h = src_rect.height();
+
+		// A chunk of a copy already staged: same pitch, starting inside its first row.
+		auto found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
+		{
+			return s.pitch == dst.pitch && s.bpp == bpp && dst_address >= s.address && dst_address < s.address + s.pitch &&
+				s.image && s.image->format() == src_surface->format() && s.image->height() == h && s.image->width() == w;
+		});
+		if (found == m_vr_staged.end())
+		{
+			found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s) { return s.address == dst_address && s.pitch == dst.pitch; });
+		}
 		auto& staged = found != m_vr_staged.end() ? *found : m_vr_staged.emplace_back();
-		if (!staged.image || staged.image->width() != w || staged.image->height() != h || staged.image->format() != src_surface->format())
+		const bool chunk = staged.image && dst_address != staged.address;
+		if (!chunk && (!staged.image || staged.image->width() != w || staged.image->height() != h || staged.image->format() != src_surface->format()))
 		{
 			if (staged.image)
 			{
 				// Earlier copies may still be in flight.
 				vk::get_resource_manager()->dispose(staged.image);
 			}
-			staged.image =std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			staged.image = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				VK_IMAGE_TYPE_2D, src_surface->format(), w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 				0, VMM_ALLOCATION_POOL_SYSTEM);
 		}
-		staged.address = dst_address;
-		staged.pitch = dst.pitch;
-		staged.width = width;
-		staged.height = height;
+		if (!chunk)
+		{
+			staged.address = dst_address;
+			staged.pitch = dst.pitch;
+			staged.bpp = bpp;
+			staged.width = row_width;
+			staged.height = height;
+		}
+		const int x0 = static_cast<int>(((dst_address - staged.address) / bpp) * kx + 0.5f);
+		const areai staged_rect{ x0, 0, std::min<int>(x0 + src_rect.width(), static_cast<int>(w)), static_cast<int>(h) };
+		const areai src_used{ src_rect.x1, src_rect.y1, src_rect.x1 + staged_rect.width(), src_rect.y2 };
 
 		vr_batch_flush();
 		if (staged.image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
@@ -3212,7 +3254,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			vk::change_image_layout(*m_current_command_buffer, staged.image.get(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 		}
 		src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
-		vk::copy_image(*m_current_command_buffer, src_surface, staged.image.get(), src_rect, areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) });
+		vk::copy_image(*m_current_command_buffer, src_surface, staged.image.get(), src_used, staged_rect);
 		return;
 	}
 
@@ -3220,17 +3262,20 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	{
 		const auto staged = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
 		{
-			return s.address == src_address && s.pitch == src.pitch && s.width >= width && s.height >= height &&
-				s.image->width() >= static_cast<u32>(dst_rect.width()) && s.image->height() >= static_cast<u32>(dst_rect.height()) &&
-				s.image->format() == dst_surface->format();
+			return s.image && s.pitch == src.pitch && src_address >= s.address && src_address < s.address + s.pitch &&
+				(src_address - s.address) / s.bpp + width <= s.width && s.height >= height &&
+				s.image->height() >= static_cast<u32>(dst_rect.height()) && s.image->format() == dst_surface->format();
 		});
 		if (staged != m_vr_staged.end())
 		{
+			const f32 kx = static_cast<f32>(staged->image->width()) / staged->width;
+			const int x0 = static_cast<int>(((src_address - staged->address) / staged->bpp) * kx + 0.5f);
+			const int x1 = std::min<int>(x0 + dst_rect.width(), static_cast<int>(staged->image->width()));
 
 			vr_batch_flush();
 			dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
 			vk::copy_image(*m_current_command_buffer, staged->image.get(), dst_surface,
-				areai{ 0, 0, dst_rect.width(), dst_rect.height() }, dst_rect);
+				areai{ x0, 0, x1, dst_rect.height() }, areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + (x1 - x0), dst_rect.y2 });
 			dst_surface->on_write_copy(rsx::get_shared_tag());
 			return;
 		}
@@ -3243,6 +3288,15 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const r
 	if (swapchain_unavailable)
 		return false;
 
+	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
+	{
+		inspector.record_note("blit", fmt::format("\"src\":%u,\"src_pitch\":%u,\"src_w\":%u,\"src_h\":%u,\"src_fmt\":%u,"
+			"\"dst\":%u,\"dst_pitch\":%u,\"dst_w\":%u,\"dst_h\":%u,\"dst_fmt\":%u,\"scale_x\":%f,\"scale_y\":%f,\"swizzled\":%d,\"clip_x\":%u,\"clip_y\":%u",
+			vm::get_addr(src.pixels), src.pitch, src.width, src.height, static_cast<u32>(src.format),
+			vm::get_addr(dst.pixels), dst.pitch, dst.clip_width, dst.clip_height, static_cast<u32>(dst.format), dst.scale_x, dst.scale_y,
+			dst.swizzled ? 1 : 0, dst.clip_x, dst.clip_y));
+	}
+
 	if (m_texture_cache.blit(src, dst, interpolate, m_rtts, *m_current_command_buffer))
 	{
 		m_samplers_dirty.store(true);
@@ -3250,7 +3304,7 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src, const r
 
 		if (rsx::vr::camera_probe::get().render_enabled())
 		{
-			vr_mirror_blit(src, dst);
+			vr_mirror_blit(src, dst, interpolate);
 		}
 
 		if (m_current_command_buffer->flags & vk::command_buffer::cb_has_dma_transfer)

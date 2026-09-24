@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <set>
 #include "../Common/BufferUtils.h"
 #include "../Program/GLSLCommon.h"
 #include "../rsx_methods.h"
@@ -677,7 +678,53 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 			// right replay, substitute the isomorphic host-only surface at the
 			// same guest address so post-processing does not collapse both eyes
 			// back to the left intermediate.
-			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
+			// The left eye either samples the surface directly (image_handle is a view of
+			// the render target), or through a deferred copy of part of it, possibly
+			// with a format conversion (no image_handle; NFS Most Wanted). The copy is
+			// rebuilt from the matching right-eye surfaces; a raw right-eye view would
+			// read the wrong region or format. A cached copy that is not a render
+			// target stays on the left eye's image.
+			vk::render_target* left_rtt = nullptr;
+			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && sampler_state->image_handle)
+			{
+				left_rtt = dynamic_cast<vk::render_target*>(sampler_state->image_handle->image());
+			}
+
+			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && !sampler_state->image_handle)
+			{
+				auto desc = sampler_state->external_subresource_desc;
+				bool complete = true;
+				const auto to_right = [&](vk::image* src) -> vk::image*
+				{
+					auto* rtt = dynamic_cast<vk::render_target*>(src);
+					auto* right = rtt ? m_vr_right_rtts.get_surface_at(rtt->base_addr) : nullptr;
+					if (!right || right->format() != rtt->format() || right->width() != rtt->width() || right->height() != rtt->height())
+					{
+						complete = false;
+						return src;
+					}
+					right->read_barrier(*m_current_command_buffer);
+					return right->get_surface(rsx::surface_access::shader_read);
+				};
+				if (desc.external_handle)
+				{
+					desc.external_handle = to_right(desc.external_handle);
+				}
+				for (auto& section : desc.sections_to_copy)
+				{
+					section.src = to_right(section.src);
+				}
+				if (complete)
+				{
+					desc.do_not_cache = true;
+					if (desc.op == rsx::deferred_request_command::copy_image_static)
+					{
+						desc.op = rsx::deferred_request_command::copy_image_dynamic;
+					}
+					view = m_texture_cache.create_temporary_subresource(*m_current_command_buffer, desc);
+				}
+			}
+			else if (vr_right_eye && left_rtt)
 			{
 				if (auto* right_surface = m_vr_right_rtts.get_surface_at(sampler_state->ref_address))
 				{
@@ -695,6 +742,19 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 						? sampler_state->image_handle->info.subresourceRange.aspectMask
 						: right_image->aspect();
 					view = right_image->get_view(rsx::method_registers.fragment_textures[i].decoded_remap(), aspect);
+				}
+			}
+
+			// Diagnostic: a right-eye sample left on the shared (left-eye) image although the
+			// right-eye store holds a surface in the sampled range. Logged once per address.
+			if (vr_right_eye && !view)
+			{
+				const u32 address = rsx::get_address(rsx::method_registers.fragment_textures[i].offset(), rsx::method_registers.fragment_textures[i].location());
+				static std::set<u32> s_reported;
+				if ((m_vr_right_rtts.get_surface_at(address) || sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage) && s_reported.insert(address).second)
+				{
+					rsx_log.warning("VR right eye: texture at 0x%x (context %d, ref 0x%x) samples the left eye (right-eye surface there: %d).",
+						address, static_cast<int>(sampler_state->upload_context), sampler_state->ref_address, m_vr_right_rtts.get_surface_at(address) != nullptr);
 				}
 			}
 

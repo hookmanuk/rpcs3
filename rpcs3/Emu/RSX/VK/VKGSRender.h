@@ -122,12 +122,17 @@ private:
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
 	// Right-eye pixels a blit staged in memory with no surface (ICO bounces its
-	// frame through main memory); a later blit back into a surface restores them.
+	// frame through main memory). One
+	// image covers a full row of the pitch, so column chunks (1024 + 256) land in
+	// the same image; a later blit back into a surface uses it. (inFamous 2 also
+	// samples such copies, but only after the SPUs have rewritten them from the
+	// left eye's data, so the raw right-eye copy is not substituted there.)
 	struct vr_staged_copy
 	{
 		u32 address = 0;
 		u32 pitch = 0;
-		u16 width = 0;  // guest pixels
+		u8 bpp = 4;
+		u16 width = 0;  // guest pixels (pitch / bpp)
 		u16 height = 0;
 		std::unique_ptr<vk::image> image;
 	};
@@ -181,7 +186,7 @@ private:
 	bool vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo);
 	void vr_batch_flush();   // run any open batch now (ends the left pass if it is open)
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
-	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst);
+	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate);
 
 	sizeu m_swapchain_dims{};
 	bool swapchain_unavailable = false;

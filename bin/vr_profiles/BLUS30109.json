@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30109",
+  "app_version": "02.00",
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [4, 0, [0, 1, 2, 7], 32],
+  "output_aspect_tolerance": 0.02,
+  "camera_target_aspect": 1.33333,
+
+  "camera_position": {
+    "eye_baseline": 64
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0225,
+    "convergence": 2560
+  },
+
+  "match_headset_refresh_rate": true
+}

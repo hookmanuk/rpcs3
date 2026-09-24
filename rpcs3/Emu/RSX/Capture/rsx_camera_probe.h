@@ -79,6 +79,7 @@
 // M' = D * M. Column 0 of M's upper 3x3 is the world-space direction that maps
 // to clip X, which is the camera right axis.
 
+#include <cmath>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -102,13 +103,40 @@ namespace rsx::vr
 		// 4-slot camera matrices, tried in order; the first perspective one is
 		// the draw's camera.
 		std::vector<u32> camera_blocks;
+		// Per camera block: its 4 slots when the profile lists them explicitly
+		// ([0, 1, 2, 7]: MGS4 draws camera-relative with the translation row in c[7]),
+		// otherwise all umax (contiguous from the base).
+		std::vector<std::array<u32, 4>> camera_block_slots;
 		// false (row_vectors): clip = v.x*c[b] + ... + c[b+3], one slot per matrix row.
 		// true (column_vectors): clip[i] = dot(c[b+i], v), the transpose (PSGL/Cg DP4).
 		bool column_vectors = false;
+		// column_vectors_xyw: a DP4 camera of three slots, clip x, y and w at base,
+		// base+1, base+2; the shader derives z from w (NFS Most Wanted: c[212..214],
+		// z parameters in c[215]). Implies column_vectors.
+		bool xyw_rows = false;
 		// A camera block must be rigid: its clip x, y and w directions mutually
 		// orthogonal. Rejects unrelated data that happens to sit in a listed block.
 		bool require_rigid_camera = false;
+		// A camera block must also project square pixels at the output aspect
+		// (|clip y| / |clip x| within 10% of it). For engines whose camera sits at a
+		// varying base after a varying number of object-matrix slots (inFamous 1/2),
+		// where the profile lists overlapping bases and a HUD block can pass the
+		// perspective and rigid tests.
+		bool require_camera_aspect = false;
 		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
+		// Aspect of the render targets that hold camera views, when it is not the
+		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
+		// it to 16:9. 0 = the output aspect.
+		f32 camera_target_aspect = 0.f;
+		// A render target of this size holds a camera view.
+		bool is_view_target(u32 width, u32 height, f32 output_aspect) const
+		{
+			const f32 aspect = camera_target_aspect > 0.f ? camera_target_aspect : output_aspect;
+			return width && height && std::fabs((static_cast<f32>(width) / height) / aspect - 1.f) <= output_aspect_tolerance;
+		}
+		// Render targets exactly this wide (guest pixels) keep the game's camera in
+		// both eyes: views that are not the player's, e.g. Blur's rear-view mirror.
+		std::vector<u32> game_camera_target_widths;
 
 		u32 camera_position_slot = umax;     // umax: the game has none
 		f32 eye_baseline = 0.f;              // native eye distance, world units
@@ -125,6 +153,17 @@ namespace rsx::vr
 
 		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
 		bool screen_space_bare_projection = false;
+		// A projection with no view rotation and only a translation along the view
+		// axis (W = z + d, d != 0): geometry the game draws in its camera's space at
+		// a fixed depth, e.g. Blur's 3D HUD. Screen space too.
+		bool screen_space_depth_offset_projection = false;
+		// A draw without depth test whose camera block has no translation at all (the
+		// view rotation and projection only, clip w = view z) is a full-screen pass
+		// that builds view rays from it, e.g. inFamous 2's final composite. Left as the
+		// game drew it: the eye shear would shift the rays and smear the image edge.
+		// (inFamous 2 also renders world geometry camera-relative with such a block,
+		// but always with depth test.)
+		bool screen_space_rotation_only_passthrough = false;
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 

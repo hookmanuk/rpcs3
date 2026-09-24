@@ -6,6 +6,7 @@
 #include "Utilities/File.h"
 #include "Emu/IdManager.h"
 #include "Emu/RSX/Utils/rsx_utils.h"
+#include "Emu/RSX/rsx_methods.h"
 
 #include "util/logs.hpp"
 #include "util/yaml.hpp"
@@ -151,12 +152,21 @@ namespace rsx::vr
 			}
 
 			// False (and nothing bound) if the program does not read all 4 slots.
-			bool bind(void* buffer, const u16* reloc, usz reloc_size, u32 base, bool column_vectors)
+			// xyw: DP4 slots base, base+1, base+2 are clip x, y, w (no z slot).
+			// explicit_slots: the 4 slots themselves, when not contiguous.
+			bool bind(void* buffer, const u16* reloc, usz reloc_size, u32 base, bool column_vectors, bool xyw = false,
+				const std::array<u32, 4>* explicit_slots = nullptr)
 			{
 				release();
+				column_vectors |= xyw;
+				u32 slot_of[4] = { base, base + 1, xyw ? umax : base + 2, xyw ? base + 2 : base + 3 };
+				if (explicit_slots && (*explicit_slots)[0] != umax)
+				{
+					for (u32 k = 0; k < 4; ++k) slot_of[k] = (*explicit_slots)[k];
+				}
 				for (u32 k = 0; k < 4; ++k)
 				{
-					m_slots[k] = find_slot(buffer, reloc, reloc_size, base + k);
+					m_slots[k] = slot_of[k] == umax ? nullptr : find_slot(buffer, reloc, reloc_size, slot_of[k]);
 					if (!m_slots[k] && !(column_vectors && k == 2))
 					{
 						return false;
@@ -211,14 +221,25 @@ namespace rsx::vr
 				std::fabs(dot(1, 3)) <= tol * n1 * n3;
 		}
 
-		// Bind the first perspective (and, if required, rigid) block of the candidates.
-		bool bind_camera_block(matrix_block& block, void* buffer, const u16* reloc, usz reloc_size,
-			std::span<const u32> candidates, bool column_vectors, bool require_rigid)
+		// |clip y| / |clip x| of the block against the output aspect (10%).
+		bool has_camera_aspect(f32* const r[4], f32 aspect)
 		{
-			for (const u32 candidate : candidates)
+			const f32 nx = std::sqrt(r[0][0] * r[0][0] + r[1][0] * r[1][0] + r[2][0] * r[2][0]);
+			const f32 ny = std::sqrt(r[0][1] * r[0][1] + r[1][1] * r[1][1] + r[2][1] * r[2][1]);
+			return nx > 1e-8f && std::fabs((ny / nx) / aspect - 1.f) <= 0.1f;
+		}
+
+		// Bind the first perspective (and, if required, rigid and output-aspect) block of the candidates.
+		bool bind_camera_block(matrix_block& block, void* buffer, const u16* reloc, usz reloc_size,
+			std::span<const u32> candidates, bool column_vectors, bool require_rigid, bool xyw = false, f32 require_aspect = 0.f,
+			std::span<const std::array<u32, 4>> explicit_slots = {})
+		{
+			for (usz i = 0; i < candidates.size(); ++i)
 			{
-				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors) && is_perspective(block.rows) &&
-					(!require_rigid || is_rigid(block.rows)))
+				const u32 candidate = candidates[i];
+				const std::array<u32, 4>* slots = i < explicit_slots.size() ? &explicit_slots[i] : nullptr;
+				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors, xyw, slots) && is_perspective(block.rows) &&
+					(!require_rigid || is_rigid(block.rows)) && (require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
 				{
 					return true;
 				}
@@ -335,9 +356,14 @@ namespace rsx::vr
 			{
 				profile->column_vectors = true;
 			}
+			else if (layout == "column_vectors_xyw")
+			{
+				profile->column_vectors = true;
+				profile->xyw_rows = true;
+			}
 			else if (layout != "row_vectors")
 			{
-				fail(fmt::format("matrix_layout '%s' is not supported (row_vectors or column_vectors)", layout));
+				fail(fmt::format("matrix_layout '%s' is not supported (row_vectors, column_vectors or column_vectors_xyw)", layout));
 			}
 		}
 
@@ -346,7 +372,26 @@ namespace rsx::vr
 			for (const auto& block : blocks)
 			{
 				std::string node_error;
-				profile->camera_blocks.push_back(get_yaml_node_value<u32>(block, node_error));
+				std::array<u32, 4> slots{ umax, umax, umax, umax };
+				if (block.IsSequence())
+				{
+					// An explicit list of the block's 4 slots.
+					if (block.size() != 4)
+					{
+						fail("camera_blocks: a slot list needs 4 slots");
+						continue;
+					}
+					for (u32 k = 0; k < 4; ++k)
+					{
+						slots[k] = get_yaml_node_value<u32>(block[k], node_error);
+					}
+					profile->camera_blocks.push_back(slots[0]);
+				}
+				else
+				{
+					profile->camera_blocks.push_back(get_yaml_node_value<u32>(block, node_error));
+				}
+				profile->camera_block_slots.push_back(slots);
 				if (!node_error.empty()) fail("camera_blocks: " + node_error);
 			}
 		}
@@ -356,6 +401,17 @@ namespace rsx::vr
 		}
 
 		read(root, "output_aspect_tolerance", profile->output_aspect_tolerance);
+		read(root, "camera_target_aspect", profile->camera_target_aspect, false);
+
+		if (const YAML::Node widths = child(root, "game_camera_target_widths"); widths && widths.IsSequence())
+		{
+			for (const auto& width : widths)
+			{
+				std::string node_error;
+				profile->game_camera_target_widths.push_back(get_yaml_node_value<u32>(width, node_error));
+				if (!node_error.empty()) fail("game_camera_target_widths: " + node_error);
+			}
+		}
 
 		const YAML::Node camera_position = child(root, "camera_position");
 		read(camera_position, "eye_baseline", profile->eye_baseline);
@@ -388,22 +444,35 @@ namespace rsx::vr
 		{
 			profile->screen_space_bare_projection = bare == "true";
 		}
+		if (std::string offset; read(screen_space, "depth_offset_projection", offset, false))
+		{
+			profile->screen_space_depth_offset_projection = offset == "true";
+		}
+		if (std::string rotation; read(screen_space, "rotation_only_passthrough", rotation, false))
+		{
+			profile->screen_space_rotation_only_passthrough = rotation == "true";
+		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
 		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
 		{
 			profile->require_rigid_camera = rigid == "true";
 		}
+		if (std::string aspect; read(root, "require_camera_aspect", aspect, false))
+		{
+			profile->require_camera_aspect = aspect == "true";
+		}
 		if (std::string match; read(root, "match_headset_refresh_rate", match, false))
 		{
 			profile->match_headset_refresh_rate = match == "true";
 		}
 
-		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate", "require_rigid_camera" });
+		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "match_headset_refresh_rate", "require_rigid_camera", "require_camera_aspect",
+			"game_camera_target_widths" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -728,6 +797,11 @@ namespace rsx::vr
 
 		const title_profile& profile = *ensure(this->profile());
 
+		if (std::find(profile.game_camera_target_widths.begin(), profile.game_camera_target_widths.end(), surface_w) != profile.game_camera_target_widths.end())
+		{
+			return false;
+		}
+
 		// The position policy has a wider domain than the matrix policy. Locate a
 		// perspective block first so the camera position's offset follows the exact
 		// camera right axis used by this draw (not a global axis or a stale prior draw).
@@ -735,10 +809,24 @@ namespace rsx::vr
 		const std::span<const u32> camera_blocks = m_base != umax ? std::span<const u32>(base_override) : std::span<const u32>(profile.camera_blocks);
 		matrix_block block;
 		f32* const* const rows = block.rows;
-		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera))
+		const size2u output_eye = g_fxo->get<rsx::avconf>().video_frame_size();
+		const f32 camera_aspect = profile.require_camera_aspect && output_eye.height ? static_cast<f32>(output_eye.width) / output_eye.height : 0.f;
+		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera, profile.xyw_rows, camera_aspect,
+			m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots)))
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
+		}
+
+		// A full-screen pass building view rays from a translation-free camera block
+		// (see screen_space_rotation_only_passthrough): it follows head rotation, but
+		// takes no eye offset, head translation or stereo shear.
+		bool rotation_only_pass = false;
+		if (profile.screen_space_rotation_only_passthrough)
+		{
+			constexpr f32 eps = 1e-5f;
+			rotation_only_pass = std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
+				!rsx::method_registers.depth_test_enabled();
 		}
 
 		const auto& avconf = g_fxo->get<rsx::avconf>();
@@ -750,7 +838,8 @@ namespace rsx::vr
 
 		const f32 target_aspect = static_cast<f32>(surface_w) / surface_h;
 		const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
-		const bool output_aspect_match = std::fabs(target_aspect / output_aspect - 1.f) <= profile.output_aspect_tolerance;
+		const bool output_aspect_match = profile.is_view_target(surface_w, surface_h, output_aspect);
+		static_cast<void>(target_aspect);
 
 		// Rotation-invariance audit (see m_audit_yaw_deg): the same classifier and
 		// clip-space rotation as the headset path, with the left eye unrotated and
@@ -780,20 +869,44 @@ namespace rsx::vr
 			return true;
 		}
 
+		if (rotation_only_pass)
+		{
+			if (!output_aspect_match || !m_vr_view)
+			{
+				block.release();
+				return false;
+			}
+			apply_vr_rotation(rows, m_vr_rot, {});
+			if (m_vr_hmd_fov && m_vr_proj_valid)
+			{
+				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y);
+			}
+			return true;
+		}
+
 		// A camera block that is a bare projection (no view rotation or translation
 		// folded in) draws in the game camera's own space. In WipEout that is the
-		// main-menu particle cloud, and no race camera block has this form. When the
-		// profile says so, it is part of the screen and goes into the same fixed box
-		// as the HUD instead of following the head.
-		if (output_aspect_match && m_vr_view && m_vr_hmd_fov && profile.screen_space_bare_projection)
+		// main-menu particle cloud, and no race camera block has this form. The
+		// depth-offset form (W = z + d) is Blur's 3D HUD, 42.65 units ahead; Blur's
+		// light volumes are exact bare projections, so the two are separate options.
+		// When the profile says so, it is part of the screen and goes into the same
+		// fixed box as the HUD instead of following the head.
+		if (output_aspect_match && m_vr_view && m_vr_hmd_fov &&
+			(profile.screen_space_bare_projection || profile.screen_space_depth_offset_projection))
 		{
 			constexpr f32 eps = 1e-5f;
-			const bool bare_projection =
+			const bool depth_offset = std::fabs(rows[3][3]) >= eps;
+			// A plane at a fixed depth may also be shifted in x/y (NFS Most Wanted's HUD:
+			// a pixel-origin plane 1108.5 units ahead), so the x/y translation is only
+			// required to be zero for the bare projection.
+			const bool camera_space =
 				std::fabs(rows[0][1]) < eps && std::fabs(rows[0][2]) < eps && std::fabs(rows[0][3]) < eps &&
 				std::fabs(rows[1][0]) < eps && std::fabs(rows[1][2]) < eps && std::fabs(rows[1][3]) < eps &&
 				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
-				std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
+				(depth_offset || (std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps)) &&
 				std::fabs(rows[2][3]) > eps;
+			const bool bare_projection = camera_space &&
+				(depth_offset ? profile.screen_space_depth_offset_projection : profile.screen_space_bare_projection);
 			if (bare_projection)
 			{
 				// Still the game's projection, so it keeps the FOV cache valid on
@@ -993,7 +1106,7 @@ namespace rsx::vr
 		const auto& avconf = g_fxo->get<rsx::avconf>();
 		const size2u eye = avconf.video_frame_size();
 		if (!surface_w || !surface_h || !eye.width || !eye.height ||
-			std::fabs((static_cast<f32>(surface_w) / surface_h) / (static_cast<f32>(eye.width) / eye.height) - 1.f) > profile.output_aspect_tolerance)
+			!profile.is_view_target(surface_w, surface_h, static_cast<f32>(eye.width) / eye.height))
 		{
 			return;
 		}
@@ -1239,7 +1352,8 @@ namespace rsx::vr
 
 			const f32 target_aspect = static_cast<f32>(surface_w) / surface_h;
 			const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
-			if (std::fabs(target_aspect / output_aspect - 1.f) > aspect_tolerance)
+			const f32 view_aspect = profile && profile->camera_target_aspect > 0.f ? profile->camera_target_aspect : output_aspect;
+			if (std::fabs(target_aspect / view_aspect - 1.f) > aspect_tolerance)
 			{
 				if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 				{
@@ -1254,7 +1368,10 @@ namespace rsx::vr
 		// shadow cascades, env maps) and affine world matrices are left alone.
 		matrix_block block;
 		f32* const* const rows = block.rows;
-		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, column_vectors, profile && profile->require_rigid_camera))
+		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, column_vectors, profile && profile->require_rigid_camera,
+			m_base == umax && profile && profile->xyw_rows,
+			profile && profile->require_camera_aspect ? static_cast<f32>(g_fxo->get<rsx::avconf>().video_frame_size().width) / g_fxo->get<rsx::avconf>().video_frame_size().height : 0.f,
+			m_base == umax && profile ? std::span<const std::array<u32, 4>>(profile->camera_block_slots) : std::span<const std::array<u32, 4>>()))
 		{
 			if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 			{

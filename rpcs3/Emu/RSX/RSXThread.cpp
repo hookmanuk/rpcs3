@@ -3392,6 +3392,50 @@ namespace rsx
 		rsx::vr::camera_probe::get().poll();
 		rsx::vr::profile_generator::get().on_frame_end();
 
+		// VR fork dev hook: RPCS3_VR_SHOT=<file>; creating the file takes a screenshot
+		// (consumed), for scripted runs where the desktop cannot be captured.
+		static const std::string s_shot_trigger = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_VR_SHOT");
+			return v ? v : "";
+		}();
+		if (!s_shot_trigger.empty() && fs::is_file(s_shot_trigger) && fs::remove_file(s_shot_trigger))
+		{
+			g_user_asked_for_screenshot = true;
+		}
+
+		// VR fork dev hook: RPCS3_VR_MEMDUMP=<file>; creating the file writes guest main
+		// memory 0x00000000-0x3fffffff to <file>.<n>.bin (mapped pages) and the
+		// wall time to <file>.<n>.txt, for finding a game's clock by diffing dumps.
+		static const std::string s_dump_trigger = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_VR_MEMDUMP");
+			return v ? v : "";
+		}();
+		if (!s_dump_trigger.empty() && fs::is_file(s_dump_trigger) && fs::remove_file(s_dump_trigger))
+		{
+			static u32 s_dump_index = 0;
+			const std::string base = fmt::format("%s.%u", s_dump_trigger, s_dump_index++);
+			// Copy first (a fraction of a second) so the snapshot is close to one instant.
+			std::vector<u32> pages;
+			std::vector<u8> data;
+			const u64 start_us = get_system_time();
+			for (u32 page = 0; page < 0x40000000u; page += 0x10000)
+			{
+				if (vm::check_addr(page, vm::page_readable, 0x10000))
+				{
+					data.insert(data.end(), vm::_ptr<u8>(page), vm::_ptr<u8>(page) + 0x10000);
+					pages.push_back(page);
+				}
+			}
+			const u64 wall_us = (start_us + get_system_time()) / 2;
+			// <file>.<n>.bin: the mapped 64 KiB pages; <file>.<n>.idx: their addresses (u32 LE).
+			fs::write_file(base + ".bin", fs::rewrite, data);
+			fs::write_file(base + ".idx", fs::rewrite, pages.data(), pages.size() * sizeof(u32));
+			fs::write_file(base + ".txt", fs::rewrite, std::to_string(wall_us));
+			rsx_log.success("VR memory dump written to '%s.bin' (wall %u us)", base, wall_us);
+		}
+
 		// Marks the end of a frame scope GPU-side
 		if (g_user_asked_for_frame_capture.exchange(false) && !capture_current_frame)
 		{

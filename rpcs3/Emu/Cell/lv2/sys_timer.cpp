@@ -475,6 +475,79 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		sys_timer.success("Sleep at 0x%x (LR 0x%x): %s", ppu.cia, ppu.lr, ppu.dump_callstack());
 	}
 
+	// RPCS3_USLEEP_STATS=1 logs, every 5 s, the sleep sites (address, caller) with their
+	// call count and total requested sleep: a game's frame limiter shows up as ~30 or ~60
+	// calls per second sleeping a few ms each.
+	// RPCS3_PPU_SAMPLE=1: a sampling profiler. Every millisecond it records each PPU
+	// thread's current function (cia, which the LLVM recompiler updates at function
+	// entry and at syscalls) and caller (lr); every 5 s it logs the top entries per
+	// thread. Shows where a frame's time goes, e.g. what a frame limiter waits on.
+	if (static const bool s_ppu_sample = std::getenv("RPCS3_PPU_SAMPLE") != nullptr; s_ppu_sample)
+	{
+		static std::once_flag s_started;
+		std::call_once(s_started, []()
+		{
+			std::thread([]()
+			{
+				std::map<std::string, std::map<std::pair<u32, u32>, u32>> hist;
+				u64 last_report = get_system_time();
+				while (!Emu.IsStopped())
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(1));
+					idm::select<named_thread<ppu_thread>>([&](u32, named_thread<ppu_thread>& ppu)
+					{
+						const auto name = ppu.ppu_tname.load();
+						hist[name ? *name : std::string("?")][{ppu.cia, static_cast<u32>(ppu.lr)}]++;
+					});
+					if (const u64 now = get_system_time(); now - last_report > 5'000'000)
+					{
+						std::string text;
+						for (const auto& [name, sites] : hist)
+						{
+							std::vector<std::pair<std::pair<u32, u32>, u32>> sorted(sites.begin(), sites.end());
+							std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+							u32 total = 0;
+							for (const auto& s : sorted) total += s.second;
+							text += fmt::format("\n %s (%u samples):", name, total);
+							for (usz i = 0; i < std::min<usz>(sorted.size(), 6); ++i)
+							{
+								text += fmt::format(" 0x%x<-0x%x %u%%;", sorted[i].first.first, sorted[i].first.second, sorted[i].second * 100 / std::max(total, 1u));
+							}
+						}
+						sys_timer.success("PPU samples over %.1f s:%s", (now - last_report) / 1e6, text);
+						hist.clear();
+						last_report = now;
+					}
+				}
+			}).detach();
+		});
+	}
+
+	if (static const bool s_usleep_stats = std::getenv("RPCS3_USLEEP_STATS") != nullptr; s_usleep_stats)
+	{
+		static std::mutex s_mutex;
+		static std::map<std::pair<u32, u32>, std::pair<u64, u64>> s_sites;
+		static u64 s_last_report = 0;
+		std::lock_guard lock(s_mutex);
+		auto& site = s_sites[{ppu.cia, static_cast<u32>(ppu.lr)}];
+		site.first++;
+		site.second += sleep_time;
+		if (const u64 now = get_system_time(); now - s_last_report > 5'000'000)
+		{
+			std::vector<std::pair<std::pair<u32, u32>, std::pair<u64, u64>>> sorted(s_sites.begin(), s_sites.end());
+			std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second.first > b.second.first; });
+			std::string text;
+			for (usz i = 0; i < std::min<usz>(sorted.size(), 12); ++i)
+			{
+				text += fmt::format("\n  0x%x (LR 0x%x): %u calls, %u us total, %u us each", sorted[i].first.first, sorted[i].first.second,
+					sorted[i].second.first, sorted[i].second.second, sorted[i].second.second / std::max<u64>(sorted[i].second.first, 1));
+			}
+			sys_timer.success("usleep sites over %.1f s:%s", (now - s_last_report) / 1e6, text);
+			s_sites.clear();
+			s_last_report = now;
+		}
+	}
+
 	if (sleep_time)
 	{
 		const s64 add_time = g_cfg.core.usleep_addend;

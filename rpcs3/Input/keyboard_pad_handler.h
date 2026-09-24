@@ -144,4 +144,15 @@ private:
 	steady_clock::time_point m_last_wheel_move_down;
 	steady_clock::time_point m_last_wheel_move_left;
 	steady_clock::time_point m_last_wheel_move_right;
+
+	// VR fork dev hook: scripted key presses from RPCS3_VR_KEYS=<file> (see process_key_script).
+	struct scripted_key_event
+	{
+		steady_clock::time_point at;
+		std::vector<u32> codes;
+		bool pressed = false;
+	};
+	std::vector<scripted_key_event> m_key_script;
+	steady_clock::time_point m_key_script_poll{};
+	void process_key_script();
 };

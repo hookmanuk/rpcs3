@@ -906,14 +906,24 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// That introduces a WRITE_AFTER_PRESENT (from the previous present) when we later try to present on a different CB
 	if (image_to_flip && need_media_capture)
 	{
-		const usz sshot_size = buffer_height * buffer_width * 4;
+		// VR fork: a screenshot while generated stereo is shown holds both eyes side by side.
+		const bool sbs_shot = user_asked_for_screenshot && generated_stereo && image_to_flip2 &&
+			vk::get_format_texel_width(image_to_flip2->format()) == 4 &&
+			image_to_flip2->width() >= buffer_width && image_to_flip2->height() >= buffer_height;
+		if (user_asked_for_screenshot && generated_stereo && image_to_flip2)
+		{
+			rsx_log.notice("VR screenshot: left %ux%u fmt %d, right %ux%u fmt %d, side by side %d", image_to_flip->width(), image_to_flip->height(), static_cast<int>(image_to_flip->format()),
+				image_to_flip2->width(), image_to_flip2->height(), static_cast<int>(image_to_flip2->format()), sbs_shot);
+		}
+		const u32 shot_width = sbs_shot ? buffer_width * 2 : buffer_width;
+		const usz sshot_size = buffer_height * shot_width * 4;
 
 		vk::buffer sshot_vkbuf(*m_device, utils::align(sshot_size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
 
 		VkBufferImageCopy copy_info{};
 		copy_info.bufferOffset = 0;
-		copy_info.bufferRowLength = 0;
+		copy_info.bufferRowLength = shot_width;
 		copy_info.bufferImageHeight = 0;
 		copy_info.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		copy_info.imageSubresource.baseArrayLayer = 0;
@@ -928,7 +938,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 		vk::image* image_to_copy = image_to_flip;
 
-		if (g_cfg.video.record_with_overlays && has_overlay)
+		if (g_cfg.video.record_with_overlays && has_overlay && !sbs_shot)
 		{
 			const auto key = vk::get_renderpass_key(m_swapchain->get_surface_format());
 			single_target_pass = vk::get_renderpass(*m_device, key);
@@ -976,6 +986,15 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		vk::copy_image_to_buffer(*m_current_command_buffer, image_to_copy, &sshot_vkbuf, copy_info);
 		image_to_copy->pop_layout(*m_current_command_buffer);
 
+		if (sbs_shot)
+		{
+			copy_info.bufferRowLength = shot_width;
+			copy_info.bufferOffset = buffer_width * 4;
+			image_to_flip2->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+			vk::copy_image_to_buffer(*m_current_command_buffer, image_to_flip2, &sshot_vkbuf, copy_info);
+			image_to_flip2->pop_layout(*m_current_command_buffer);
+		}
+
 		flush_command_queue(true);
 		const auto src = sshot_vkbuf.map(0, sshot_size);
 		std::vector<u8> sshot_frame(sshot_size);
@@ -986,7 +1005,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 		if (user_asked_for_screenshot)
 		{
-			m_frame->take_screenshot(std::move(sshot_frame), buffer_width, buffer_height, is_bgra);
+			m_frame->take_screenshot(std::move(sshot_frame), shot_width, buffer_height, is_bgra);
 		}
 		else
 		{

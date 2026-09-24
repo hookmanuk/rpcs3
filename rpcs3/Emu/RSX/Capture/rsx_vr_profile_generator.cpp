@@ -41,6 +41,7 @@ namespace rsx::vr
 		constexpr f64 human_ipd = 0.064;         // metres
 		constexpr f64 reference_near_plane = 0.1; // metres; a common engine near plane (Pure's is exactly 0.1)
 		constexpr f64 convergence_in_baselines = 40.0;
+		constexpr f64 view_aspect_tolerance = 0.05;  // render targets that count as camera views
 
 		// A 4-slot block as DP4 rows: clip[i] = dot(row_i, (v, 1)).
 		using mat4 = std::array<std::array<f64, 4>, 4>;
@@ -71,15 +72,30 @@ namespace rsx::vr
 			}
 		};
 
+		// Matrix layouts, as in the profile's matrix_layout.
+		enum layout : u32 { layout_rows, layout_columns, layout_xyw, layout_count };
+		constexpr const char* layout_names[layout_count] = { "row_vectors", "column_vectors", "column_vectors_xyw" };
+
 		// columns: slot i is row i, and z may be absent (z = w, a far-plane sky).
+		// xyw: slots are the x, y and w rows, the shader derives z (NFS Most Wanted).
 		// rows: slot k is row k of M in clip = v * M, i.e. the transpose.
-		std::optional<block_result> read_block(const slot_reader& r, u32 base, bool columns)
+		std::optional<block_result> read_block(const slot_reader& r, u32 base, u32 layout)
 		{
 			const std::array<f32, 4>* s[4];
 			for (u32 k = 0; k < 4; ++k) s[k] = r.get(base + k);
 
 			block_result out;
-			if (columns)
+			if (layout == layout_xyw)
+			{
+				if (!s[0] || !s[1] || !s[2]) return std::nullopt;
+				out.z_missing = true;
+				const std::array<f32, 4>* rows[4] = { s[0], s[1], s[2], s[2] };
+				for (u32 i = 0; i < 4; ++i)
+					for (u32 j = 0; j < 4; ++j)
+						out.m[i][j] = (*rows[i])[j];
+				return out;
+			}
+			if (layout == layout_columns)
 			{
 				if (!s[0] || !s[1] || !s[3]) return std::nullopt;
 				out.z_missing = !s[2];
@@ -166,21 +182,43 @@ namespace rsx::vr
 			if (ww < 1e-12) return std::nullopt;
 			const f64 k = dot3(m[2], m[3]) / ww;
 			const f64 t = m[2][3] - k * m[3][3];
-			if (std::fabs(k + 1.0) < 1e-9) return std::nullopt;
+			// Reversed depth with an infinite far plane (MGS4: z = -w + 103.94): z = +w
+			// at the near plane instead.
+			if (std::fabs(k + 1.0) < 1e-3)
+			{
+				const f64 n = t / (1.0 - k) / std::sqrt(ww);
+				return n > 0.0 ? std::optional<f64>(n) : std::nullopt;
+			}
 			const f64 n = -t / (k + 1.0) / std::sqrt(ww);
 			return n > 0.0 ? std::optional<f64>(n) : std::nullopt;
 		}
 
 		// A projection with no view rotation or translation folded in (drawn in the
 		// camera's own space, e.g. WipEout's menu particle cloud): screen space.
-		bool is_bare_projection(const mat4& m)
+		bool is_camera_space(const mat4& m)
 		{
 			constexpr f64 eps = 1e-5;
 			return std::fabs(m[1][0]) < eps && std::fabs(m[2][0]) < eps && std::fabs(m[3][0]) < eps &&
 				std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
 				std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps &&
-				std::fabs(m[0][3]) < eps && std::fabs(m[1][3]) < eps && std::fabs(m[3][3]) < eps &&
+				std::fabs(m[0][3]) < eps && std::fabs(m[1][3]) < eps &&
 				std::fabs(m[3][2]) > eps;
+		}
+
+		bool is_bare_projection(const mat4& m)
+		{
+			return is_camera_space(m) && std::fabs(m[3][3]) < 1e-5;
+		}
+
+		// The same at a fixed depth ahead (w = z + d): Blur's 3D HUD, 42.65 units.
+		// NFS Most Wanted's HUD is such a plane shifted to a pixel origin (x/y translation).
+		bool is_depth_offset_projection(const mat4& m)
+		{
+			constexpr f64 eps = 1e-5;
+			const bool diagonal = std::fabs(m[1][0]) < eps && std::fabs(m[2][0]) < eps && std::fabs(m[3][0]) < eps &&
+				std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
+				std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps && std::fabs(m[3][2]) > eps;
+			return diagonal && std::fabs(m[3][3]) >= eps;
 		}
 
 		f64 median(std::vector<f64> v)
@@ -256,6 +294,21 @@ namespace rsx::vr
 	{
 		switch (m_state.load())
 		{
+		case state::idle:
+		{
+			// Development trigger: RPCS3_VR_GEN_TRIGGER=<file>; creating the file starts
+			// a generation as the home menu button does (the file is consumed).
+			static const std::string trigger = []() -> std::string
+			{
+				const char* v = std::getenv("RPCS3_VR_GEN_TRIGGER");
+				return v ? v : "";
+			}();
+			if (!trigger.empty() && ++m_frame_counter % 30 == 0 && fs::is_file(trigger) && fs::remove_file(trigger))
+			{
+				request();
+			}
+			break;
+		}
 		case state::waiting:
 			if (++m_frame_counter >= settle_frames)
 			{
@@ -335,11 +388,51 @@ namespace rsx::vr
 		}
 		const f64 output_aspect = static_cast<f64>(eye.width) / eye.height;
 
+		// The render-target aspect of camera views: normally the output's, but some
+		// games render the scene into another shape and stretch it (MGS4: 1024x768
+		// for a 16:9 picture). Count the draws with a plausible camera per target
+		// size and use the size with the most.
+		f64 view_aspect = output_aspect;
+		{
+			std::map<std::pair<u16, u16>, u32> camera_draws;
+			for (const auto& s : samples)
+			{
+				if (s.program == umax || s.full_bank || s.width < 256 || !s.height) continue;
+				const slot_reader r{ s.ids, s.values, false };
+				bool found = false;
+				for (const u16 base : s.ids)
+				{
+					for (u32 layout = 0; layout < layout_count && !found; ++layout)
+					{
+						const auto b = read_block(r, base, layout);
+						found = b && is_camera(b->m, output_aspect);
+					}
+					if (found) break;
+				}
+				if (found) camera_draws[{ s.width, s.height }]++;
+			}
+			u32 best = 0, at_output = 0;
+			std::pair<u16, u16> best_size{};
+			for (const auto& [size, count] : camera_draws)
+			{
+				if (std::fabs((static_cast<f64>(size.first) / size.second) / output_aspect - 1.0) <= view_aspect_tolerance) at_output += count;
+				if (count > best) { best = count; best_size = size; }
+			}
+			const f64 best_aspect = best ? static_cast<f64>(best_size.first) / best_size.second : output_aspect;
+			if (best && std::fabs(best_aspect / output_aspect - 1.0) > view_aspect_tolerance && best > 2 * at_output)
+			{
+				view_aspect = best_aspect;
+				vr_gen_log.notice("Camera views are rendered at %ux%u (%u draws, %u at the output aspect): camera_target_aspect %.4f.",
+					best_size.first, best_size.second, best, at_output, view_aspect);
+			}
+		}
+
 		std::vector<const draw_sample*> views;
 		for (const auto& s : samples)
 		{
 			if (s.program == umax || !s.height) continue;
-			if (std::fabs((static_cast<f64>(s.width) / s.height) / output_aspect - 1.0) <= 0.02)
+			// 5%: NFS Most Wanted renders its 3D scene at 1280x704 (2.3% off 16:9).
+			if (std::fabs((static_cast<f64>(s.width) / s.height) / view_aspect - 1.0) <= view_aspect_tolerance)
 			{
 				views.push_back(&s);
 			}
@@ -349,18 +442,18 @@ namespace rsx::vr
 
 		// 1. Camera block candidates, both layouts. Programs that read the whole
 		// bank (indexed constants) are left out: every slot "exists" there.
-		std::map<std::pair<bool, u32>, u32> candidates;
+		std::map<std::pair<u32, u32>, u32> candidates;
 		for (const draw_sample* s : views)
 		{
 			if (s->full_bank) continue;
 			const slot_reader r{ s->ids, s->values, false };
 			for (const u16 base : s->ids)
 			{
-				for (const bool columns : { false, true })
+				for (u32 layout = 0; layout < layout_count; ++layout)
 				{
-					if (const auto b = read_block(r, base, columns); b && is_camera(b->m, output_aspect))
+					if (const auto b = read_block(r, base, layout); b && is_camera(b->m, output_aspect))
 					{
-						candidates[{ columns, base }]++;
+						candidates[{ layout, base }]++;
 					}
 				}
 			}
@@ -371,22 +464,22 @@ namespace rsx::vr
 			return;
 		}
 
-		std::vector<std::pair<std::pair<bool, u32>, u32>> ranked(candidates.begin(), candidates.end());
+		std::vector<std::pair<std::pair<u32, u32>, u32>> ranked(candidates.begin(), candidates.end());
 		std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
 		for (usz i = 0; i < std::min<usz>(ranked.size(), 8); ++i)
 		{
-			vr_gen_log.notice("Candidate %s c[%u]: %u draws", ranked[i].first.first ? "column_vectors" : "row_vectors",
+			vr_gen_log.notice("Candidate %s c[%u]: %u draws", layout_names[ranked[i].first.first],
 				ranked[i].first.second, ranked[i].second);
 		}
 
 		// Both layouts of one block can pass the camera test equally (ICO's bare
 		// projection in c[60]). A camera's w row is the unit view direction; the
 		// transposed reading usually is not, so prefer the layout closer to 1.
-		bool columns = ranked.front().first.first;
+		u32 columns = ranked.front().first.first; // the chosen layout
 		if (ranked.size() >= 2 && ranked[0].second == ranked[1].second && ranked[0].first.second == ranked[1].first.second)
 		{
 			const u32 base = ranked[0].first.second;
-			const auto w_error = [&](bool as_columns)
+			const auto w_error = [&](u32 as_columns)
 			{
 				std::vector<f64> errors;
 				for (const draw_sample* s : views)
@@ -399,17 +492,30 @@ namespace rsx::vr
 				}
 				return errors.empty() ? 1e9 : median(errors);
 			};
-			const f64 rows_error = w_error(false), columns_error = w_error(true);
-			columns = columns_error < rows_error;
+			const u32 first = ranked[0].first.first, second = ranked[1].first.first;
+			const f64 rows_error = w_error(first), columns_error = w_error(second);
+			columns = columns_error < rows_error ? second : first;
 			vr_gen_log.notice("Both layouts match c[%u] equally: |w row| is off unit length by %.4f (rows), %.4f (columns); using %s.",
-				base, rows_error, columns_error, columns ? "column_vectors" : "row_vectors");
+				base, rows_error, columns_error, layout_names[columns]);
 		}
+		// Overlapping blocks are kept too: some engines put the camera at a base that
+		// depends on how many object-matrix slots precede it (inFamous: 256, 259, 260,
+		// 263...). The renderer then also requires the output-aspect projection, so a
+		// neighbouring window that happens to look perspective is not taken.
 		std::vector<u32> blocks;
+		bool overlapping = false;
 		for (const auto& [key, count] : ranked)
 		{
-			if (key.first != columns || count < 2 || blocks.size() >= 4) continue;
-			const bool overlaps = std::any_of(blocks.begin(), blocks.end(), [&](u32 b) { return key.second + 3 >= b && key.second <= b + 3; });
-			if (!overlaps) blocks.push_back(key.second);
+			if (key.first != columns || count < 2 || blocks.size() >= 8) continue;
+			if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b) { return key.second + 3 >= b && key.second <= b + 3; }))
+			{
+				overlapping = true;
+			}
+			blocks.push_back(key.second);
+		}
+		if (overlapping)
+		{
+			vr_gen_log.notice("Camera blocks overlap (the camera base varies per program): require_camera_aspect.");
 		}
 
 		// 2. Stray matches: data in a listed block that passes the perspective
@@ -441,6 +547,8 @@ namespace rsx::vr
 		std::map<u16, std::vector<f64>> bare_scale_a_by_width;
 		std::vector<f64> bare_near_planes;
 		bool bare_projection = false;
+		u32 depth_offset_draws = 0;
+		f64 camera_target_aspect_error = 0.0; // the renderer's output_aspect_tolerance must cover it
 		std::map<u32, u32> position_hits;
 		u32 eye_points = 0;
 		u32 covered_draws = 0;
@@ -451,7 +559,8 @@ namespace rsx::vr
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
 			{
-				if (auto b = read_block(r, base, columns); b && is_perspective(b->m) && (!require_rigid || rigidity(b->m) <= rigid_tolerance))
+				if (auto b = read_block(r, base, columns); b && is_perspective(b->m) && (!require_rigid || rigidity(b->m) <= rigid_tolerance) &&
+					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					cam = b;
 					cam_base = base;
@@ -468,6 +577,13 @@ namespace rsx::vr
 			prog.first++;
 			covered_draws++;
 
+			if (is_depth_offset_projection(cam->m))
+			{
+				// Camera-space geometry at a fixed depth (a 3D HUD): not the camera.
+				depth_offset_draws++;
+				continue;
+			}
+
 			if (is_bare_projection(cam->m))
 			{
 				bare_projection = true;
@@ -480,6 +596,8 @@ namespace rsx::vr
 				const f64 a = projection(cam->m).first;
 				scale_a_by_width[s->width].push_back(a);
 				if (const auto n = near_plane(cam->m)) near_planes.push_back(*n);
+				camera_target_aspect_error = std::max(camera_target_aspect_error,
+					std::fabs((static_cast<f64>(s->width) / s->height) / view_aspect - 1.0));
 			}
 
 			// A bare projection's eye point is always the origin: it would match any
@@ -597,7 +715,7 @@ namespace rsx::vr
 		if (!near_planes.empty())
 		{
 			const f64 n = median(near_planes);
-			baseline = std::clamp(human_ipd * n / reference_near_plane, human_ipd / 20.0, human_ipd * 20.0);
+			baseline = std::clamp(human_ipd * n / reference_near_plane, human_ipd / 20.0, human_ipd * 200.0); // up to centimetre worlds (inFamous: near 10)
 			vr_gen_log.notice("Near plane %.4f units: eye_baseline %.4f (world units per metre %.3f).", n, baseline, baseline / human_ipd);
 		}
 
@@ -624,10 +742,14 @@ namespace rsx::vr
 		json += fmt::format("  \"title_id\": \"%s\",\n", title);
 		if (!Emu.GetAppVersion().empty()) json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
 		json += "\n";
-		json += fmt::format("  \"matrix_layout\": \"%s\",\n", columns ? "column_vectors" : "row_vectors");
+		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
 		json += fmt::format("  \"camera_blocks\": [%s],\n", blocks_text);
 		if (require_rigid) json += "  \"require_rigid_camera\": true,\n";
-		json += "  \"output_aspect_tolerance\": 0.02,\n\n";
+		if (overlapping) json += "  \"require_camera_aspect\": true,\n";
+		const f64 aspect_tolerance_out = camera_target_aspect_error > 0.019 ? std::ceil((camera_target_aspect_error + 0.005) * 100.0) / 100.0 : 0.02;
+		json += fmt::format("  \"output_aspect_tolerance\": %s,\n", fmt_number(aspect_tolerance_out));
+		if (view_aspect != output_aspect) json += fmt::format("  \"camera_target_aspect\": %s,\n", fmt_number(view_aspect));
+		json += "\n";
 		json += "  \"camera_position\": {\n";
 		if (position_slot != umax) json += fmt::format("    \"slot\": %u,\n", position_slot);
 		json += fmt::format("    \"eye_baseline\": %s\n  },\n\n", fmt_number(baseline));
@@ -644,11 +766,19 @@ namespace rsx::vr
 			json += "    ]";
 		}
 		json += "\n  }";
-		if (hud_block != umax || bare_projection)
+		const bool depth_offset_projection = depth_offset_draws >= 2;
+		if (depth_offset_projection)
 		{
+			vr_gen_log.notice("%u camera draws are camera-space geometry at a fixed depth (a 3D HUD): depth_offset_projection.", depth_offset_draws);
+		}
+		if (hud_block != umax || bare_projection || depth_offset_projection)
+		{
+			std::vector<std::string> entries;
+			if (hud_block != umax) entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
+			if (bare_projection) entries.push_back("    \"bare_projection\": true");
+			if (depth_offset_projection) entries.push_back("    \"depth_offset_projection\": true");
 			json += ",\n\n  \"screen_space\": {\n";
-			if (hud_block != umax) json += fmt::format("    \"orthographic_block\": %u%s\n", hud_block, bare_projection ? "," : "");
-			if (bare_projection) json += "    \"bare_projection\": true\n";
+			for (usz i = 0; i < entries.size(); ++i) json += entries[i] + (i + 1 < entries.size() ? ",\n" : "\n");
 			json += "  }";
 		}
 		json += "\n}\n";
@@ -662,7 +792,7 @@ namespace rsx::vr
 		}
 
 		vr_gen_log.success("VR profile written to '%s': %s c[%s]%s, camera position %s, HUD %s, projection A %.4f (%u of %u camera-view draws covered).",
-			path, columns ? "column_vectors" : "row_vectors", blocks_text, require_rigid ? " (rigid)" : "",
+			path, layout_names[columns], blocks_text, require_rigid ? " (rigid)" : "",
 			position_slot != umax ? fmt::format("c[%u]", position_slot) : "none",
 			hud_block != umax ? fmt::format("c[%u]", hud_block) : "none", a, covered_draws, ::size32(views));
 

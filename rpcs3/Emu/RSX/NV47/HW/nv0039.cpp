@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "nv0039.h"
+#include "Emu/RSX/Capture/rsx_stereo_inspector.h"
 
 #include "Emu/RSX/RSXThread.h"
 #include "Emu/RSX/Core/RSXReservationLock.hpp"
@@ -100,6 +101,12 @@ namespace rsx
 			const auto write_address = get_address(dst_offset, dst_dma);
 			const auto read_length = in_pitch * (line_count - 1) + in_width_in_bytes;
 			const auto write_length = out_pitch * (line_count - 1) + out_width_in_bytes;
+
+			if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
+			{
+				inspector.record_note("nv0039", fmt::format("\"src\":%u,\"dst\":%u,\"in_pitch\":%d,\"out_pitch\":%d,\"line_length\":%u,\"line_count\":%u,\"in_format\":%u,\"out_format\":%u",
+					read_address, write_address, in_pitch, out_pitch, line_length, line_count, in_format, out_format));
+			}
 
 			RSX(ctx)->invalidate_fragment_program(dst_dma, dst_offset, write_length);
 

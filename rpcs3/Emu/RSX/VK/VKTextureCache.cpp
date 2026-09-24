@@ -1697,6 +1697,33 @@ namespace vk
 		return false;
 	}
 
+	bool texture_cache::blit_vr_right(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& store, vk::command_buffer& cmd)
+	{
+		using namespace rsx::blit_engine;
+		const f32 scale_x = std::fabs(dst.scale_x);
+		const f32 scale_y = std::fabs(dst.scale_y);
+		if (dst.swizzled || scale_x <= 0.f || scale_y <= 0.f)
+		{
+			return false;
+		}
+
+		const u8 src_bpp = src.format == transfer_source_format::a8r8g8b8 ? 4 : 2;
+		const u8 dst_bpp = dst.format == transfer_destination_format::a8r8g8b8 ? 4 : 2;
+		const u32 src_w = static_cast<u32>(dst.clip_width / scale_x);
+		const u32 src_h = static_cast<u32>(dst.clip_height / scale_y);
+
+		// Both ends must be right-eye surfaces: otherwise the blit would create or
+		// modify texture cache sections, which both eyes share.
+		if (store.get_merged_texture_memory_region(cmd, vm::get_addr(src.pixels), src_w, src_h, src.pitch, src_bpp, rsx::surface_access::transfer_read).empty() ||
+			store.get_merged_texture_memory_region(cmd, vm::get_addr(dst.pixels), dst.clip_width, dst.clip_height, dst.pitch, dst_bpp, rsx::surface_access::transfer_write).empty())
+		{
+			return false;
+		}
+
+		blitter helper;
+		return upload_scaled_image(src, dst, interpolate, cmd, store, helper).succeeded;
+	}
+
 	u32 texture_cache::get_unreleased_textures_count() const
 	{
 		return baseclass::get_unreleased_textures_count() + ::size32(m_cached_images);

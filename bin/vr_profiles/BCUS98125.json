@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98125",
+  "app_version": "01.00",
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [256, 262, 259, 263, 266, 261, 260, 264],
+  "require_rigid_camera": true,
+  "require_camera_aspect": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 467,
+    "eye_baseline": 0.0741065
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0178627,
+    "convergence": 2.96426
+  },
+
+  "screen_space": {
+    "orthographic_block": 256,
+    "rotation_only_passthrough": true
+  },
+
+  "match_headset_refresh_rate": true
+}

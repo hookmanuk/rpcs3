@@ -75,6 +75,10 @@ namespace rsx
 			// Once per emitted subdraw, after vertex upload and before vkCmdDraw*.
 			void record_draw(const draw_capture_input& in);
 
+			// A non-draw guest operation (blit, memory copy) in draw order, as a
+			// "note" record with the given JSON fields (no braces).
+			void record_note(const std::string& kind, const std::string& fields);
+
 		private:
 			stereo_inspector();
 

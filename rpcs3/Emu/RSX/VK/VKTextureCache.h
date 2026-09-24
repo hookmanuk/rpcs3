@@ -536,6 +536,10 @@ namespace vk
 
 		bool blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& m_rtts, vk::command_buffer& cmd);
 
+		// VR fork: repeat a blit inside the right-eye surface store. Only when both ends are
+		// surfaces there, and never flushed to guest memory (the left eye owns memory).
+		bool blit_vr_right(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& store, vk::command_buffer& cmd);
+
 		u32 get_unreleased_textures_count() const override;
 
 		bool handle_memory_pressure(rsx::problem_severity severity) override;
