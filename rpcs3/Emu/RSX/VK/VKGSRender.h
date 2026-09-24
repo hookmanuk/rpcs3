@@ -148,6 +148,8 @@ private:
 	// (ICO's glow accumulates across frames) first moves that image by the head
 	// rotation since, in both eyes.
 	void vr_realign_blend_targets();
+	// Profile reproject_older_frames: the two above (blend targets, feedback textures) apply.
+	bool vr_reprojects_older_frames() const;
 	// Profile screen_space.passthrough_hud: this draw is HUD/menu drawn without a matrix.
 	bool vr_is_passthrough_hud();
 	// Point the vertex context at a copy whose viewport matrix also maps the draw

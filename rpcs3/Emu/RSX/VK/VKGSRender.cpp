@@ -2247,7 +2247,7 @@ void VKGSRender::load_program_env()
 	const bool update_vertex_env = !!(m_graphics_state & rsx::pipeline_state::vertex_state_dirty);
 	const bool update_fragment_env = !!(m_graphics_state & rsx::pipeline_state::fragment_state_dirty);
 	rsx::fragment_program_texture_config vr_texture_params;
-	const bool vr_shifted = vk::xr::is_running() && vr_shift_feedback_textures(vr_texture_params);
+	const bool vr_shifted = vk::xr::is_running() && vr_reprojects_older_frames() && vr_shift_feedback_textures(vr_texture_params);
 	const bool vr_was_shifted = std::exchange(m_vr_params_shifted, vr_shifted);
 	const bool update_fragment_texture_env = !!(m_graphics_state & rsx::pipeline_state::fragment_texture_state_dirty) || vr_shifted || vr_was_shifted;
 	const bool update_instruction_buffers = (!!m_interpreter_state && is_interpreter);
@@ -3696,6 +3696,12 @@ void VKGSRender::begin_conditional_rendering(const std::vector<rsx::reports::occ
 void VKGSRender::end_conditional_rendering()
 {
 	thread::end_conditional_rendering();
+}
+
+bool VKGSRender::vr_reprojects_older_frames() const
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	return profile && profile->reproject_older_frames;
 }
 
 void VKGSRender::vr_redirect_previous_frame_copy(rsx::blit_src_info& src)

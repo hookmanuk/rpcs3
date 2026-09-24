@@ -176,6 +176,8 @@ namespace rsx::vr
 				}
 
 				m_transposed = column_vectors;
+				// The program left out a z slot the layout has: z = w, drawn on the far plane (a sky).
+				m_far_plane = !xyw && slot_of[2] != umax && !m_slots[2];
 				for (u32 k = 0; k < 4; ++k)
 				{
 					rows[k] = m_transposed ? m_local[k] : m_slots[k];
@@ -189,10 +191,14 @@ namespace rsx::vr
 				return true;
 			}
 
+			// A sky: drawn on the far plane (the program has no z slot, z = w).
+			bool far_plane() const { return m_far_plane; }
+
 			// Drop the binding without writing back (the block was not modified).
 			void release()
 			{
 				m_transposed = false;
+				m_far_plane = false;
 				for (f32*& r : rows) r = nullptr;
 			}
 
@@ -202,6 +208,7 @@ namespace rsx::vr
 			f32* m_slots[4] = {};
 			f32 m_local[4][4] = {};
 			bool m_transposed = false;
+			bool m_far_plane = false;
 		};
 
 		bool is_perspective(f32* const r[4])
@@ -484,6 +491,10 @@ namespace rsx::vr
 			profile->require_camera_aspect = aspect == "true";
 		}
 		read(root, "max_fps", profile->max_fps, false);
+		if (std::string reproject; read(root, "reproject_older_frames", reproject, false))
+		{
+			profile->reproject_older_frames = reproject == "true";
+		}
 		if (const YAML::Node targets = child(root, "game_refresh_rate_f32"); targets && targets.IsSequence())
 		{
 			for (const auto& target : targets)
@@ -531,7 +542,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
@@ -1055,9 +1066,13 @@ namespace rsx::vr
 		// for that global axis. Output-aspect camera draws establish/refresh it.
 		// Head rotation first, so camera right and the eye offsets below follow
 		// the rotated view.
+		// A sky on the far plane is infinitely far: it turns with the head but takes no head
+		// translation or eye offset (a finite eye offset gives it the parallax of the dome's
+		// real size, contradicting its far-plane depth).
+		const bool at_infinity = block.far_plane() && m_vr_view;
 		if (output_aspect_match && m_vr_view)
 		{
-			apply_vr_rotation(rows, m_vr_rot, m_vr_head_units);
+			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units);
 		}
 
 		if (output_aspect_match)
@@ -1074,7 +1089,7 @@ namespace rsx::vr
 		}
 
 		const u32 cam_slot = m_cam_slot != umax ? m_cam_slot : profile.camera_position_slot;
-		if (f32* cam = cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cam_slot) : nullptr; cam && m_render_camera_right_valid)
+		if (f32* cam = cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cam_slot) : nullptr; cam && m_render_camera_right_valid && !at_infinity)
 		{
 			const f32 half_eye_baseline = profile.eye_baseline * 0.5f * (m_vr_view ? m_vr_eye_scale : m_screen_stereo_scale);
 			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];
@@ -1103,7 +1118,10 @@ namespace rsx::vr
 			// Headset eyes are parallel: keep the formula's eye translation
 			// (clip.x -= sep*conv, the same offset as the camera position's) and drop
 			// its convergence image shift (clip.x += sep*clip.w).
-			rows[3][0] -= sep * m_vr_eye_scale * convergence;
+			if (!at_infinity)
+			{
+				rows[3][0] -= sep * m_vr_eye_scale * convergence;
+			}
 
 			if (m_vr_hmd_fov && m_vr_proj_valid)
 			{

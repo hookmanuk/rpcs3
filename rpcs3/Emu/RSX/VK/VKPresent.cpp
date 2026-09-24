@@ -720,7 +720,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
 			// The pose the displayed image was drawn with, if it can be traced.
 			u32 pose = m_vr_applied_pose;
-			if (info.buffer < display_buffers_count)
+			if (m_vr_frame_boundaries && info.buffer < display_buffers_count)
 			{
 				if (auto* surface = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
 					surface && surface->vr_pose)
@@ -1302,6 +1302,14 @@ void VKGSRender::vr_update_view()
 
 void VKGSRender::vr_track_frame_boundary()
 {
+	// Per-frame poses are part of the older-frame reprojection machinery (profile
+	// reproject_older_frames, Ico). Other games keep the per-flip pose update: Pure's pause
+	// menu crosses a display-buffer boundary many times per flip.
+	if (!vr_reprojects_older_frames())
+	{
+		return;
+	}
+
 	s32 index = -1;
 	for (const u32 address : m_framebuffer_layout.color_addresses)
 	{

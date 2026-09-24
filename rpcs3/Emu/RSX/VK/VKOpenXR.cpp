@@ -1356,6 +1356,18 @@ namespace vk::xr
 		// The pose this frame's draws were rotated by. Too old to be in the history
 		// (or never located): not declared as a projection.
 		auto& slot = g_xr.slots[g_xr.writing];
+		if (!pose_id || g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id)
+		{
+			// The traced pose has left the history (a game that crosses many frame
+			// boundaries per flip, e.g. Pure's pause menu drawing into the display buffer):
+			// declare the newest located pose rather than dropping to the flat quad.
+			u32 newest = 0;
+			for (const auto& p : g_xr.render_poses)
+			{
+				newest = std::max<u32>(newest, p.id);
+			}
+			pose_id = newest;
+		}
 		const auto& pose = g_xr.render_poses[pose_id % std::size(g_xr.render_poses)];
 		slot.pose_valid = pose_id && pose.id == pose_id;
 		slot.orientation = pose.orientation;

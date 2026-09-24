@@ -1670,7 +1670,7 @@ void VKGSRender::end()
 	load_program_env();
 	m_frame_stats.setup_time += m_profiler.duration();
 
-	if (vk::xr::is_running() && m_vr_applied_pose && rsx::method_registers.blend_enabled())
+	if (vk::xr::is_running() && m_vr_applied_pose && rsx::method_registers.blend_enabled() && vr_reprojects_older_frames())
 	{
 		vr_realign_blend_targets();
 	}

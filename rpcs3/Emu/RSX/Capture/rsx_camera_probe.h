@@ -187,6 +187,13 @@ namespace rsx::vr
 		// Reprojection Margin "Auto" renders a margin. Unset counts as capped: only a game
 		// shown to keep real-time speed (max_fps 0) is synced to the headset.
 		u32 max_fps = 30;
+
+		// The game builds effects across frames from full-screen buffers (Ico's glow and
+		// previous-frame blend): with the head moving between frames, older-pose buffers are
+		// shifted to the current pose (blend targets) and re-projected when read (feedback
+		// textures). Off by default: in other games it moved buffers that are not such effects
+		// (Pure: flashes, a bright square under the bike, and the paused frame floating in space).
+		bool reproject_older_frames = false;
 		bool syncs_to_headset() const { return max_fps == 0; }
 
 		// Guest floats holding the game's idea of the display refresh rate (Pure: PSGL
