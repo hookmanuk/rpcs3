@@ -2072,7 +2072,22 @@ void VKGSRender::vr_realign_blend_targets()
 			{
 				return std::pair<int, int>{ dx, dy };
 			}
+			if (image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+			{
+				// Never written (a right-eye surface): nothing to move.
+				return std::pair<int, int>{ dx, dy };
+			}
 			auto* scratch = vk::get_typeless_helper(image->format(), image->format_class(), w, h);
+			if (scratch->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
+			{
+				// copy_image returns the image to its prior layout, which must be a real one
+				// (a freshly created helper is UNDEFINED: "invalid layout" fatal error).
+				if (vk::is_renderpass_open(*m_current_command_buffer))
+				{
+					vk::end_renderpass(*m_current_command_buffer);
+				}
+				vk::change_image_layout(*m_current_command_buffer, scratch, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			}
 			vk::copy_image(*m_current_command_buffer, image, scratch, areai{ 0, 0, w, h }, areai{ 0, 0, w, h });
 			const areai src{ std::max(dx, 0), std::max(dy, 0), w + std::min(dx, 0), h + std::min(dy, 0) };
 			const areai dst{ std::max(-dx, 0), std::max(-dy, 0), w - std::max(dx, 0), h - std::max(dy, 0) };
