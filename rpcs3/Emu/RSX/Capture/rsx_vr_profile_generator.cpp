@@ -42,6 +42,9 @@ namespace rsx::vr
 		constexpr f64 reference_near_plane = 0.1; // metres; a common engine near plane (Pure's is exactly 0.1)
 		constexpr f64 convergence_in_baselines = 40.0;
 		constexpr f64 view_aspect_tolerance = 0.05;  // render targets that count as camera views
+		constexpr f64 min_scene_coverage = 0.8;      // below: clip_space_scene_draws
+
+		constexpr u8 texture_ordinary = 1, texture_colour_target = 2;
 
 		// A 4-slot block as DP4 rows: clip[i] = dot(row_i, (v, 1)).
 		using mat4 = std::array<std::array<f64, 4>, 4>;
@@ -257,7 +260,7 @@ namespace rsx::vr
 		rsx::overlays::queue_message(localized_string_id::VR_PROFILE_GENERATING, 10'000'000);
 	}
 
-	void profile_generator::record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h)
+	void profile_generator::record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures)
 	{
 		const auto& bank = rsx::method_registers.transform_constants;
 
@@ -266,6 +269,8 @@ namespace rsx::vr
 		s.width = surface_w;
 		s.height = surface_h;
 		s.full_bank = constant_ids.empty();
+		s.depth_test = depth_test;
+		s.textures = static_cast<u8>(textures);
 
 		const auto push = [&](u32 index)
 		{
@@ -569,6 +574,7 @@ namespace rsx::vr
 		std::map<u32, u32> position_hits;
 		u32 eye_points = 0;
 		u32 covered_draws = 0;
+		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		for (const draw_sample* s : views)
 		{
 			const slot_reader r{ s->ids, s->values, s->full_bank };
@@ -586,6 +592,9 @@ namespace rsx::vr
 			}
 
 			auto& prog = programs[s->program];
+			const bool scene = s->depth_test && !(s->textures & texture_colour_target);
+			scene_draws += scene;
+			scene_covered += scene && cam;
 			if (!cam)
 			{
 				prog.second++;
@@ -688,6 +697,14 @@ namespace rsx::vr
 
 		const f64 a = median(scale_a);
 
+		// Scene draws the camera blocks miss (object matrices folded in, other slots or layouts,
+		// skinning from the whole bank) keep the game's camera and tear against the rest.
+		// clip_space_scene_draws gives them the camera draws' eye transform instead.
+		const f64 scene_coverage = scene_draws ? static_cast<f64>(scene_covered) / scene_draws : 1.0;
+		const bool clip_space_scene_draws = scene_draws >= 50 && scene_coverage < min_scene_coverage;
+		vr_gen_log.notice("Camera blocks cover %u of %u depth-tested scene draws (%.0f%%)%s.", scene_covered, scene_draws, scene_coverage * 100.0,
+			clip_space_scene_draws ? ": clip_space_scene_draws" : "");
+
 		u32 position_slot = umax;
 		u32 best_hits = 0;
 		for (const auto& [slot, hits] : position_hits)
@@ -703,8 +720,11 @@ namespace rsx::vr
 		}
 		vr_gen_log.notice("Camera position: best c[%d] matches %u of %u eye points.", static_cast<s32>(position_slot), best_hits, eye_points);
 
-		// 4. HUD: an orthographic block with pixel-sized scales.
-		std::map<u32, u32> hud_hits;
+		// 4. HUD: an orthographic block with pixel-sized scales. The renderer puts every
+		// full-frame draw reading it into the HUD box, so full-screen passes must not read
+		// it: HUD draws sample ordinary textures only, post-processing samples colour render
+		// targets (Demon's Souls draws both with c[0]; its scene composite landed in the box).
+		std::map<u32, u32> hud_hits, pass_hits;
 		for (const draw_sample* s : views)
 		{
 			if (s->full_bank) continue;
@@ -714,13 +734,21 @@ namespace rsx::vr
 				const auto b = read_block(r, base, columns);
 				if (!b || b->z_missing || is_perspective(b->m)) continue;
 				const f64 sx = std::fabs(b->m[0][0]), sy = std::fabs(b->m[1][1]);
-				if (sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01) hud_hits[base]++;
+				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01)) continue;
+				if (s->textures & texture_colour_target) pass_hits[base]++;
+				else if (s->textures & texture_ordinary) hud_hits[base]++;
 			}
 		}
 		u32 hud_block = umax;
 		u32 hud_best = 1;
 		for (const auto& [base, hits] : hud_hits)
 		{
+			const u32 passes = pass_hits.contains(base) ? pass_hits[base] : 0;
+			if (passes >= std::max(2u, hits / 10))
+			{
+				vr_gen_log.notice("Orthographic c[%u]: %u HUD-like draws but %u full-screen passes read it too: not the HUD block.", base, hits, passes);
+				continue;
+			}
 			if (hits > hud_best) { hud_best = hits; hud_block = base; }
 		}
 
@@ -781,6 +809,7 @@ namespace rsx::vr
 		if (overlapping) json += "  \"require_camera_aspect\": true,\n";
 		const f64 aspect_tolerance_out = camera_target_aspect_error > 0.019 ? std::ceil((camera_target_aspect_error + 0.005) * 100.0) / 100.0 : 0.02;
 		json += fmt::format("  \"output_aspect_tolerance\": %s,\n", fmt_number(aspect_tolerance_out));
+		if (clip_space_scene_draws) json += "  \"clip_space_scene_draws\": true,\n";
 		if (view_aspect != output_aspect) json += fmt::format("  \"camera_target_aspect\": %s,\n", fmt_number(view_aspect));
 		json += "\n";
 		json += "  \"camera_position\": {\n";

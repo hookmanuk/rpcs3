@@ -1268,7 +1268,19 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	const u32 vr_target = m_framebuffer_layout.color_addresses[0];
 	const u64 vr_listed = vr_render && !vr_camera_draw ? vr_preprojected_program() : 0;
 	const bool vr_in_scene = vr_target && std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), vr_target) != m_vr_camera_targets.end();
-	const u64 vr_preprojected = vr_listed && !vr_hud && rsx::method_registers.depth_test_enabled() && vr_in_scene ? vr_listed : 0;
+	u64 vr_preprojected = vr_listed && !vr_hud && rsx::method_registers.depth_test_enabled() && vr_in_scene ? vr_listed : 0;
+	// Profile clip_space_scene_draws: every other depth-tested scene draw that is no camera draw
+	// (its matrix folded with an object's, in another slot or layout, skinned from the whole bank)
+	// takes the same eye transform, B^-1 * B_eye of the latest camera draw: the object part cancels.
+	// Not post-processing (samples a colour render target) or the HUD.
+	if (!vr_preprojected && !vr_listed && !vr_hud && vr_render && !vr_camera_draw && vr_in_scene && rsx::method_registers.depth_test_enabled())
+	{
+		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->clip_space_scene_draws &&
+			!(vr_sampled_textures() & vr_texture_colour_target))
+		{
+			vr_preprojected = rsx::vr::scene_draw_program;
+		}
+	}
 	if (vr_listed)
 	{
 		// Diagnostic: each distinct way a listed program is drawn (first 16).
@@ -1393,7 +1405,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	{
 		const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || m_vertex_prog->has_indexed_constants;
 		generator.record_draw(full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids),
-			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height);
+			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height, rsx::method_registers.depth_test_enabled(), vr_sampled_textures());
 	}
 
 	// Keep Vulkan command emission in one host-only callable. Gate 5 invokes it
@@ -2147,7 +2159,13 @@ bool VKGSRender::vr_is_passthrough_hud()
 		return false;
 	}
 
-	bool ordinary = false;
+	const u32 kinds = vr_sampled_textures();
+	return (kinds & vr_texture_ordinary) && !(kinds & vr_texture_colour_target);
+}
+
+u32 VKGSRender::vr_sampled_textures()
+{
+	u32 kinds = 0;
 	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; textures_ref; textures_ref >>= 1, ++i)
 	{
 		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
@@ -2158,15 +2176,16 @@ bool VKGSRender::vr_is_passthrough_hud()
 		if (sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
 		{
 			vk::image* image = sampler_state->image_handle ? sampler_state->image_handle->image() : sampler_state->external_subresource_desc.external_handle;
+			// Depth render targets are fine (soft particles); colour ones mean post-processing.
 			if (!image || (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
 			{
-				return false;
+				kinds |= vr_texture_colour_target;
 			}
 			continue;
 		}
-		ordinary = true;
+		kinds |= vr_texture_ordinary;
 	}
-	return ordinary;
+	return kinds;
 }
 
 u64 VKGSRender::vr_preprojected_program()
@@ -2235,7 +2254,9 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 	static bool s_reported = false, s_reported_pre = false;
 	if (preprojected_program ? !std::exchange(s_reported_pre, true) : !std::exchange(s_reported, true))
 	{
-		if (preprojected_program)
+		if (preprojected_program == rsx::vr::scene_draw_program)
+			rsx_log.success("VR: scene draws without a camera block drawn through the camera's eye transform (clip_space_scene_draws, target 0x%x).", m_framebuffer_layout.color_addresses[0]);
+		else if (preprojected_program)
 			rsx_log.success("VR: pre-projected program %016llx drawn through the camera's eye transform (target 0x%x).", preprojected_program, m_framebuffer_layout.color_addresses[0]);
 		else
 			rsx_log.success("VR: HUD drawn without a matrix is mapped into the HUD box (target 0x%x).", m_framebuffer_layout.color_addresses[0]);

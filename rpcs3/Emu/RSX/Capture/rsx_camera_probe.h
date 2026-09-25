@@ -235,6 +235,15 @@ namespace rsx::vr
 		// target drawn in this frame instead.
 		bool current_frame_copies = false;
 
+		// Depth-tested draws into the scene that no camera block covers (the matrix folded
+		// with an object's so it is not rigid, in another slot or layout, or skinned from the
+		// whole constant bank) take the latest camera draw's eye transform, B^-1 * B_eye,
+		// after their own program: the object part of B cancels, so any draw through the same
+		// camera lands where the eye sees it. Draws that sample a colour render target
+		// (post-processing) and the HUD are left alone. Off by default (experimental); the
+		// profile generator sets it when camera blocks cover few scene draws (Demon's Souls).
+		bool clip_space_scene_draws = false;
+
 		// Guest memory the game copies its depth buffer into for its own occlusion culling
 		// on the CPU/SPUs (Shadow of the Colossus, every frame). In stereo that depth is the
 		// eye's, not the game camera's, so the culling hides visible objects (flashing holes,
@@ -253,6 +262,9 @@ namespace rsx::vr
 
 	// vr_profiles/<TITLE_ID>.<executable>.json if present (one game of a collection), else <TITLE_ID>.json.
 	std::shared_ptr<const title_profile> load_title_profile(std::string_view title_id, std::string_view executable = {});
+
+	// map_vr_preprojected's program for a clip_space_scene_draws draw (no listed program).
+	constexpr u64 scene_draw_program = umax;
 
 	// True if this title id has a valid VR profile. Only profiled titles can be
 	// rendered in stereo, so the VR options are offered for those alone.

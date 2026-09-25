@@ -559,6 +559,10 @@ namespace rsx::vr
 		{
 			fail("vblanks_per_frame must be at least 1");
 		}
+		if (std::string scene; read(root, "clip_space_scene_draws", scene, false))
+		{
+			profile->clip_space_scene_draws = scene == "true";
+		}
 		if (std::string reproject; read(root, "reproject_older_frames", reproject, false))
 		{
 			profile->reproject_older_frames = reproject == "true";
@@ -627,7 +631,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1680,8 +1684,9 @@ namespace rsx::vr
 	{
 		const title_profile* p = profile();
 		const u32 eye = eye_sign < 0.f ? 0 : 1;
-		if (!p || !m_vr_last_block_valid[eye] || std::find(p->screen_space_preprojected_programs.begin(),
-			p->screen_space_preprojected_programs.end(), program_hash) == p->screen_space_preprojected_programs.end())
+		if (!p || !m_vr_last_block_valid[eye] || (program_hash == scene_draw_program ? !p->clip_space_scene_draws :
+			std::find(p->screen_space_preprojected_programs.begin(), p->screen_space_preprojected_programs.end(), program_hash) ==
+				p->screen_space_preprojected_programs.end()))
 		{
 			return false;
 		}

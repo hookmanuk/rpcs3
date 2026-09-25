@@ -33,8 +33,9 @@ namespace rsx::vr
 		bool sampling() const { return m_sample_this_frame.load(); }
 
 		// One draw's vertex constants, by original guest index. constant_ids empty
-		// means the program reads the whole bank (indexed constants).
-		void record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h);
+		// means the program reads the whole bank (indexed constants). textures: what the
+		// fragment program samples (bit 0 ordinary textures, bit 1 colour render targets).
+		void record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures);
 
 		// Frame boundary (game flips only).
 		void on_frame_end();
@@ -46,6 +47,8 @@ namespace rsx::vr
 			u16 width = 0;
 			u16 height = 0;
 			bool full_bank = false;
+			bool depth_test = false;
+			u8 textures = 0;         // bit 0 ordinary textures, bit 1 colour render targets
 			std::vector<u16> ids;
 			std::vector<std::array<f32, 4>> values;
 		};
