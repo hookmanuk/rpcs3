@@ -41,25 +41,25 @@ VR): get new VR builds from the same place as this one.
 
 | Game | ID | Framerate |
 |---|---|---|
-| WipEout HD Fury | BCES00664 | 90 FPS (no maximum) |
-| Pure | BLUS30182 | 90 FPS (no maximum) |
+| WipEout HD Fury | BCES00664 | Headset refresh rate |
+| Pure | BLUS30182 | Headset refresh rate |
 | ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
 | Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
 
-### 1. WipEout HD Fury (BCES00664): 90 FPS
+### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
 - **Requires the 2.51 update.** The disc version (2.00) has no stereoscopic code. Install the updates
   2.10, 2.30, 2.50 and 2.51 in order (`File > Install Packages/Raps/Edats`).
-- **Frame rate:** 90 FPS by default, at real-time speed at any rate. No patch needed. Choose another rate (up to
-  Unlimited = the headset's refresh rate) with the VR **Frame Rate** setting.
+- **Frame rate:** the headset's refresh rate by default (90 Hz = 90 FPS), at real-time speed at any rate. No
+  patch needed. A slower PC can choose a lower rate with the VR **Frame Rate** setting.
 - **Recommended settings** (for 90 FPS): Video > `Relaxed ZCULL Sync` on, `Accurate ZCULL stats` off,
   `Shader Precision` Low; CPU > `Thread Scheduler` RPCS3 Scheduler. `Resolution Scale` around 300-400%:
   every render target exists once per eye, so at very high scales (750%) even a 32 GB card runs out of video
   memory and the game slows to a crawl.
 
-### 2. Pure (BLUS30182): 90 FPS
+### 2. Pure (BLUS30182): headset refresh rate
 
-- **Frame rate:** 90 FPS by default; any rate up to Unlimited (the headset's refresh rate) with the VR
+- **Frame rate:** the headset's refresh rate by default; a slower PC can choose a lower rate with the VR
   **Frame Rate** setting. The patch "Unlocked frame rate (follows Vblank Rate)" is on by default: races run at
   the display rate instead of 30. The VR profile tells the game the current rate every frame, so its clock
   stays correct at any rate.

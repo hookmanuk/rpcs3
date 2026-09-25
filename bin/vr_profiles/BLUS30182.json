@@ -3,7 +3,7 @@
   "title_id": "BLUS30182",
   "app_version": "01.00",
   "max_fps": 0,
-  "default_fps": 90,
+  "default_fps": 0,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [26, 39],
