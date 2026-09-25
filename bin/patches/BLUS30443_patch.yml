@@ -1,0 +1,13 @@
+Version: 1.2
+
+PPU-83681f6110d33442329073b72b8dc88a2f677172:
+  "Disable Motion Blur":
+    Games:
+      "Demon's Souls":
+        BLUS30443: [ 01.00 ]
+    Author: "illusion (VR fork copy, on by default)"
+    Notes: "Disables the camera motion blur. In VR it follows the game camera, not your head, so walking smears the near ground in both eyes. Same patch as the community patch.yml entry, carried here so it is on without downloading patches."
+    Patch Version: 1.1
+    Enabled By Default: true
+    Patch:
+      - [ byte, 0x00217e7c, 0x41 ]

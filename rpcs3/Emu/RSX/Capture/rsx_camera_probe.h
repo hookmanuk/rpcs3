@@ -178,6 +178,11 @@ namespace rsx::vr
 		// samples only ordinary textures and targets a buffer no camera draw wrote this
 		// frame goes into the HUD box through the vertex context's viewport matrix.
 		bool screen_space_passthrough_hud = false;
+		// Orthographic-block draws that sample a colour render target are full-screen
+		// passes (post-processing), not HUD: they stay as drawn. Demon's Souls draws its
+		// HUD and its post passes with the same c[0]. Off by default (WipEout's and Pure's
+		// passes never read their HUD block); the generator sets it when passes read it.
+		bool screen_space_hud_skips_passes = false;
 		// Vertex programs (ucode hashes) whose positions come out already projected by
 		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
 		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
@@ -326,6 +331,12 @@ namespace rsx::vr
 		// Hot-path gate. False unless a perturbation is currently configured.
 		bool enabled() const { return m_active.load(); }
 		bool render_enabled() const;
+		// The draw about to be bound samples a colour render target (post-processing).
+		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
+		// The draw about to be bound has depth test enabled.
+		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }
+		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
+		bool scene_draws_by_clip_space() const;
 
 		// Load the title's profile again on next use (a generated one was just
 		// written). Only safe while no profile is loaded: the old one is freed.
@@ -428,6 +439,9 @@ namespace rsx::vr
 		f32 m_stereo_conv = 0.f;
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
+		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
+		mutable bool m_draw_samples_colour_target = false;
+		mutable bool m_draw_depth_test = true;
 
 		// c[465] is global camera state. Shadow cascades carry a perspective
 		// c[260] block whose clip-X axis is *not* camera right, so retain the

@@ -1213,6 +1213,11 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_vertex_layout_dynamic_offset = m_vertex_layout_ring_info.alloc<8>(alloc_size);
 	}
 
+	if (vr_render)
+	{
+		rsx::vr::camera_probe::get().set_draw_samples_colour_target(vr_sampled_textures() & vr_texture_colour_target);
+		rsx::vr::camera_probe::get().set_draw_depth_test(rsx::method_registers.depth_test_enabled());
+	}
 	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
 	m_vr_camera_draws += vr_camera_draw;
 	if (vr_render && vk::xr::is_running())
@@ -1275,8 +1280,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// Not post-processing (samples a colour render target) or the HUD.
 	if (!vr_preprojected && !vr_listed && !vr_hud && vr_render && !vr_camera_draw && vr_in_scene && rsx::method_registers.depth_test_enabled())
 	{
-		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->clip_space_scene_draws &&
-			!(vr_sampled_textures() & vr_texture_colour_target))
+		if (rsx::vr::camera_probe::get().scene_draws_by_clip_space() && !(vr_sampled_textures() & vr_texture_colour_target))
 		{
 			vr_preprojected = rsx::vr::scene_draw_program;
 		}
@@ -1403,7 +1407,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// VR profile generation (home menu): sample this draw's vertex constants.
 	if (auto& generator = rsx::vr::profile_generator::get(); generator.sampling() && m_vertex_prog)
 	{
-		const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || m_vertex_prog->has_indexed_constants;
+		// Programs with indexed constants still name the slots they read directly (Demon's
+		// Souls: its camera c[0..3] beside indexed bone matrices); the values come from the
+		// guest registers, so they are right even while the shader interpreter draws.
+		const bool full_bank = m_vertex_prog->constant_ids.empty();
 		generator.record_draw(full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids),
 			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height, rsx::method_registers.depth_test_enabled(), vr_sampled_textures());
 	}

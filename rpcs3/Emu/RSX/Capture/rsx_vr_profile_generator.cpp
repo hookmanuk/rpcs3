@@ -119,6 +119,25 @@ namespace rsx::vr
 			return out;
 		}
 
+		// A 2D draw's row_vectors block without the z slot (it takes no input z: Demon's
+		// Souls' HUD reads c[0], c[1], c[3]); z row zero. The renderer binds it the same way.
+		std::optional<block_result> read_flat_rows(const slot_reader& r, u32 base)
+		{
+			const std::array<f32, 4>* s[4];
+			for (u32 k = 0; k < 4; ++k) s[k] = r.get(base + k);
+			if (!s[0] || !s[1] || s[2] || !s[3]) return std::nullopt;
+			// As read_block's rows layout: out.m[i] is clip component i, slot k its input-k coefficient.
+			block_result out;
+			for (u32 i = 0; i < 4; ++i)
+			{
+				out.m[i][0] = (*s[0])[i];
+				out.m[i][1] = (*s[1])[i];
+				out.m[i][2] = 0.0;
+				out.m[i][3] = (*s[3])[i];
+			}
+			return out;
+		}
+
 		f64 len3(const std::array<f64, 4>& v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
 		f64 dot3(const std::array<f64, 4>& a, const std::array<f64, 4>& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
@@ -628,7 +647,15 @@ namespace rsx::vr
 
 			// A bare projection's eye point is always the origin: it would match any
 			// (0, 0, 0, 1) constant, not a camera position.
-			if (const auto e = is_bare_projection(cam->m) ? std::nullopt : eye_point(cam->m))
+			// A camera at the origin renders camera-relative (Demon's Souls' c[0] holds only the
+			// view rotation and projection): no position to find, and it would match any
+			// (0, 0, 0, 1) constant.
+			auto e = is_bare_projection(cam->m) ? std::nullopt : eye_point(cam->m);
+			if (e && std::sqrt((*e)[0] * (*e)[0] + (*e)[1] * (*e)[1] + (*e)[2] * (*e)[2]) < 1e-3)
+			{
+				e = std::nullopt;
+			}
+			if (e)
 			{
 				eye_points++;
 				const f64 tolerance = 0.05 * std::max(1.0, std::sqrt((*e)[0] * (*e)[0] + (*e)[1] * (*e)[1] + (*e)[2] * (*e)[2]));
@@ -731,8 +758,9 @@ namespace rsx::vr
 			const slot_reader r{ s->ids, s->values, false };
 			for (const u16 base : s->ids)
 			{
-				const auto b = read_block(r, base, columns);
-				if (!b || b->z_missing || is_perspective(b->m)) continue;
+				auto b = read_block(r, base, columns);
+				if (!b && columns == layout_rows) b = read_flat_rows(r, base);
+				if (!b || (b->z_missing && columns != layout_rows) || is_perspective(b->m)) continue;
 				const f64 sx = std::fabs(b->m[0][0]), sy = std::fabs(b->m[1][1]);
 				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01)) continue;
 				if (s->textures & texture_colour_target) pass_hits[base]++;
@@ -743,13 +771,13 @@ namespace rsx::vr
 		u32 hud_best = 1;
 		for (const auto& [base, hits] : hud_hits)
 		{
-			const u32 passes = pass_hits.contains(base) ? pass_hits[base] : 0;
-			if (passes >= std::max(2u, hits / 10))
-			{
-				vr_gen_log.notice("Orthographic c[%u]: %u HUD-like draws but %u full-screen passes read it too: not the HUD block.", base, hits, passes);
-				continue;
-			}
 			if (hits > hud_best) { hud_best = hits; hud_block = base; }
+		}
+		// Full-screen passes reading the HUD block too: the renderer must leave them as drawn.
+		const bool hud_skips_passes = hud_block != umax && pass_hits.contains(hud_block);
+		if (hud_skips_passes)
+		{
+			vr_gen_log.notice("HUD block c[%u] (%u HUD draws) is also read by %u full-screen passes: hud_skips_passes.", hud_block, hud_best, pass_hits[hud_block]);
 		}
 
 		// 5. World scale. Nothing in the constants says how big a unit is; the near
@@ -837,6 +865,7 @@ namespace rsx::vr
 		{
 			std::vector<std::string> entries;
 			if (hud_block != umax) entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
+			if (hud_skips_passes) entries.push_back("    \"hud_skips_passes\": true");
 			if (bare_projection) entries.push_back("    \"bare_projection\": true");
 			if (depth_offset_projection) entries.push_back("    \"depth_offset_projection\": true");
 			json += ",\n\n  \"screen_space\": {\n";

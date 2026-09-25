@@ -156,8 +156,11 @@ namespace rsx::vr
 			// False (and nothing bound) if the program does not read all 4 slots.
 			// xyw: DP4 slots base, base+1, base+2 are clip x, y, w (no z slot).
 			// explicit_slots: the 4 slots themselves, when not contiguous.
+			// flat_ok: row_vectors only; a program that does not read the z slot takes no
+			// input z (a 2D HUD: Demon's Souls reads c[0], c[1], c[3]). Its z row is a
+			// zero scratch row, never written back.
 			bool bind(void* buffer, const u16* reloc, usz reloc_size, u32 base, bool column_vectors, bool xyw = false,
-				const std::array<u32, 4>* explicit_slots = nullptr)
+				const std::array<u32, 4>* explicit_slots = nullptr, bool flat_ok = false)
 			{
 				release();
 				column_vectors |= xyw;
@@ -169,7 +172,7 @@ namespace rsx::vr
 				for (u32 k = 0; k < 4; ++k)
 				{
 					m_slots[k] = slot_of[k] == umax ? nullptr : find_slot(buffer, reloc, reloc_size, slot_of[k]);
-					if (!m_slots[k] && !(column_vectors && k == 2))
+					if (!m_slots[k] && !(column_vectors && k == 2) && !(flat_ok && !column_vectors && k == 2))
 					{
 						return false;
 					}
@@ -181,6 +184,11 @@ namespace rsx::vr
 				for (u32 k = 0; k < 4; ++k)
 				{
 					rows[k] = m_transposed ? m_local[k] : m_slots[k];
+				}
+				if (!m_transposed && !rows[2])
+				{
+					std::fill(std::begin(m_flat_z), std::end(m_flat_z), 0.f);
+					rows[2] = m_flat_z;
 				}
 				if (m_transposed)
 				{
@@ -207,6 +215,7 @@ namespace rsx::vr
 		private:
 			f32* m_slots[4] = {};
 			f32 m_local[4][4] = {};
+			f32 m_flat_z[4] = {};
 			bool m_transposed = false;
 			bool m_far_plane = false;
 		};
@@ -500,6 +509,10 @@ namespace rsx::vr
 		{
 			profile->screen_space_rotation_only_passthrough = rotation == "true";
 		}
+		if (std::string skips; read(screen_space, "hud_skips_passes", skips, false))
+		{
+			profile->screen_space_hud_skips_passes = skips == "true";
+		}
 		if (std::string hud; read(screen_space, "passthrough_hud", hud, false))
 		{
 			profile->screen_space_passthrough_hud = hud == "true";
@@ -635,7 +648,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "frames_without_3d_as_screen" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "hud_skips_passes", "frames_without_3d_as_screen" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1026,8 +1039,15 @@ namespace rsx::vr
 		return profile() != nullptr;
 	}
 
+	bool camera_probe::scene_draws_by_clip_space() const
+	{
+		const title_profile* p = profile();
+		return m_scene_override >= 0 ? m_scene_override != 0 : p && p->clip_space_scene_draws;
+	}
+
 	void camera_probe::reset_params()
 	{
+		m_scene_override = -1;
 		m_base = umax;
 		m_cam_slot = umax;
 		m_yaw = m_pitch = m_roll = 0.f;
@@ -1145,6 +1165,7 @@ namespace rsx::vr
 			else if (k == "stereo") { m_stereo_sep = as_f(); m_have_stereo = true; }
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
 			else if (k == "render") { m_render_enabled = (as_u() != 0); }
+			else if (k == "scene")  { m_scene_override = as_u() != 0; }
 			else if (k == "title") m_title = v;
 		}
 
@@ -1511,7 +1532,8 @@ namespace rsx::vr
 		// c[256..259] as an orthographic pixel matrix, while every post-process
 		// pass (bloom chain, full-screen composite) reads no c[256..259] at all -
 		// so post-processing is never touched.
-		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || profile.screen_space_block == umax)
+		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || profile.screen_space_block == umax ||
+			(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target))
 		{
 			return;
 		}
@@ -1525,7 +1547,7 @@ namespace rsx::vr
 		}
 
 		matrix_block block;
-		if (!block.bind(buffer, reloc, reloc_size, profile.screen_space_block, profile.column_vectors))
+		if (!block.bind(buffer, reloc, reloc_size, profile.screen_space_block, profile.column_vectors, false, nullptr, true))
 		{
 			return;
 		}
@@ -1622,6 +1644,12 @@ namespace rsx::vr
 			rows[r][0] = v0 * fx + v2 * ox;
 			rows[r][1] = v1 * fy + v2 * oy;
 			rows[r][3] = v2;
+			// Without depth test z only clips: a HUD on the far plane (Demon's Souls: z = w = 1)
+			// left the depth range as W changed and vanished. Mid-range instead.
+			if (!m_draw_depth_test)
+			{
+				rows[r][2] = 0.5f * v2;
+			}
 		}
 		undo_viewport(rows);
 	}
@@ -1684,7 +1712,7 @@ namespace rsx::vr
 	{
 		const title_profile* p = profile();
 		const u32 eye = eye_sign < 0.f ? 0 : 1;
-		if (!p || !m_vr_last_block_valid[eye] || (program_hash == scene_draw_program ? !p->clip_space_scene_draws :
+		if (!p || !m_vr_last_block_valid[eye] || (program_hash == scene_draw_program ? !scene_draws_by_clip_space() :
 			std::find(p->screen_space_preprojected_programs.begin(), p->screen_space_preprojected_programs.end(), program_hash) ==
 				p->screen_space_preprojected_programs.end()))
 		{
