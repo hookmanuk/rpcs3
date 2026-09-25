@@ -6,6 +6,7 @@
 #include "VKRenderPass.h"
 #include "vkutils/image_helpers.h"
 
+#include "../Capture/rsx_camera_probe.h"
 #include "../Common/texture_cache.h"
 #include "../Common/tiled_dma_copy.hpp"
 #include "../Utils/image_utils.hpp"
@@ -300,11 +301,15 @@ namespace vk
 		{
 			AUDIT(synchronized);
 
-			// Synchronize, reset dma_fence after waiting
-			vk::wait_for_event(dma_fence.get(), GENERAL_WAIT_TIMEOUT);
-
 			// Calculate smallest range to flush - for framebuffers, the raster region is enough
 			const auto range = (context == rsx::texture_upload_context::framebuffer_storage) ? get_section_range() : get_confirmed_range();
+
+			// Synchronize, reset dma_fence after waiting. VR profiles can name guest memory
+			// that is read back without waiting: the guest gets what the GPU has copied so far.
+			if (!rsx::vr::readback_without_wait(range.start, range.end))
+			{
+				vk::wait_for_event(dma_fence.get(), GENERAL_WAIT_TIMEOUT);
+			}
 			auto flush_length = range.length();
 
 			const auto tiled_region = rsx::get_current_renderer()->get_tiled_memory_region(range);
