@@ -194,19 +194,15 @@ namespace rsx::vr
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 
-		// The game's frame-rate cap in VR, with its default patches. 0 = none: it renders a
-		// frame per vblank and keeps real-time speed at any vblank rate, so "Match Headset
-		// Refresh Rate" runs the vblank at the headset's rate. A cap (Ico: 30) keeps the
-		// configured vblank, and the headset turns older frames to the current head pose, so
-		// Reprojection Margin "Auto" renders a margin. Unset counts as capped: only a game
-		// shown to keep real-time speed (max_fps 0) is synced to the headset.
-		u32 max_fps = 30;
-
-		// The vblank rate this game runs at in VR, overriding the configured Vblank Rate
-		// (0 = use the configuration). Games of one collection share a title ID and so a
-		// configuration: ICO keeps 60 Hz (30 FPS), Shadow of the Colossus runs its own
-		// two-vblank frame at 120 Hz (60 FPS). Its game_refresh_rate_f32 gets this rate.
-		u32 vblank_rate = 0;
+		// Frame rate in VR (with the default patches). max_fps: the most the game works at
+		// (0 = no maximum; ICO 30); the VR "Frame Rate" setting offers nothing above it.
+		// default_fps: what "Default" runs, a rate current hardware reaches (0 = the
+		// headset's refresh rate; unset = max_fps, or 60 without one). vblanks_per_frame:
+		// vblanks per game frame (ICO 2), so the vblank runs at frame rate x this. Games of
+		// one collection share a configuration, so each profile sets its own default.
+		u32 max_fps = 0;
+		u32 default_fps = umax;
+		u32 vblanks_per_frame = 1;
 
 		// The game builds effects across frames from full-screen buffers (Ico's glow and
 		// previous-frame blend): with the head moving between frames, older-pose buffers are
@@ -214,7 +210,6 @@ namespace rsx::vr
 		// textures). Off by default: in other games it moved buffers that are not such effects
 		// (Pure: flashes, a bright square under the bike, and the paused frame floating in space).
 		bool reproject_older_frames = false;
-		bool syncs_to_headset() const { return max_fps == 0; }
 
 		// Guest floats holding the game's idea of the display refresh rate (Pure: PSGL
 		// device+0x14, game time = vblank count / it). Written every frame with the
@@ -262,9 +257,24 @@ namespace rsx::vr
 	// runs; 0 clears it.
 	void set_headset_refresh_rate(u32 hz);
 
-	// The vblank rate to emulate: the headset's refresh rate while a headset runs
-	// and "Match Headset Refresh Rate" is on for a title whose profile allows it,
-	// otherwise the configured Vblank Rate (which is never modified).
+	// A headset session is running (the VR frame rate applies).
+	void set_headset_active(bool active);
+
+	// The VR "Frame Rate" option at this index (vr_frame_rate): its frame rate, 0 for
+	// Unlimited, umax for Default.
+	u32 frame_rate_option_fps(u32 option);
+	// Whether a game with this max_fps offers the option (Default always).
+	bool frame_rate_option_allowed(u32 option, u32 max_fps);
+	// The highest max_fps among the title's profiles (0 = no maximum), for the settings
+	// dialog, which cannot tell which game of a collection will run.
+	u32 title_max_fps(std::string_view title_id);
+
+	// The running game's frame rate in VR (0 = the headset's refresh rate).
+	u32 effective_frame_rate();
+
+	// The vblank rate to emulate: while a headset runs, the VR frame rate times the
+	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the
+	// configured Vblank Rate (which is never modified).
 	u64 effective_vblank_rate();
 
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
@@ -272,7 +282,7 @@ namespace rsx::vr
 	void update_game_refresh_rate();
 
 	// Reprojection Margin in degrees: the configured value, or for "Auto" (-1) 10 degrees
-	// when the VR profile caps the frame rate (max_fps) and 0 when it does not.
+	// when the game runs below the headset's refresh rate and 0 when it does not.
 	u32 effective_reprojection_margin();
 
 	// True while stereo is rendered and [start, end] overlaps the profile's occlusion_depth_readback.

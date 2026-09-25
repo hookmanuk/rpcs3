@@ -530,6 +530,7 @@ namespace vk::xr
 						lock_queue();
 						g_xr.session_running = check(g_xr.xrBeginSession(g_xr.session, &begin), "xrBeginSession");
 						unlock_queue();
+						rsx::vr::set_headset_active(g_xr.session_running.load());
 						query_display_refresh_rate();
 					}
 					else if (changed.state == XR_SESSION_STATE_STOPPING)
@@ -539,12 +540,14 @@ namespace vk::xr
 						unlock_queue();
 						g_xr.session_running = false;
 						rsx::vr::set_headset_refresh_rate(0);
+						rsx::vr::set_headset_active(false);
 					}
 					else if (changed.state == XR_SESSION_STATE_EXITING || changed.state == XR_SESSION_STATE_LOSS_PENDING)
 					{
 						g_xr.session_running = false;
 						g_xr.lost = true;
 						rsx::vr::set_headset_refresh_rate(0);
+						rsx::vr::set_headset_active(false);
 					}
 					break;
 				}
@@ -555,6 +558,7 @@ namespace vk::xr
 					g_xr.session_running = false;
 					g_xr.lost = true;
 					rsx::vr::set_headset_refresh_rate(0);
+					rsx::vr::set_headset_active(false);
 					break;
 				default:
 					break;
@@ -597,7 +601,7 @@ namespace vk::xr
 			return false;
 		}
 
-		// Optional: the display refresh rate, for "Match Headset Refresh Rate".
+		// Optional: the display refresh rate, for the VR Frame Rate "Unlimited" and the Auto reprojection margin.
 		g_xr.fb_refresh_rate = false;
 		if (PFN_xrEnumerateInstanceExtensionProperties enumerate = nullptr;
 			load_fn(enumerate, "xrEnumerateInstanceExtensionProperties"))
@@ -668,7 +672,7 @@ namespace vk::xr
 		}
 		else
 		{
-			xr_log.notice("Display refresh rate unavailable (no XR_FB_display_refresh_rate): Match Headset Refresh Rate keeps the configured Vblank Rate.");
+			xr_log.notice("Display refresh rate unavailable (no XR_FB_display_refresh_rate): Frame Rate Unlimited keeps the configured Vblank Rate.");
 		}
 
 		if (!ok)
@@ -1047,7 +1051,7 @@ namespace vk::xr
 				return;
 			}
 			g_xr.last_display_time.store(frame_state.predictedDisplayTime);
-			// For "Match Headset Refresh Rate" (the emulated vblank follows it).
+			// For Frame Rate "Unlimited" (the emulated vblank follows it).
 			if (g_xr.fb_display_hz > 0.f)
 			{
 				rsx::vr::set_headset_refresh_rate(static_cast<u32>(std::lround(g_xr.fb_display_hz)));
@@ -1308,6 +1312,7 @@ namespace vk::xr
 			g_xr.thread.join();
 		}
 		rsx::vr::set_headset_refresh_rate(0);
+		rsx::vr::set_headset_active(false);
 
 		if (g_xr.instance)
 		{

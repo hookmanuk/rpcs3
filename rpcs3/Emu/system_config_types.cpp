@@ -230,6 +230,29 @@ void fmt_class_string<rsx_fifo_mode>::format(std::string& out, u64 arg)
 }
 
 template <>
+void fmt_class_string<vr_frame_rate>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](vr_frame_rate value)
+	{
+		switch (value)
+		{
+		case vr_frame_rate::profile_default: return "Default";
+		case vr_frame_rate::fps_30: return "30";
+		case vr_frame_rate::fps_60: return "60";
+		case vr_frame_rate::fps_72: return "72";
+		case vr_frame_rate::fps_75: return "75";
+		case vr_frame_rate::fps_80: return "80";
+		case vr_frame_rate::fps_90: return "90";
+		case vr_frame_rate::fps_120: return "120";
+		case vr_frame_rate::fps_144: return "144";
+		case vr_frame_rate::unlimited: return "Unlimited";
+		}
+
+		return unknown;
+	});
+}
+
+template <>
 void fmt_class_string<sleep_timers_accuracy_level>::format(std::string& out, u64 arg)
 {
 	format_enum(out, arg, [](sleep_timers_accuracy_level value)

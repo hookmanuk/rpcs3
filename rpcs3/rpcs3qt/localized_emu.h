@@ -263,7 +263,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH: return tr("Screen 3D Depth", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Depth Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN: return tr("Reprojection Margin", "VR");
-		case localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE: return tr("Match Headset Refresh Rate", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_RATE: return tr("Frame Rate", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE: return tr("World Scale", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE: return tr("Generate VR Profile (samples 10 seconds of gameplay)", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_INPUT: return tr("Input");

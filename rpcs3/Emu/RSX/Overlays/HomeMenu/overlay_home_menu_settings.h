@@ -71,12 +71,12 @@ namespace rsx
 			}
 
 			template <typename T>
-			void add_dropdown(cfg::_enum<T>* setting, localized_string_id loc_id)
+			void add_dropdown(cfg::_enum<T>* setting, localized_string_id loc_id, std::function<bool(u32)> filter = {})
 			{
 				ensure(setting && setting->get_is_dynamic());
 
 				const std::string localized_text = get_localized_string(loc_id);
-				std::unique_ptr<overlay_element> elem = std::make_unique<home_menu_dropdown<T>>(setting, localized_text);
+				std::unique_ptr<overlay_element> elem = std::make_unique<home_menu_dropdown<T>>(setting, localized_text, std::move(filter));
 				elem->set_size(this->w, menu_entry_height);
 
 				add_item(elem, [this, setting, elem = elem.get()](pad_button btn) -> page_navigation
@@ -138,7 +138,7 @@ namespace rsx
 
 						const auto previous = fmt::format("%s", setting->get());
 						const std::vector<std::string> list = setting->to_list();
-						const int selected_idx = dropdown->get_selected_index();
+						const int selected_idx = dropdown->get_selected_value_index();
 
 						if (const std::string& next_value = ::at32(list, selected_idx); setting->from_string(next_value))
 						{

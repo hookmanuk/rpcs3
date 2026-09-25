@@ -1163,7 +1163,7 @@ namespace rsx
 #endif
 			u64 start_time = get_system_time();
 
-			// VR fork: the headset's refresh rate when "Match Headset Refresh Rate" applies.
+			// VR fork: the VR frame rate's vblank rate while a headset runs (see rsx::vr::effective_vblank_rate).
 			u64 vblank_rate = rsx::vr::effective_vblank_rate();
 			u64 vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
 

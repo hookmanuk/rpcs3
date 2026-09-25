@@ -198,10 +198,12 @@ namespace rsx
 
 			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
 			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
-			// Only where the game's VR profile confirms it keeps normal speed at other vblank rates.
-			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->syncs_to_headset())
+			// Frame rates up to the most this game works at (its VR profile's max_fps).
+			if (const auto* profile = rsx::vr::camera_probe::get().profile())
 			{
-				add_checkbox(&g_cfg.video.vr.match_headset_rate, localized_string_id::HOME_MENU_SETTINGS_VR_MATCH_HEADSET_RATE);
+				const u32 max_fps = profile->max_fps;
+				add_dropdown(&g_cfg.video.vr.frame_rate, localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_RATE,
+					[max_fps](u32 option) { return rsx::vr::frame_rate_option_allowed(option, max_fps); });
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);

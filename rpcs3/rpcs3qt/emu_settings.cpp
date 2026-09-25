@@ -1256,6 +1256,21 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case np_psn_status::psn_rpcn: return tr("RPCN", "PSN Status");
 		}
 		break;
+	case emu_settings_type::VRFrameRate:
+		switch (static_cast<vr_frame_rate>(index))
+		{
+		case vr_frame_rate::profile_default: return tr("Default", "VR frame rate");
+		case vr_frame_rate::fps_30: return tr("30 FPS", "VR frame rate");
+		case vr_frame_rate::fps_60: return tr("60 FPS", "VR frame rate");
+		case vr_frame_rate::fps_72: return tr("72 FPS", "VR frame rate");
+		case vr_frame_rate::fps_75: return tr("75 FPS", "VR frame rate");
+		case vr_frame_rate::fps_80: return tr("80 FPS", "VR frame rate");
+		case vr_frame_rate::fps_90: return tr("90 FPS", "VR frame rate");
+		case vr_frame_rate::fps_120: return tr("120 FPS", "VR frame rate");
+		case vr_frame_rate::fps_144: return tr("144 FPS", "VR frame rate");
+		case vr_frame_rate::unlimited: return tr("Unlimited (headset refresh rate)", "VR frame rate");
+		}
+		break;
 	case emu_settings_type::SleepTimersAccuracy:
 		switch (static_cast<sleep_timers_accuracy_level>(index))
 		{

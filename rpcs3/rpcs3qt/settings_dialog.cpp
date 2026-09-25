@@ -591,22 +591,26 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	// (including the global settings) the VR section is hidden.
 	const auto vr_profile = game ? rsx::vr::load_title_profile(game->serial) : nullptr;
 	const bool vr_profiled_title = vr_profile != nullptr;
-	const bool vr_rate_supported = vr_profile && vr_profile->syncs_to_headset();
 	ui->gb_vr->setVisible(vr_profiled_title);
 	EnhanceCheckBox(emu_settings_type::VREnabled, ui->vrEnabled, tooltips.settings.vr_enabled);
 	EnhanceCheckBox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
-	if (vr_rate_supported)
+	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
+	SubscribeTooltip(ui->gb_vrFrameRate, tooltips.settings.vr_frame_rate);
+	if (vr_profiled_title)
 	{
-		EnhanceCheckBox(emu_settings_type::VRMatchHeadsetRate, ui->vrMatchHeadsetRate, tooltips.settings.vr_match_headset_rate);
-	}
-	else
-	{
-		// Shown, but off and unchangeable; the saved setting is not touched.
-		ui->vrMatchHeadsetRate->setChecked(false);
-		ui->vrMatchHeadsetRate->setEnabled(false);
-		ui->vrMatchHeadsetRate->setToolTip(tooltips.settings.vr_match_headset_rate_unsupported);
-		SubscribeTooltip(ui->vrMatchHeadsetRate, tooltips.settings.vr_match_headset_rate_unsupported);
+		// Only rates up to the most any game of this title works at (a collection's games
+		// share this configuration; each clamps to its own maximum when it runs).
+		const u32 max_fps = rsx::vr::title_max_fps(game->serial);
+		for (int i = ui->vrFrameRate->count() - 1; i >= 0; --i)
+		{
+			const QVariantList data = ui->vrFrameRate->itemData(i).toList();
+			if (data.size() == 2 && i != ui->vrFrameRate->currentIndex() &&
+				!rsx::vr::frame_rate_option_allowed(data[1].toUInt(), max_fps))
+			{
+				ui->vrFrameRate->removeItem(i);
+			}
+		}
 	}
 	{
 		// Percentage sliders with a value label and a reset button.
@@ -646,11 +650,11 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 			ui->vrReprojectionMarginReset, emu_settings_type::VRReprojectionMargin, ui->gb_vrReprojectionMargin,
 			tooltips.settings.vr_reprojection_margin, [degree_text](int value) { return value < 0 ? tr("Auto", "VR reprojection margin") : degree_text(value); }, 1);
 
-		const auto enable_vr_options = [this, vr_profiled_title, vr_rate_supported]()
+		const auto enable_vr_options = [this, vr_profiled_title]()
 		{
 			const bool vr = vr_profiled_title && ui->vrEnabled->isChecked();
 			ui->vrHudFixed->setEnabled(vr);
-			ui->vrMatchHeadsetRate->setEnabled(vr && vr_rate_supported);
+			ui->gb_vrFrameRate->setEnabled(vr);
 			ui->vrFixedScreen->setEnabled(vr);
 			ui->gb_vrHudScale->setEnabled(vr);
 			ui->gb_vrHudOffsetX->setEnabled(vr);

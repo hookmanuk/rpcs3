@@ -625,10 +625,15 @@
                    </widget>
                   </item>
                   <item>
-                   <widget class="QCheckBox" name="vrMatchHeadsetRate">
-                    <property name="text">
-                     <string>Match Headset Refresh Rate</string>
+                   <widget class="QGroupBox" name="gb_vrFrameRate">
+                    <property name="title">
+                     <string>Frame Rate</string>
                     </property>
+                    <layout class="QVBoxLayout" name="gb_vrFrameRate_layout">
+                     <item>
+                      <widget class="QComboBox" name="vrFrameRate"/>
+                     </item>
+                    </layout>
                    </widget>
                   </item>
                   <item>

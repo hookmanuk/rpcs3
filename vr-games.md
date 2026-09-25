@@ -41,33 +41,35 @@ VR): get new VR builds from the same place as this one.
 
 | Game | ID | Framerate |
 |---|---|---|
-| WipEout HD Fury | BCES00664 | Headset refresh rate |
-| Pure | BLUS30182 | Headset refresh rate |
+| WipEout HD Fury | BCES00664 | 90 FPS (no maximum) |
+| Pure | BLUS30182 | 90 FPS (no maximum) |
 | ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
-| Shadow of the Colossus | BCUS98259 | 60 FPS |
+| Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
 
-### 1. WipEout HD Fury (BCES00664): headset refresh rate
+### 1. WipEout HD Fury (BCES00664): 90 FPS
 
 - **Requires the 2.51 update.** The disc version (2.00) has no stereoscopic code. Install the updates
   2.10, 2.30, 2.50 and 2.51 in order (`File > Install Packages/Raps/Edats`).
-- **Frame rate:** follows the headset (90 Hz = 90 FPS) at real-time speed. No patch needed.
+- **Frame rate:** 90 FPS by default, at real-time speed at any rate. No patch needed. Choose another rate (up to
+  Unlimited = the headset's refresh rate) with the VR **Frame Rate** setting.
 - **Recommended settings** (for 90 FPS): Video > `Relaxed ZCULL Sync` on, `Accurate ZCULL stats` off,
   `Shader Precision` Low; CPU > `Thread Scheduler` RPCS3 Scheduler. `Resolution Scale` around 300-400%:
   every render target exists once per eye, so at very high scales (750%) even a 32 GB card runs out of video
   memory and the game slows to a crawl.
 
-### 2. Pure (BLUS30182): headset refresh rate
+### 2. Pure (BLUS30182): 90 FPS
 
-- **Frame rate:** follows the headset at real-time speed. The patch "Unlocked frame rate (follows Vblank
-  Rate)" is on by default: races run at the display rate instead of 30. The VR profile tells the game the
-  current rate every frame, so its clock stays correct at any refresh rate.
+- **Frame rate:** 90 FPS by default; any rate up to Unlimited (the headset's refresh rate) with the VR
+  **Frame Rate** setting. The patch "Unlocked frame rate (follows Vblank Rate)" is on by default: races run at
+  the display rate instead of 30. The VR profile tells the game the current rate every frame, so its clock
+  stays correct at any rate.
 - **Recommended settings:** raise `Resolution Scale` as far as your GPU allows.
 
 ### 3. ICO (BCUS98259, ICO & Shadow of the Colossus Collection): 30 FPS
 
-- **Frame rate:** 30 FPS, the game's own rate. Its logic is tied to the display clock, so it keeps a 60 Hz
-  clock in VR (Match Headset Refresh Rate is not offered). Reprojection Margin Auto renders 10 degrees
-  beyond the view so head turns between frames show no black borders.
+- **Frame rate:** 30 FPS, the game's own rate and its maximum (its logic is tied to the display clock, so it
+  keeps a 60 Hz clock). Reprojection Margin Auto renders 10 degrees beyond the view so head turns between
+  frames show no black borders.
 - **Patches on by default:**
   - *Disable MLAA*: required; with MLAA only one eye is drawn correctly.
   - *Full Pixel Mode always on*: without it the picture is zoomed ~16% and the world swims on head turns.
@@ -82,10 +84,11 @@ VR): get new VR builds from the same place as this one.
 
 ### 4. Shadow of the Colossus (BCUS98259, ICO & Shadow of the Colossus Collection): 60 FPS
 
-- **Frame rate:** 60 FPS, as the community 60 FPS patch: the patch *Frame rate follows Vblank Rate* draws a
-  frame on every 60 Hz vblank instead of every second one, and the VR profile keeps the vblank at 60 Hz
-  whatever Vblank Rate is set to (ICO in the same collection keeps its 30 FPS). A headset running at 60 or
-  120 Hz shows 60 FPS most smoothly.
+- **Frame rate:** 60 FPS by default, as the community 60 FPS patch: the patch *Frame rate follows Vblank Rate*
+  draws a frame on every vblank instead of every second one, and the VR profile runs the vblank at the chosen
+  frame rate (ICO in the same collection keeps its 30 FPS). Faster PCs can choose more with the VR **Frame
+  Rate** setting; if frames run late the game can drop objects for a frame (see Known issues). A headset
+  running at the same rate or a multiple (60 FPS: 60 or 120 Hz) is smoothest.
 - **Patches on by default:**
   - *Disable MLAA*: required, as for ICO.
   - *Full Pixel Mode always on*: without it the picture is zoomed ~19% and the world swims on head turns.
@@ -109,9 +112,9 @@ Defaults, all changeable per game:
 
 | Setting | Default | What it does |
 |---|---|---|
-| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); frame-capped games keep a 60 Hz clock (ICO, Shadow of the Colossus). |
+| Frame Rate | Default | The game's frame rate in the headset: Default (the rate in the table above), 30, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
-| Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
+| Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees when the game runs below the headset's refresh rate, 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
 ---

@@ -540,7 +540,20 @@ namespace rsx::vr
 			profile->require_camera_aspect = aspect == "true";
 		}
 		read(root, "max_fps", profile->max_fps, false);
-		read(root, "vblank_rate", profile->vblank_rate, false);
+		read(root, "default_fps", profile->default_fps, false);
+		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
+		if (profile->default_fps == umax)
+		{
+			profile->default_fps = profile->max_fps ? profile->max_fps : 60;
+		}
+		if (profile->max_fps && (!profile->default_fps || profile->default_fps > profile->max_fps))
+		{
+			fail(fmt::format("default_fps %u is above max_fps %u", profile->default_fps, profile->max_fps));
+		}
+		if (!profile->vblanks_per_frame)
+		{
+			fail("vblanks_per_frame must be at least 1");
+		}
 		if (std::string reproject; read(root, "reproject_older_frames", reproject, false))
 		{
 			profile->reproject_older_frames = reproject == "true";
@@ -609,7 +622,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "vblank_rate", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -639,6 +652,7 @@ namespace rsx::vr
 	namespace
 	{
 		atomic_t<u32> g_headset_refresh_hz{0};
+		atomic_t<bool> g_headset_active{false};
 	}
 
 	void set_headset_refresh_rate(u32 hz)
@@ -649,25 +663,104 @@ namespace rsx::vr
 		}
 	}
 
-	u64 effective_vblank_rate()
+	void set_headset_active(bool active)
 	{
-		if (g_cfg.video.vr.enabled)
+		g_headset_active = active;
+	}
+
+	u32 frame_rate_option_fps(u32 option)
+	{
+		switch (static_cast<vr_frame_rate>(option))
 		{
-			if (const title_profile* profile = camera_probe::get().profile(); profile && profile->vblank_rate)
+		case vr_frame_rate::profile_default: return umax;
+		case vr_frame_rate::fps_30: return 30;
+		case vr_frame_rate::fps_60: return 60;
+		case vr_frame_rate::fps_72: return 72;
+		case vr_frame_rate::fps_75: return 75;
+		case vr_frame_rate::fps_80: return 80;
+		case vr_frame_rate::fps_90: return 90;
+		case vr_frame_rate::fps_120: return 120;
+		case vr_frame_rate::fps_144: return 144;
+		case vr_frame_rate::unlimited: return 0;
+		}
+		return umax;
+	}
+
+	bool frame_rate_option_allowed(u32 option, u32 max_fps)
+	{
+		const u32 fps = frame_rate_option_fps(option);
+		return fps == umax || !max_fps || (fps && fps <= max_fps);
+	}
+
+	u32 title_max_fps(std::string_view title_id)
+	{
+		// <TITLE_ID>.json and every <TITLE_ID>.<executable>.json.
+		u32 result = 0;
+		bool unlimited = false;
+		const std::string dir = fs::get_executable_dir() + "vr_profiles/";
+		for (const auto& entry : fs::dir(dir))
+		{
+			if (entry.is_directory || !entry.name.starts_with(title_id) || !entry.name.ends_with(".json"))
 			{
-				return profile->vblank_rate;
+				continue;
+			}
+			const std::string_view rest = std::string_view(entry.name).substr(title_id.size());
+			std::string executable;
+			if (rest != ".json")
+			{
+				if (!rest.starts_with(".") || rest.size() <= 6)
+				{
+					continue;
+				}
+				executable = std::string(rest.substr(1, rest.size() - 6));
+			}
+			if (const auto profile = load_title_profile(title_id, executable))
+			{
+				unlimited |= !profile->max_fps;
+				result = std::max(result, profile->max_fps);
 			}
 		}
+		return unlimited ? 0 : result;
+	}
 
+	u32 effective_frame_rate()
+	{
+		const title_profile* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return 0;
+		}
+		u32 fps = frame_rate_option_fps(static_cast<u32>(g_cfg.video.vr.frame_rate.get()));
+		if (fps == umax)
+		{
+			fps = profile->default_fps;
+		}
+		if (profile->max_fps && (!fps || fps > profile->max_fps))
+		{
+			fps = profile->max_fps;
+		}
+		return fps;
+	}
+
+	u64 effective_vblank_rate()
+	{
 		const u64 configured = g_cfg.video.vblank_rate;
-		const u32 headset = g_headset_refresh_hz.load();
-		if (!headset || !g_cfg.video.vr.enabled || !g_cfg.video.vr.match_headset_rate)
+		if (!g_cfg.video.vr.enabled || !g_headset_active.load())
 		{
 			return configured;
 		}
-
 		const title_profile* profile = camera_probe::get().profile();
-		return profile && profile->syncs_to_headset() ? headset : configured;
+		if (!profile)
+		{
+			return configured;
+		}
+		if (const u32 fps = effective_frame_rate())
+		{
+			return u64{fps} * profile->vblanks_per_frame;
+		}
+		// Unlimited: the headset's refresh rate, if the runtime reports it.
+		const u32 headset = g_headset_refresh_hz.load();
+		return headset ? headset : configured;
 	}
 
 	u32 effective_reprojection_margin()
@@ -677,8 +770,10 @@ namespace rsx::vr
 		{
 			return static_cast<u32>(configured);
 		}
-		const title_profile* profile = camera_probe::get().profile();
-		return profile && profile->max_fps != 0 ? 10 : 0;
+		// Below the headset's refresh rate the headset turns older frames to the current pose.
+		const u32 fps = effective_frame_rate();
+		const u32 headset = g_headset_refresh_hz.load();
+		return fps && (!headset || fps < headset) ? 10 : 0;
 	}
 
 	bool occlusion_depth_readback(u32 start, u32 end)

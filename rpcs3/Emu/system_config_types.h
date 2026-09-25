@@ -21,6 +21,21 @@ enum class spu_block_size_type
 	giga,
 };
 
+// VR fork: the game's frame rate in VR (the vblank follows it). Default = the VR profile's default_fps.
+enum class vr_frame_rate
+{
+	profile_default,
+	fps_30,
+	fps_60,
+	fps_72,
+	fps_75,
+	fps_80,
+	fps_90,
+	fps_120,
+	fps_144,
+	unlimited, // the headset's refresh rate
+};
+
 enum class sleep_timers_accuracy_level
 {
 	_as_host,

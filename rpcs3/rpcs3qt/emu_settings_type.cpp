@@ -91,7 +91,7 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::VREnabled,                  get_cfg_location(local_cfg.video.vr.enabled) },
 	{ emu_settings_type::VRHudFixed,                 get_cfg_location(local_cfg.video.vr.hud_fixed) },
 	{ emu_settings_type::VRFixedScreen,              get_cfg_location(local_cfg.video.vr.fixed_screen) },
-	{ emu_settings_type::VRMatchHeadsetRate,         get_cfg_location(local_cfg.video.vr.match_headset_rate) },
+	{ emu_settings_type::VRFrameRate,                get_cfg_location(local_cfg.video.vr.frame_rate) },
 	{ emu_settings_type::VRScreenDepth,              get_cfg_location(local_cfg.video.vr.screen_depth) },
 	{ emu_settings_type::VRHudScale,                 get_cfg_location(local_cfg.video.vr.hud_scale) },
 	{ emu_settings_type::VRHudOffsetX,               get_cfg_location(local_cfg.video.vr.hud_offset_x) },
