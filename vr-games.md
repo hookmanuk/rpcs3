@@ -39,7 +39,7 @@ VR): get new VR builds from the same place as this one.
 
 ## Playable
 
-| Game | ID | Framerate |
+| Game | ID | Suggested Framerate |
 |---|---|---|
 | WipEout HD Fury | BCES00664 | Headset refresh rate |
 | Pure | BLUS30182 | Headset refresh rate |
