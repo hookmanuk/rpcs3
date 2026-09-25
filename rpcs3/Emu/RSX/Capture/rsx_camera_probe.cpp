@@ -580,47 +580,54 @@ namespace rsx::vr
 		{
 			profile->reproject_older_frames = reproject == "true";
 		}
-		if (const YAML::Node targets = child(root, "game_refresh_rate_f32"); targets && targets.IsSequence())
+		const auto read_guest_addresses = [&](const char* key, std::vector<title_profile::guest_address>& list)
 		{
-			for (const auto& target : targets)
+			if (const YAML::Node targets = child(root, key); targets && targets.IsSequence())
 			{
-				// "0xADDR", "[0xPTR]" or "[0xPTR]+0xOFF"
-				const std::string text = target.as<std::string>();
-				title_profile::guest_address a;
-				std::string rest = text;
-				if (rest.starts_with("["))
+				for (const auto& target : targets)
 				{
-					const usz close = rest.find(']');
-					if (close == umax)
+					// "0xADDR", "[0xPTR]" or "[0xPTR]+0xOFF"
+					const std::string text = target.as<std::string>();
+					title_profile::guest_address a;
+					std::string rest = text;
+					if (rest.starts_with("["))
 					{
-						fail("game_refresh_rate_f32: '" + text + "' has no closing ]");
+						const usz close = rest.find(']');
+						if (close == umax)
+						{
+							fail(std::string(key) + ": '" + text + "' has no closing ]");
+							continue;
+						}
+						a.deref = true;
+						a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
+						rest = rest.substr(close + 1);
+						if (rest.starts_with("+"))
+						{
+							a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
+						}
+						else if (!rest.empty())
+						{
+							fail(std::string(key) + ": '" + text + "' expected +offset after ]");
+							continue;
+						}
+					}
+					else
+					{
+						a.address = static_cast<u32>(std::strtoul(rest.c_str(), nullptr, 16));
+					}
+					if (!a.address)
+					{
+						fail(std::string(key) + ": '" + text + "' is not an address");
 						continue;
 					}
-					a.deref = true;
-					a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
-					rest = rest.substr(close + 1);
-					if (rest.starts_with("+"))
-					{
-						a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
-					}
-					else if (!rest.empty())
-					{
-						fail("game_refresh_rate_f32: '" + text + "' expected +offset after ]");
-						continue;
-					}
+					list.push_back(a);
 				}
-				else
-				{
-					a.address = static_cast<u32>(std::strtoul(rest.c_str(), nullptr, 16));
-				}
-				if (!a.address)
-				{
-					fail("game_refresh_rate_f32: '" + text + "' is not an address");
-					continue;
-				}
-				profile->game_refresh_rate_f32.push_back(a);
 			}
-		}
+		};
+		read_guest_addresses("game_refresh_rate_f32", profile->game_refresh_rate_f32);
+		read_guest_addresses("game_frame_time_f32", profile->game_frame_time_f32);
+		read_guest_addresses("game_frame_ms_u32", profile->game_frame_ms_u32);
+		read_guest_addresses("game_fps_u32", profile->game_fps_u32);
 		if (std::string current; read(root, "current_frame_copies", current, false))
 		{
 			profile->current_frame_copies = current == "true";
@@ -644,7 +651,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -874,29 +881,37 @@ namespace rsx::vr
 	void update_game_refresh_rate()
 	{
 		const title_profile* profile = camera_probe::get().profile();
-		if (!profile || profile->game_refresh_rate_f32.empty())
+		if (!profile || (profile->game_refresh_rate_f32.empty() && profile->game_frame_time_f32.empty() && profile->game_frame_ms_u32.empty() &&
+			profile->game_fps_u32.empty()))
 		{
 			return;
 		}
 
-		const f32 rate = static_cast<f32>(effective_vblank_rate());
-		for (const auto& target : profile->game_refresh_rate_f32)
+		// The address a target names now, or 0 (pointer not set up yet, or not writable).
+		const auto resolve = [](const title_profile::guest_address& target) -> u32
 		{
 			u32 address = target.address;
 			if (target.deref)
 			{
 				if (!vm::check_addr(address, vm::page_readable, 4))
 				{
-					continue;
+					return 0;
 				}
 				const u32 base = vm::_ref<be_t<u32>>(address);
 				if (!base)
 				{
-					continue;
+					return 0;
 				}
 				address = base + target.offset;
 			}
-			if (!vm::check_addr(address, vm::page_writable, 4))
+			return vm::check_addr(address, vm::page_writable, 4) ? address : 0;
+		};
+
+		const f32 rate = static_cast<f32>(effective_vblank_rate());
+		for (const auto& target : profile->game_refresh_rate_f32)
+		{
+			const u32 address = resolve(target);
+			if (!address)
 			{
 				continue;
 			}
@@ -911,6 +926,79 @@ namespace rsx::vr
 				if (s_logged++ < 4)
 				{
 					vr_probe_log.notice("Game refresh rate at 0x%x: %.2f -> %.2f Hz (effective vblank rate)", address, current, rate);
+				}
+			}
+		}
+
+		// The game's frames per second: one frame every vblanks_per_frame vblanks.
+		const f32 fps = rate / static_cast<f32>(std::max<u32>(profile->vblanks_per_frame, 1));
+		if (fps < 1.f)
+		{
+			return;
+		}
+		const f32 frame_time = 1.f / fps;
+		for (const auto& target : profile->game_frame_time_f32)
+		{
+			const u32 address = resolve(target);
+			if (!address)
+			{
+				continue;
+			}
+
+			// Only over a value that looks like a frame time (1/500 to 1/10 s).
+			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+			const f32 current = value;
+			if (current >= 0.002f && current <= 0.1f && current != frame_time)
+			{
+				value = frame_time;
+				static u32 s_logged = 0;
+				if (s_logged++ < 4)
+				{
+					vr_probe_log.notice("Game frame time at 0x%x: %.6f -> %.6f s (%.2f FPS)", address, current, frame_time, fps);
+				}
+			}
+		}
+		const u32 frame_ms = static_cast<u32>(std::lround(1000.f / fps));
+		for (const auto& target : profile->game_frame_ms_u32)
+		{
+			const u32 address = resolve(target);
+			if (!address)
+			{
+				continue;
+			}
+
+			// Only over a value that looks like milliseconds per frame.
+			be_t<u32>& value = *vm::_ptr<be_t<u32>>(address);
+			const u32 current = value;
+			if (current >= 1 && current <= 100 && current != frame_ms)
+			{
+				value = frame_ms;
+				static u32 s_logged = 0;
+				if (s_logged++ < 4)
+				{
+					vr_probe_log.notice("Game frame milliseconds at 0x%x: %u -> %u (%.2f FPS)", address, current, frame_ms, fps);
+				}
+			}
+		}
+		const u32 whole_fps = static_cast<u32>(std::lround(fps));
+		for (const auto& target : profile->game_fps_u32)
+		{
+			const u32 address = resolve(target);
+			if (!address)
+			{
+				continue;
+			}
+
+			// Only over a value that looks like a frame rate.
+			be_t<u32>& value = *vm::_ptr<be_t<u32>>(address);
+			const u32 current = value;
+			if (current >= 10 && current <= 1000 && current != whole_fps)
+			{
+				value = whole_fps;
+				static u32 s_logged = 0;
+				if (s_logged++ < 4)
+				{
+					vr_probe_log.notice("Game frame rate at 0x%x: %u -> %u FPS", address, current, whole_fps);
 				}
 			}
 		}

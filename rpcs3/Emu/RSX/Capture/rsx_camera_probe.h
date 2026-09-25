@@ -232,6 +232,16 @@ namespace rsx::vr
 			u32 offset = 0;
 		};
 		std::vector<guest_address> game_refresh_rate_f32;
+		// Guest floats holding the game's time step for one frame (Ridge Racer 7: its
+		// 1/60 constants) and u32s holding its milliseconds per frame (Ridge Racer 7's race
+		// timer, read from a word its VR patch sets up): written every frame with the running
+		// game frame rate (effective vblank rate / vblanks_per_frame), so a frame-locked game
+		// keeps real-time speed at any VR frame rate. Same address forms as above.
+		std::vector<guest_address> game_frame_time_f32;
+		std::vector<guest_address> game_frame_ms_u32;
+		// u32s holding the game frame rate itself (Ridge Racer 7's VR patch advances its
+		// 60 Hz frame counters by 60/fps per frame from it).
+		std::vector<guest_address> game_fps_u32;
 
 		// The game composites the previous frame's scene (ICO: left over from SPU
 		// MLAA) with effects built from the current one (bloom). Each frame carries
