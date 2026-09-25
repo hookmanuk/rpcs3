@@ -188,6 +188,10 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box
+		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
+		// menu layers. Off by default: it broke ICO's HUD box.
+		bool screen_space_hud_keep_depth = false;
 		// Frames without any camera draw (Ico's splash screens and videos) are shown as the
 		// fixed screen instead of over the whole view. Off by default: games whose pause
 		// freezes the 3D (Pure, WipEout) would show the paused frame as a screen, HUD twice.

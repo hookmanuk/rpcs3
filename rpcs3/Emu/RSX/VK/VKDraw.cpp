@@ -2221,8 +2221,11 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 	*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
 	// The fixed-in-front box changes w with the head pose: keep the game's depth, which
 	// the HUD's own layers (and the full-screen passes under them) are depth tested with.
+	// Only for profiles that ask for it (SotC); it broke ICO's HUD box.
+	const auto& probe = rsx::vr::camera_probe::get();
+	const auto* profile = probe.profile();
 	std::memset(buf + 84, 0, 12);
-	*(reinterpret_cast<f32*>(buf + 84)) = !preprojected_program && rsx::vr::camera_probe::get().vr_hud_fixed() ? 1.f : 0.f;
+	*(reinterpret_cast<f32*>(buf + 84)) = !preprojected_program && probe.vr_hud_fixed() && profile && profile->screen_space_hud_keep_depth ? 1.f : 0.f;
 	m_vertex_env_ring_info.unmap();
 
 	m_vertex_env_buffer_info = m_vertex_env_ring_info.window<256>(mem, 96, gpu_limits.maxUniformBufferRange);
