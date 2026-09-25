@@ -83,9 +83,9 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
       "Shadow of the Colossus":
         BCUS98259: [ 01.00 ]
     Author: "VR fork (disc port of Margen67's 60 FPS patch)"
-    Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS on a TV. Off by default: at a one-vblank interval the game drops objects for a frame whenever it misses its deadline (flashing holes). In VR the profile runs the game's own two-vblank frame on a 120 Hz vblank instead (60 FPS)."
-    Patch Version: 1.2
-    Enabled By Default: false
+    Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS at the 60 Hz vblank, as the community 60 FPS patch. The VR profile keeps the vblank at 60 Hz and tells the game that rate, so its clocks keep real time. If a frame runs late (too high a resolution scale) the game can drop objects for that frame (flashing holes)."
+    Patch Version: 1.3
+    Enabled By Default: true
     Patch:
       - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384 (init 0x31eb2c; its twin 0x31f1b8 has no callers)
   "Disable Motion Blur":

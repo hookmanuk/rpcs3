@@ -82,10 +82,10 @@ VR): get new VR builds from the same place as this one.
 
 ### 4. Shadow of the Colossus (BCUS98259, ICO & Shadow of the Colossus Collection): 60 FPS
 
-- **Frame rate:** 60 FPS. The VR profile runs the game's display clock at 120 Hz (the game draws a frame
-  every second vblank), whatever Vblank Rate is set to, so ICO in the same collection keeps its 30 FPS with
-  the same configuration. Leave Vblank Rate at 60. A headset running at 60 or 120 Hz shows 60 FPS most
-  smoothly.
+- **Frame rate:** 60 FPS, as the community 60 FPS patch: the patch *Frame rate follows Vblank Rate* draws a
+  frame on every 60 Hz vblank instead of every second one, and the VR profile keeps the vblank at 60 Hz
+  whatever Vblank Rate is set to (ICO in the same collection keeps its 30 FPS). A headset running at 60 or
+  120 Hz shows 60 FPS most smoothly.
 - **Patches on by default:**
   - *Disable MLAA*: required, as for ICO.
   - *Full Pixel Mode always on*: without it the picture is zoomed ~19% and the world swims on head turns.
@@ -94,12 +94,13 @@ VR): get new VR builds from the same place as this one.
   - *Wider view (VR culling)*, scale 3: the game only draws a narrow 44-degree view, so in VR everything
     around it was fog. Scale 3 draws about 150 x 130 degrees. Without VR this makes the TV picture a
     wide-angle view: set 1.0 to play flat.
+  - *Frame rate follows Vblank Rate*: 60 FPS (above).
   - *Disable Motion Blur* and *Disable Bloom*: motion blur smears the view on head turns, and both cost GPU
     time at high resolution scales.
-- *Frame rate follows Vblank Rate* (off): a frame on every vblank. At that rate the game drops objects for a
-  frame whenever it runs late (flashing holes), so VR uses the 120 Hz clock above instead.
 - **Recommended settings:** `Resolution Scale` 300-400% (on an RTX 5090, 400% holds 60 FPS).
-- **Known issues:** at the wider view's edge, big head turns can show fog beyond the drawn area.
+- **Known issues:** at the wider view's edge, big head turns can show fog beyond the drawn area. If frames
+  run late (resolution scale too high for the GPU), the game drops objects for a frame: flashing holes. Lower
+  the resolution scale.
 
 ---
 
@@ -108,7 +109,7 @@ Defaults, all changeable per game:
 
 | Setting | Default | What it does |
 |---|---|---|
-| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); frame-capped games keep a 60 Hz clock (ICO) or the rate their VR profile sets (Shadow of the Colossus: 120 Hz). |
+| Match Headset Refresh Rate | on | Runs the PS3's display clock at the headset's refresh rate, so games that allow it render a new frame for every headset refresh (90, 120 Hz...). Only offered for games that are not frame-capped (WipEout, Pure); frame-capped games keep a 60 Hz clock (ICO, Shadow of the Colossus). |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees for frame-capped games (Ico), 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |

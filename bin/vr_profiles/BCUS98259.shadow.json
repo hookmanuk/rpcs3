@@ -3,7 +3,7 @@
   "title_id": "BCUS98259",
   "app_version": "01.00",
   "max_fps": 60,
-  "vblank_rate": 120,
+  "vblank_rate": 60,
   "reproject_older_frames": true,
   "game_refresh_rate_f32": ["0x736be8"],
   "occlusion_depth_readback": ["0x30800000:0x360000"],
