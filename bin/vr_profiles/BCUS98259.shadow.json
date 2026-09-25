@@ -17,7 +17,8 @@
   "stereo": {
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0261,
-    "convergence": 3.0
+    "convergence": 3.0,
+    "eye_offset": "baseline"
   },
 
   "screen_space": {

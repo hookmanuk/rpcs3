@@ -462,6 +462,14 @@ namespace rsx::vr
 			fail(fmt::format("stereo formula '%s' is not supported (clip_x_shear only)", formula));
 		}
 		read_rule(stereo, profile->stereo);
+		if (std::string offset; read(stereo, "eye_offset", offset, false))
+		{
+			if (offset != "baseline" && offset != "shear")
+			{
+				fail(fmt::format("stereo eye_offset '%s' is not supported (baseline or shear)", offset));
+			}
+			profile->stereo_eye_offset_from_baseline = offset == "baseline";
+		}
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -592,7 +600,7 @@ namespace rsx::vr
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
-		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
+		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "frames_without_3d_as_screen" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
@@ -1191,7 +1199,17 @@ namespace rsx::vr
 			// its convergence image shift (clip.x += sep*clip.w).
 			if (!at_infinity)
 			{
-				rows[3][0] -= sep * m_vr_eye_scale * convergence;
+				if (profile.stereo_eye_offset_from_baseline)
+				{
+					// Move the eye by half the baseline along the camera's right: clip.x
+					// changes by that distance times the length of its x row.
+					const f32 clip_x_per_unit = std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
+					rows[3][0] -= eye_sign * profile.eye_baseline * 0.5f * m_vr_eye_scale * clip_x_per_unit;
+				}
+				else
+				{
+					rows[3][0] -= sep * m_vr_eye_scale * convergence;
+				}
 			}
 
 			if (m_vr_hmd_fov && m_vr_proj_valid)

@@ -205,6 +205,8 @@ private:
 	s64 m_gpuprof_rsx_us[5]{};     // RSX thread: setup, vertex upload, texture upload, draw exec, flip
 	std::chrono::steady_clock::time_point m_gpuprof_last_flip{};
 	f64 m_gpuprof_wall_ms = 0.;
+	f64 m_gpuprof_flip_ms = 0.;    // RSX thread inside flip()
+	f64 m_gpuprof_ctxwait_ms = 0.; // ... of which waiting for an older frame's GPU work (frame_context_cleanup)
 	atomic_t<u64> m_gpuprof_readback_ns{0}; // guest threads blocked in GPU readbacks (on_access_violation)
 	atomic_t<u32> m_gpuprof_readbacks{0};
 	atomic_t<u32> m_gpuprof_readback_addr{0};

@@ -3881,6 +3881,8 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
 				text += fmt::format("; RSX thread ms/frame: setup %.2f, vertex %.2f, textures %.2f, draw %.2f, flip %.2f = %.2f of %.2f between flips",
 					rsx_ms(0), rsx_ms(1), rsx_ms(2), rsx_ms(3), rsx_ms(4), rsx_ms(0) + rsx_ms(1) + rsx_ms(2) + rsx_ms(3) + rsx_ms(4), m_gpuprof_wall_ms / 120);
+				text += fmt::format("; flip() %.2f ms/frame, of which waiting for older frames' GPU work %.2f", m_gpuprof_flip_ms / 120, m_gpuprof_ctxwait_ms / 120);
+				m_gpuprof_flip_ms = m_gpuprof_ctxwait_ms = 0.;
 				std::fill(std::begin(m_gpuprof_rsx_us), std::end(m_gpuprof_rsx_us), 0);
 				m_gpuprof_wall_ms = 0.;
 				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.1f/frame, last at 0x%x)",

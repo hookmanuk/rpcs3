@@ -252,10 +252,15 @@ void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 	ensure(ctx->swap_command_buffer);
 
 	// Perform hard swap here
+	const auto wait_start = std::chrono::steady_clock::now();
 	if (ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT) != VK_SUCCESS)
 	{
 		// Lost surface/device, release swapchain
 		swapchain_unavailable = true;
+	}
+	if (m_gpuprof_enabled > 0)
+	{
+		m_gpuprof_ctxwait_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
 	}
 
 	// Resource cleanup.
@@ -434,6 +439,19 @@ vk::viewable_image* VKGSRender::get_present_source(/* inout */ vk::present_surfa
 
 void VKGSRender::flip(const rsx::display_flip_info_t& info)
 {
+	struct flip_timer
+	{
+		VKGSRender* r;
+		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+		~flip_timer()
+		{
+			if (r->m_gpuprof_enabled > 0)
+			{
+				r->m_gpuprof_flip_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
+			}
+		}
+	} flip_timer_{ this };
+
 	// Gate 6: the right eye's last batched draws must land before it is presented.
 	vr_batch_flush();
 

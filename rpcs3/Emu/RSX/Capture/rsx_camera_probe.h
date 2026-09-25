@@ -151,6 +151,14 @@ namespace rsx::vr
 		stereo_rule stereo;                          // default
 		std::vector<stereo_rule> stereo_by_target_width;
 
+		// Headset eyes offset by eye_baseline in world units, taken from each camera
+		// matrix's own scale, instead of the stereo rule's fixed clip-space shift. The
+		// shift stands for eye_baseline only at the projection it was measured with: a
+		// patch that widens the game's view (Shadow of the Colossus's Wider view) makes
+		// the same shift a much wider eye distance, so the world looked tiny.
+		// stereo.eye_offset: "baseline".
+		bool stereo_eye_offset_from_baseline = false;
+
 		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
 		bool screen_space_bare_projection = false;
 		// A projection with no view rotation and only a translation along the view
