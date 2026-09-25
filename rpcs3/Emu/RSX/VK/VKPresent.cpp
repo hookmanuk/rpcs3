@@ -791,72 +791,8 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		rsx::vr::camera_probe::get().clear_vr_view();
 	}
 
-	// Prepare surface for new frame. Set no timeout here so that we wait for the next image if need be
-	ensure(m_current_frame->present_image == umax);
-	ensure(m_current_frame->swap_command_buffer == nullptr);
-
-	u64 timeout = m_swapchain->get_swap_image_count() <= 2? 0ull: 100000000ull;
-	while (VkResult status = m_swapchain->acquire_next_swapchain_image(m_current_frame->acquire_signal_semaphore, timeout, &m_current_frame->present_image))
-	{
-		switch (status)
-		{
-		case VK_TIMEOUT:
-		case VK_NOT_READY:
-		{
-			// In some cases, after a fullscreen switch, the driver only allows N-1 images to be acquirable, where N = number of available swap images.
-			// This means that any acquired images have to be released
-			// before acquireNextImage can return successfully. This is despite the driver reporting 2 swap chain images available
-			// This makes fullscreen performance slower than windowed performance as throughput is lowered due to losing one presentable image
-			// Found on AMD Crimson 17.7.2
-
-
-			// Whatever returned from status, this is now a spin
-			timeout = 0ull;
-			check_present_status();
-			continue;
-		}
-		case VK_SUBOPTIMAL_KHR:
-			should_reinitialize_swapchain = true;
-			break;
-		case VK_ERROR_OUT_OF_DATE_KHR:
-			rsx_log.warning("vkAcquireNextImageKHR failed with VK_ERROR_OUT_OF_DATE_KHR. Flip request ignored until surface is recreated.");
-			swapchain_unavailable = true;
-			reinitialize_swapchain();
-			ensure(m_current_frame, "Could not reinitialize swapchain after VK_ERROR_OUT_OF_DATE_KHR signal!");
-			continue;
-		default:
-			vk::die_with_error(status);
-		}
-
-		if (should_reinitialize_swapchain)
-		{
-			// Image is valid, new swapchain will be generated later
-			break;
-		}
-	}
-
-	// Confirm that the driver did not silently fail
-	ensure(m_current_frame->present_image != umax);
-
-	// Calculate output dimensions. Done after swapchain acquisition in case it was recreated.
-	areai aspect_ratio;
-	if (!g_cfg.video.stretch_to_display_area)
-	{
-		const auto converted = avconfig.aspect_convert_region({ buffer_width, buffer_height }, m_swapchain_dims);
-		aspect_ratio = static_cast<areai>(converted);
-	}
-	else
-	{
-		aspect_ratio = { 0, 0, s32(m_swapchain_dims.width), s32(m_swapchain_dims.height) };
-	}
-
-	// Blit contents to screen..
-	VkImage target_image = m_swapchain->get_image(m_current_frame->present_image);
-	const auto present_layout = m_swapchain->get_optimal_present_layout();
-
-	const VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-	VkImageLayout target_layout = present_layout;
-
+	// VR fork: screenshots and recording read the game image before the swapchain image is acquired:
+	// with the desktop locked, the hard sync below between acquire and present crashed the NVIDIA driver.
 	VkRenderPass single_target_pass = VK_NULL_HANDLE;
 	vk::framebuffer_holder* direct_fbo = nullptr;
 	rsx::simple_array<vk::viewable_image*> calibration_src;
@@ -884,7 +820,18 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 	// WARNING: We have to do this here. We cannot touch the acquired image on the CB and then do a hard sync on it before it is submitted to the presentation engine.
 	// That introduces a WRITE_AFTER_PRESENT (from the previous present) when we later try to present on a different CB
-	if (image_to_flip && need_media_capture)
+	// VR fork: the first frames of a boot can present an image the capture below cannot read (Ridge
+	// Racer 7: smaller than the display buffer, or not 32-bit, or still owned by another queue); a
+	// screenshot then crashed the driver or failed image::push_layout's queue check. Skip it instead.
+	const bool capturable = image_to_flip && image_to_flip->width() >= buffer_width && image_to_flip->height() >= buffer_height &&
+		vk::get_format_texel_width(image_to_flip->format()) == 4 &&
+		(image_to_flip->current_queue_family == VK_QUEUE_FAMILY_IGNORED || image_to_flip->current_queue_family == m_current_command_buffer->get_queue_family());
+	if (image_to_flip && need_media_capture && !capturable)
+	{
+		rsx_log.warning("Screenshot/recording skipped: the presented image (%ux%u fmt %d) cannot be captured this frame (buffer %ux%u).",
+			image_to_flip->width(), image_to_flip->height(), static_cast<int>(image_to_flip->format()), buffer_width, buffer_height);
+	}
+	if (image_to_flip && need_media_capture && capturable)
 	{
 		// VR fork: a screenshot while generated stereo is shown holds both eyes side by side.
 		const bool sbs_shot = user_asked_for_screenshot && generated_stereo && image_to_flip2 &&
@@ -992,6 +939,73 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			m_frame->present_frame(std::move(sshot_frame), buffer_width * 4, buffer_width, buffer_height, is_bgra);
 		}
 	}
+
+	// Prepare surface for new frame. Set no timeout here so that we wait for the next image if need be
+	ensure(m_current_frame->present_image == umax);
+	ensure(m_current_frame->swap_command_buffer == nullptr);
+
+	u64 timeout = m_swapchain->get_swap_image_count() <= 2? 0ull: 100000000ull;
+	while (VkResult status = m_swapchain->acquire_next_swapchain_image(m_current_frame->acquire_signal_semaphore, timeout, &m_current_frame->present_image))
+	{
+		switch (status)
+		{
+		case VK_TIMEOUT:
+		case VK_NOT_READY:
+		{
+			// In some cases, after a fullscreen switch, the driver only allows N-1 images to be acquirable, where N = number of available swap images.
+			// This means that any acquired images have to be released
+			// before acquireNextImage can return successfully. This is despite the driver reporting 2 swap chain images available
+			// This makes fullscreen performance slower than windowed performance as throughput is lowered due to losing one presentable image
+			// Found on AMD Crimson 17.7.2
+
+
+			// Whatever returned from status, this is now a spin
+			timeout = 0ull;
+			check_present_status();
+			continue;
+		}
+		case VK_SUBOPTIMAL_KHR:
+			should_reinitialize_swapchain = true;
+			break;
+		case VK_ERROR_OUT_OF_DATE_KHR:
+			rsx_log.warning("vkAcquireNextImageKHR failed with VK_ERROR_OUT_OF_DATE_KHR. Flip request ignored until surface is recreated.");
+			swapchain_unavailable = true;
+			reinitialize_swapchain();
+			ensure(m_current_frame, "Could not reinitialize swapchain after VK_ERROR_OUT_OF_DATE_KHR signal!");
+			continue;
+		default:
+			vk::die_with_error(status);
+		}
+
+		if (should_reinitialize_swapchain)
+		{
+			// Image is valid, new swapchain will be generated later
+			break;
+		}
+	}
+
+	// Confirm that the driver did not silently fail
+	ensure(m_current_frame->present_image != umax);
+
+	// Calculate output dimensions. Done after swapchain acquisition in case it was recreated.
+	areai aspect_ratio;
+	if (!g_cfg.video.stretch_to_display_area)
+	{
+		const auto converted = avconfig.aspect_convert_region({ buffer_width, buffer_height }, m_swapchain_dims);
+		aspect_ratio = static_cast<areai>(converted);
+	}
+	else
+	{
+		aspect_ratio = { 0, 0, s32(m_swapchain_dims.width), s32(m_swapchain_dims.height) };
+	}
+
+	// Blit contents to screen..
+	VkImage target_image = m_swapchain->get_image(m_current_frame->present_image);
+	const auto present_layout = m_swapchain->get_optimal_present_layout();
+
+	const VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+	VkImageLayout target_layout = present_layout;
+
 
 	if (!image_to_flip || aspect_ratio.x1 || aspect_ratio.y1)
 	{
