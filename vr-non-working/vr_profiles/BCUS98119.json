@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BCUS98119",
   "app_version": "01.00",
+  "name": "inFamous",
   "max_fps": 0,
 
   "matrix_layout": "row_vectors",

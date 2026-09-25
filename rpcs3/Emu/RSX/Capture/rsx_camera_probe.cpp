@@ -388,6 +388,7 @@ namespace rsx::vr
 		}
 
 		read(root, "app_version", profile->app_version, false);
+		read(root, "name", profile->name, false);
 
 		if (std::string layout; read(root, "matrix_layout", layout))
 		{
@@ -621,7 +622,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
+		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
@@ -695,10 +696,10 @@ namespace rsx::vr
 
 	namespace
 	{
-		// <TITLE_ID>.json and every <TITLE_ID>.<executable>.json.
-		std::vector<std::shared_ptr<const title_profile>> title_profiles(std::string_view title_id)
+		// <TITLE_ID>.json and every <TITLE_ID>.<executable>.json, with the executable ("" for the title's own).
+		std::vector<std::pair<std::string, std::shared_ptr<const title_profile>>> title_profiles(std::string_view title_id)
 		{
-			std::vector<std::shared_ptr<const title_profile>> result;
+			std::vector<std::pair<std::string, std::shared_ptr<const title_profile>>> result;
 			const std::string dir = fs::get_executable_dir() + "vr_profiles/";
 			for (const auto& entry : fs::dir(dir))
 			{
@@ -718,7 +719,7 @@ namespace rsx::vr
 				}
 				if (auto profile = load_title_profile(title_id, executable))
 				{
-					result.push_back(std::move(profile));
+					result.emplace_back(std::move(executable), std::move(profile));
 				}
 			}
 			return result;
@@ -729,7 +730,7 @@ namespace rsx::vr
 	{
 		u32 result = 0;
 		bool unlimited = false;
-		for (const auto& profile : title_profiles(title_id))
+		for (const auto& [executable, profile] : title_profiles(title_id))
 		{
 			unlimited |= !profile->max_fps;
 			result = std::max(result, profile->max_fps);
@@ -740,7 +741,7 @@ namespace rsx::vr
 	std::vector<u32> title_default_fps(std::string_view title_id)
 	{
 		std::vector<u32> result;
-		for (const auto& profile : title_profiles(title_id))
+		for (const auto& [executable, profile] : title_profiles(title_id))
 		{
 			if (std::find(result.begin(), result.end(), profile->default_fps) == result.end())
 			{
@@ -748,6 +749,17 @@ namespace rsx::vr
 			}
 		}
 		std::sort(result.begin(), result.end());
+		return result;
+	}
+
+	std::vector<title_game_frame_rate> title_frame_rates(std::string_view title_id)
+	{
+		std::vector<title_game_frame_rate> result;
+		for (const auto& [executable, profile] : title_profiles(title_id))
+		{
+			std::string name = !profile->name.empty() ? profile->name : !executable.empty() ? executable : std::string(title_id);
+			result.push_back({ std::move(name), profile->default_fps, profile->max_fps });
+		}
 		return result;
 	}
 

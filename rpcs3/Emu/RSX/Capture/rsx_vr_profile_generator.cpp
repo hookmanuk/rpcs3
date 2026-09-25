@@ -741,6 +741,17 @@ namespace rsx::vr
 		json += "  \"schema\": 1,\n";
 		json += fmt::format("  \"title_id\": \"%s\",\n", title);
 		if (!Emu.GetAppVersion().empty()) json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
+		if (!Emu.GetTitle().empty())
+		{
+			// The game's name, so the file can be identified; quotes and backslashes escaped.
+			std::string name;
+			for (const char c : Emu.GetTitle())
+			{
+				if (c == '"' || c == '\\') name += '\\';
+				name += c;
+			}
+			json += fmt::format("  \"name\": \"%s\",\n", name);
+		}
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
 		json += fmt::format("  \"camera_blocks\": [%s],\n", blocks_text);

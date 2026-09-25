@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BLUS31010",
   "app_version": "01.00",
+  "name": "Need for Speed: Most Wanted",
   "max_fps": 30,
 
   "matrix_layout": "column_vectors_xyw",

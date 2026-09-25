@@ -2,6 +2,7 @@
   "schema": 1,
   "title_id": "BCUS98259",
   "app_version": "01.00",
+  "name": "Shadow of the Colossus",
   "max_fps": 0,
   "default_fps": 60,
   "reproject_older_frames": true,

@@ -99,6 +99,7 @@ namespace rsx::vr
 	{
 		std::string title_id;
 		std::string app_version;             // expected game version; a mismatch is logged
+		std::string name;                    // the game's name, for the settings (optional)
 
 		// 4-slot camera matrices, tried in order; the first perspective one is
 		// the draw's camera.
@@ -270,6 +271,15 @@ namespace rsx::vr
 	u32 title_max_fps(std::string_view title_id);
 	// The distinct default_fps of the title's profiles, ascending (0 = the headset's rate).
 	std::vector<u32> title_default_fps(std::string_view title_id);
+	// Each game of the title (its profile name, else its executable) with its default and
+	// maximum frame rates, for the settings dialog.
+	struct title_game_frame_rate
+	{
+		std::string name;
+		u32 default_fps = 0;
+		u32 max_fps = 0;
+	};
+	std::vector<title_game_frame_rate> title_frame_rates(std::string_view title_id);
 	// The Frame Rate option for this rate (0 = Unlimited), umax if none. "Default" is not
 	// listed: while the setting is Default, the lists show the game's default rate.
 	u32 frame_rate_option_for_fps(u32 fps);
