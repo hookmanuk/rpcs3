@@ -83,11 +83,32 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
       "Shadow of the Colossus":
         BCUS98259: [ 01.00 ]
     Author: "VR fork (disc port of Margen67's 60 FPS patch)"
-    Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS on a TV, the headset's refresh rate in VR. The VR profile keeps the game's frame time correct at any vblank rate."
+    Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS on a TV. Off by default: at a one-vblank interval the game drops objects for a frame whenever it misses its deadline (flashing holes). In VR the profile runs the game's own two-vblank frame on a 120 Hz vblank instead (60 FPS)."
+    Patch Version: 1.2
+    Enabled By Default: false
+    Patch:
+      - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384 (init 0x31eb2c; its twin 0x31f1b8 has no callers)
+  "Disable Motion Blur":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "illusion (VR fork copy, on by default)"
+    Notes: "Motion blur smears the view on head turns in VR and costs ~4 ms/frame at high resolution scales in stereo. Same patch as the community patch.yml entry."
     Patch Version: 1.1
     Enabled By Default: true
     Patch:
-      - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384 (init 0x31eb2c; its twin 0x31f1b8 has no callers)
+      - [ be32, 0x0021951c, 0x38000000 ] # li r0 0x0
+      - [ be32, 0x00219360, 0x38000000 ] # li r0 0x0
+  "Disable Bloom":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "illusion (VR fork copy, on by default)"
+    Notes: "Bloom costs GPU time at high resolution scales in stereo. Same patch as the community patch.yml entry; turn it off for the original look."
+    Patch Version: 1.1
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00209d88, 0x38000000 ] # li r0 0x0
   "Wider view (VR culling)":
     Games:
       "Shadow of the Colossus":

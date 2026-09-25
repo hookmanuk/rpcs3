@@ -181,6 +181,12 @@ namespace rsx::vr
 		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
 		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
 		std::vector<u64> screen_space_preprojected_programs;
+
+		// Vertex programs (ucode hashes) whose matrix-less draws are HUD even into a
+		// target that camera draws also wrote (Shadow of the Colossus draws its title,
+		// menu and font glyphs straight into the scene's final image). The HUD box's other
+		// checks (full-frame target, ordinary textures only) still apply.
+		std::vector<u64> screen_space_hud_programs;
 		// Frames without any camera draw (Ico's splash screens and videos) are shown as the
 		// fixed screen instead of over the whole view. Off by default: games whose pause
 		// freezes the 3D (Pure, WipEout) would show the paused frame as a screen, HUD twice.
@@ -195,6 +201,12 @@ namespace rsx::vr
 		// Reprojection Margin "Auto" renders a margin. Unset counts as capped: only a game
 		// shown to keep real-time speed (max_fps 0) is synced to the headset.
 		u32 max_fps = 30;
+
+		// The vblank rate this game runs at in VR, overriding the configured Vblank Rate
+		// (0 = use the configuration). Games of one collection share a title ID and so a
+		// configuration: ICO keeps 60 Hz (30 FPS), Shadow of the Colossus runs its own
+		// two-vblank frame at 120 Hz (60 FPS). Its game_refresh_rate_f32 gets this rate.
+		u32 vblank_rate = 0;
 
 		// The game builds effects across frames from full-screen buffers (Ico's glow and
 		// previous-frame blend): with the head moving between frames, older-pose buffers are
@@ -340,6 +352,7 @@ namespace rsx::vr
 		// (including fov_scale). False until a rigid camera block has been seen.
 		// Also the readiness test for the headset-FOV remap.
 		bool get_vr_fov(f32& tan_half_x, f32& tan_half_y) const;
+		bool vr_hud_fixed() const { return m_vr_hud_fixed; }
 
 	private:
 		camera_probe();

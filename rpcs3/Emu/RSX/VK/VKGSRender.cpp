@@ -2302,6 +2302,7 @@ void VKGSRender::load_program_env()
 		*(reinterpret_cast<f32*>(buf + 72)) = ctx->point_size() * resolution_scaling_config.scale_factor();
 		*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
 		*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
+		std::memset(buf + 84, 0, 12); // vr_keep_depth, reserved
 
 		m_vertex_env_ring_info.unmap();
 		m_vertex_env_dynamic_offset = mem;

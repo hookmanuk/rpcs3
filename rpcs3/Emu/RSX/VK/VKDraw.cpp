@@ -2125,9 +2125,20 @@ bool VKGSRender::vr_is_passthrough_hud()
 	// Into a buffer no camera draw wrote (the finished frame or a display buffer), with
 	// at least one ordinary texture and no colour render target (post-processing reads those).
 	const u32 target = m_framebuffer_layout.color_addresses[0];
-	if (!target || std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end())
+	if (!target)
 	{
 		return false;
+	}
+	if (std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end())
+	{
+		// Unless the profile lists this program as HUD (drawn into the scene's final image).
+		const auto* profile = rsx::vr::camera_probe::get().profile();
+		const u64 hash = profile && !profile->screen_space_hud_programs.empty() ?
+			program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) : 0;
+		if (!hash || std::find(profile->screen_space_hud_programs.begin(), profile->screen_space_hud_programs.end(), hash) == profile->screen_space_hud_programs.end())
+		{
+			return false;
+		}
 	}
 	// Full frame or larger: smaller buffers are intermediate passes (ICO's shadow mask).
 	const vk::render_target* scene = m_vr_camera_targets.empty() ? nullptr : m_rtts.get_surface_at(m_vr_camera_targets.back());
@@ -2208,6 +2219,10 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 	*(reinterpret_cast<f32*>(buf + 72)) = ctx->point_size() * resolution_scaling_config.scale_factor();
 	*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
 	*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
+	// The fixed-in-front box changes w with the head pose: keep the game's depth, which
+	// the HUD's own layers (and the full-screen passes under them) are depth tested with.
+	std::memset(buf + 84, 0, 12);
+	*(reinterpret_cast<f32*>(buf + 84)) = !preprojected_program && rsx::vr::camera_probe::get().vr_hud_fixed() ? 1.f : 0.f;
 	m_vertex_env_ring_info.unmap();
 
 	m_vertex_env_buffer_info = m_vertex_env_ring_info.window<256>(mem, 96, gpu_limits.maxUniformBufferRange);

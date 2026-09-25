@@ -476,7 +476,10 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 		}
 	}
 
+	// VR: the fixed-in-front HUD box changes w with the head pose; keep the game's depth (z/w).
+	OS << "	const vec4 vr_pre_xform = gl_Position;\n";
 	OS << "	gl_Position = gl_Position * scale_offset_mat;\n";
+	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z *= gl_Position.w / vr_pre_xform.w;\n";
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
 	OS << "}\n";
 }

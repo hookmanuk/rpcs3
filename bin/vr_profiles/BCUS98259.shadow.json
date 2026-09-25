@@ -2,7 +2,8 @@
   "schema": 1,
   "title_id": "BCUS98259",
   "app_version": "01.00",
-  "max_fps": 0,
+  "max_fps": 60,
+  "vblank_rate": 120,
   "game_refresh_rate_f32": ["0x736be8"],
   "occlusion_depth_readback": ["0x30800000:0x360000"],
 
@@ -22,6 +23,7 @@
   },
 
   "screen_space": {
-    "passthrough_hud": true
+    "passthrough_hud": true,
+    "hud_programs": ["f7969a024cd51baa"]
   }
 }

@@ -518,6 +518,17 @@ namespace rsx::vr
 				profile->screen_space_preprojected_programs.push_back(hash);
 			}
 		}
+		if (const YAML::Node programs = child(screen_space, "hud_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("screen_space.hud_programs: '" + text + "' is not a hex program hash");
+				profile->screen_space_hud_programs.push_back(hash);
+			}
+		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
 		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
@@ -529,6 +540,7 @@ namespace rsx::vr
 			profile->require_camera_aspect = aspect == "true";
 		}
 		read(root, "max_fps", profile->max_fps, false);
+		read(root, "vblank_rate", profile->vblank_rate, false);
 		if (std::string reproject; read(root, "reproject_older_frames", reproject, false))
 		{
 			profile->reproject_older_frames = reproject == "true";
@@ -597,11 +609,11 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "vblank_rate", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "frames_without_3d_as_screen" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "frames_without_3d_as_screen" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -639,6 +651,14 @@ namespace rsx::vr
 
 	u64 effective_vblank_rate()
 	{
+		if (g_cfg.video.vr.enabled)
+		{
+			if (const title_profile* profile = camera_probe::get().profile(); profile && profile->vblank_rate)
+			{
+				return profile->vblank_rate;
+			}
+		}
+
 		const u64 configured = g_cfg.video.vblank_rate;
 		const u32 headset = g_headset_refresh_hz.load();
 		if (!headset || !g_cfg.video.vr.enabled || !g_cfg.video.vr.match_headset_rate)
