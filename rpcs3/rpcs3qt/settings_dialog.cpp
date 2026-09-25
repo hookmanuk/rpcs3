@@ -598,34 +598,16 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
 	{
-		// The tooltip adds each game's default rate (from its VR profile) and the headset
-		// refresh rates that are an exact multiple of it.
+		// Each game's default rate, from its VR profile.
 		QString tooltip = tooltips.settings.vr_frame_rate;
 		if (vr_profiled_title)
 		{
-			tooltip += "\n";
 			for (const auto& game_rate : rsx::vr::title_frame_rates(game->serial))
 			{
 				const QString name = QString::fromStdString(game_rate.name);
-				if (!game_rate.default_fps)
-				{
-					tooltip += tr("\n%1: the headset's refresh rate by default (any headset rate)", "VR frame rate").arg(name);
-					continue;
-				}
-				QStringList rates;
-				for (const u32 hz : { 60u, 72u, 80u, 90u, 120u, 144u })
-				{
-					if (hz % game_rate.default_fps == 0)
-					{
-						rates << QString::number(hz);
-					}
-				}
-				const QString headset = rates.empty() ? tr("any headset rate", "VR frame rate")
-					: rates.size() == 1 ? tr("headset: %1 Hz", "VR frame rate").arg(rates[0])
-					: tr("headset: %1 or %2 Hz", "VR frame rate").arg(rates.mid(0, rates.size() - 1).join(", "), rates.last());
-				tooltip += game_rate.max_fps == game_rate.default_fps
-					? tr("\n%1: %2 FPS, its maximum (%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset)
-					: tr("\n%1: %2 FPS by default (%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset);
+				tooltip += !game_rate.default_fps ? tr("\n%1: headset refresh rate", "VR frame rate").arg(name)
+					: game_rate.max_fps == game_rate.default_fps ? tr("\n%1: %2 FPS (maximum)", "VR frame rate").arg(name).arg(game_rate.default_fps)
+					: tr("\n%1: %2 FPS", "VR frame rate").arg(name).arg(game_rate.default_fps);
 			}
 		}
 		SubscribeTooltip(ui->gb_vrFrameRate, tooltip);
