@@ -113,3 +113,15 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
           "4.0": 4.0
     Patch:
       - [ bef32, 0x00732894, "Scale" ] # FOV multiplier (1.0; the community Extended FOV sets 1.5)
+
+SPU-2801f277cbe95085325a1451cc64731b8f47c18b: # Shadow of the Colossus SPU mesh job (loaded by Shadow.self; same program as BCES01097 1.01)
+  "Disable Mesh Trimming":
+    Games:
+      "Shadow of the Colossus":
+        BCUS98259: [ 01.00 ]
+    Author: "Pappapatu (VR fork copy for the US disc, on by default)"
+    Notes: "The SPUs drop triangles the game judges too small or off its own camera's view (sized for the PS3's resolution). At higher resolution scales, and in VR where each eye looks from its own view, that shows as missing pieces of thin geometry (stairs, horse legs). This draws them all."
+    Patch Version: 1.1
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00000490, 0x40800004 ]
