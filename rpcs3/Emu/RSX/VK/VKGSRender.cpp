@@ -3824,10 +3824,12 @@ void VKGSRender::gpuprof_mark(const gpuprof_mark_t& mark)
 	}
 	vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024 + ::size32(marks));
 	marks.push_back(mark);
+	marks.back().draw = m_gpuprof_draw;
 }
 
-void VKGSRender::gpuprof_flip()
+void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 {
+	m_profiler.enabled = true; // RSX thread timings (normally only with the debug overlay)
 	if (vk::is_renderpass_open(*m_current_command_buffer))
 	{
 		vk::end_renderpass(*m_current_command_buffer);
@@ -3839,6 +3841,7 @@ void VKGSRender::gpuprof_flip()
 	{
 		vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024 + ::size32(current));
 		m_gpuprof_ended[m_gpuprof_slot] = true;
+		m_gpuprof_end_draw[m_gpuprof_slot] = m_gpuprof_draw;
 	}
 
 	// Collect the frame recorded in the next slot (three flips ago), then reuse it.
@@ -3858,6 +3861,7 @@ void VKGSRender::gpuprof_flip()
 				auto& sum = m_gpuprof_sum[key];
 				sum.first += (ts[i + 1] - ts[i]) * period_ms;
 				sum.second++;
+				m_gpuprof_draws[key] += (i + 1 < marks.size() ? marks[i + 1].draw : m_gpuprof_end_draw[m_gpuprof_slot]) - m.draw;
 				m_gpuprof_keys[key] = m;
 			}
 			m_gpuprof_total_ms += (ts.back() - ts.front()) * period_ms;
@@ -3874,6 +3878,11 @@ void VKGSRender::gpuprof_flip()
 					m_gpuprof_sync_ms / 120, m_gpuprof_syncs / 120.);
 				text += fmt::format("; %.0f draws/frame", m_gpuprof_draw_sum / 120.);
 				m_gpuprof_draw_sum = 0;
+				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
+				text += fmt::format("; RSX thread ms/frame: setup %.2f, vertex %.2f, textures %.2f, draw %.2f, flip %.2f = %.2f of %.2f between flips",
+					rsx_ms(0), rsx_ms(1), rsx_ms(2), rsx_ms(3), rsx_ms(4), rsx_ms(0) + rsx_ms(1) + rsx_ms(2) + rsx_ms(3) + rsx_ms(4), m_gpuprof_wall_ms / 120);
+				std::fill(std::begin(m_gpuprof_rsx_us), std::end(m_gpuprof_rsx_us), 0);
+				m_gpuprof_wall_ms = 0.;
 				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.1f/frame, last at 0x%x)",
 					m_gpuprof_readback_ns.exchange(0) / 1e6 / 120, m_gpuprof_readbacks.exchange(0) / 120., m_gpuprof_readback_addr.load());
 				m_gpuprof_sync_ms = 0.;
@@ -3882,11 +3891,13 @@ void VKGSRender::gpuprof_flip()
 				{
 					const auto& m = m_gpuprof_keys[order[i].second];
 					const auto& sum = m_gpuprof_sum[order[i].second];
-					text += m.format == umax ? fmt::format("\n  %7.3f ms  x%5.1f  flip/present", sum.first / 120, sum.second / 120.)
-						: fmt::format("\n  %7.3f ms  x%5.1f  %08x %ux%u fmt 0x%x", sum.first / 120, sum.second / 120., m.addr, m.width, m.height, m.format);
+					const f64 draws = m_gpuprof_draws[order[i].second] / 120.;
+					text += m.format == umax ? fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  flip/present", sum.first / 120, sum.second / 120., draws)
+						: fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  %08x %ux%u fmt 0x%x", sum.first / 120, sum.second / 120., draws, m.addr, m.width, m.height, m.format);
 				}
 				rsx_log.notice("%s", text);
 				m_gpuprof_sum.clear();
+				m_gpuprof_draws.clear();
 				m_gpuprof_frames = 0;
 				m_gpuprof_total_ms = 0.;
 			}
@@ -3895,6 +3906,17 @@ void VKGSRender::gpuprof_flip()
 
 	marks.clear();
 	m_gpuprof_draw_sum += m_gpuprof_draw;
+	m_gpuprof_rsx_us[0] += stats.setup_time;
+	m_gpuprof_rsx_us[1] += stats.vertex_upload_time;
+	m_gpuprof_rsx_us[2] += stats.textures_upload_time;
+	m_gpuprof_rsx_us[3] += stats.draw_exec_time;
+	m_gpuprof_rsx_us[4] += m_frame_stats.flip_time;
+	const auto now = std::chrono::steady_clock::now();
+	if (m_gpuprof_last_flip != std::chrono::steady_clock::time_point{})
+	{
+		m_gpuprof_wall_ms += std::chrono::duration<f64, std::milli>(now - m_gpuprof_last_flip).count();
+	}
+	m_gpuprof_last_flip = now;
 	m_gpuprof_draw = 0;
 	m_gpuprof_ended[m_gpuprof_slot] = false;
 	vkCmdResetQueryPool(*m_current_command_buffer, m_gpuprof_pool, m_gpuprof_slot * 1024, 1024);

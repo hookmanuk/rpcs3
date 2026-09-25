@@ -439,7 +439,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 	if (gpuprof_enabled())
 	{
-		gpuprof_flip();
+		gpuprof_flip(info.stats);
 	}
 
 	// Check swapchain condition/status
