@@ -199,6 +199,7 @@ private:
 	f64 m_gpuprof_total_ms = 0.;
 	u32 m_gpuprof_target = 0;      // RPCS3_VR_GPUPROF_TARGET=<hex address>: also time each draw into it
 	u32 m_gpuprof_draw = 0;        // draws since the flip
+	u64 m_gpuprof_draw_sum = 0;
 	atomic_t<u64> m_gpuprof_readback_ns{0}; // guest threads blocked in GPU readbacks (on_access_violation)
 	atomic_t<u32> m_gpuprof_readbacks{0};
 	atomic_t<u32> m_gpuprof_readback_addr{0};

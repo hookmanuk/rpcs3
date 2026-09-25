@@ -215,12 +215,12 @@ namespace rsx::vr
 		// target drawn in this frame instead.
 		bool current_frame_copies = false;
 
-		// Guest memory the game copies a render target into and then reads on its
-		// CPU/SPUs, waiting for the GPU (Shadow of the Colossus: the depth buffer, every
-		// frame). In stereo at high resolution scales that wait is most of the frame, so
-		// a read there takes whatever the GPU has written so far (the previous frame's
-		// copy, or part of this one) instead of waiting. "0xADDR:0xSIZE" each.
-		std::vector<std::pair<u32, u32>> readback_without_wait;
+		// Guest memory the game copies its depth buffer into for its own occlusion culling
+		// on the CPU/SPUs (Shadow of the Colossus, every frame). In stereo that depth is the
+		// eye's, not the game camera's, so the culling hides visible objects (flashing holes,
+		// popping), and the read waited for almost the whole stereo scene. Reads there get
+		// far depth everywhere at once: nothing is culled by occlusion. "0xADDR:0xSIZE" each.
+		std::vector<std::pair<u32, u32>> occlusion_depth_readback;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
@@ -255,8 +255,8 @@ namespace rsx::vr
 	// when the VR profile caps the frame rate (max_fps) and 0 when it does not.
 	u32 effective_reprojection_margin();
 
-	// True while stereo is rendered and [start, end] overlaps the profile's readback_without_wait.
-	bool readback_without_wait(u32 start, u32 end);
+	// True while stereo is rendered and [start, end] overlaps the profile's occlusion_depth_readback.
+	bool occlusion_depth_readback(u32 start, u32 end);
 
 	class camera_probe
 	{

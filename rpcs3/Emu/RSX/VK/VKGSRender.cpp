@@ -3872,6 +3872,8 @@ void VKGSRender::gpuprof_flip()
 				std::string text = fmt::format("GPU profile: %.2f ms/frame over 120 frames (scale %u%%, %s); RSX thread in hard syncs %.2f ms/frame (%.1f/frame)",
 					m_gpuprof_total_ms / 120, resolution_scaling_config.scale_percent, rsx::vr::camera_probe::get().render_enabled() ? "stereo" : "flat",
 					m_gpuprof_sync_ms / 120, m_gpuprof_syncs / 120.);
+				text += fmt::format("; %.0f draws/frame", m_gpuprof_draw_sum / 120.);
+				m_gpuprof_draw_sum = 0;
 				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.1f/frame, last at 0x%x)",
 					m_gpuprof_readback_ns.exchange(0) / 1e6 / 120, m_gpuprof_readbacks.exchange(0) / 120., m_gpuprof_readback_addr.load());
 				m_gpuprof_sync_ms = 0.;
@@ -3892,6 +3894,7 @@ void VKGSRender::gpuprof_flip()
 	}
 
 	marks.clear();
+	m_gpuprof_draw_sum += m_gpuprof_draw;
 	m_gpuprof_draw = 0;
 	m_gpuprof_ended[m_gpuprof_slot] = false;
 	vkCmdResetQueryPool(*m_current_command_buffer, m_gpuprof_pool, m_gpuprof_slot * 1024, 1024);

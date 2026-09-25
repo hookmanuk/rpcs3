@@ -570,7 +570,7 @@ namespace rsx::vr
 		{
 			profile->current_frame_copies = current == "true";
 		}
-		if (const YAML::Node ranges = child(root, "readback_without_wait"); ranges && ranges.IsSequence())
+		if (const YAML::Node ranges = child(root, "occlusion_depth_readback"); ranges && ranges.IsSequence())
 		{
 			for (const auto& node : ranges)
 			{
@@ -581,16 +581,16 @@ namespace rsx::vr
 				const u32 size = colon == umax ? 0 : static_cast<u32>(std::strtoul(text.substr(colon + 1).c_str(), nullptr, 16));
 				if (!size)
 				{
-					error += fmt::format(" readback_without_wait '%s' needs a size (0xADDR:0xSIZE).", text);
+					error += fmt::format(" occlusion_depth_readback '%s' needs a size (0xADDR:0xSIZE).", text);
 					continue;
 				}
-				profile->readback_without_wait.emplace_back(start, size);
+				profile->occlusion_depth_readback.emplace_back(start, size);
 			}
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "max_fps", "reproject_older_frames", "require_rigid_camera", "require_camera_aspect",
-			"game_camera_target_widths", "current_frame_copies", "readback_without_wait" });
+			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "frames_without_3d_as_screen" });
@@ -653,22 +653,22 @@ namespace rsx::vr
 		return profile && profile->max_fps != 0 ? 10 : 0;
 	}
 
-	bool readback_without_wait(u32 start, u32 end)
+	bool occlusion_depth_readback(u32 start, u32 end)
 	{
 		camera_probe& probe = camera_probe::get();
 		const title_profile* profile = probe.profile();
-		if (!profile || profile->readback_without_wait.empty() || !probe.render_enabled())
+		if (!profile || profile->occlusion_depth_readback.empty() || !probe.render_enabled())
 		{
 			return false;
 		}
-		for (const auto& [base, size] : profile->readback_without_wait)
+		for (const auto& [base, size] : profile->occlusion_depth_readback)
 		{
 			if (start < base + size && end >= base)
 			{
 				static atomic_t<bool> s_logged{false};
 				if (!s_logged.exchange(true))
 				{
-					vr_probe_log.notice("VR: guest reads of 0x%x..0x%x take the GPU's copy without waiting (readback_without_wait).", base, base + size - 1);
+					vr_probe_log.notice("VR: occlusion depth readback at 0x%x..0x%x answered with far depth (occlusion_depth_readback).", base, base + size - 1);
 				}
 				return true;
 			}

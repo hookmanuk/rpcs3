@@ -4,7 +4,7 @@
   "app_version": "01.00",
   "max_fps": 0,
   "game_refresh_rate_f32": ["0x736be8"],
-  "readback_without_wait": ["0x30800000:0x360000"],
+  "occlusion_depth_readback": ["0x30800000:0x360000"],
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [60, 64],
