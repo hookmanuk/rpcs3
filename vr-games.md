@@ -81,6 +81,8 @@ VR): get new VR builds from the same place as this one.
   `SPU Compatible Savestates Mode`. Patches are applied at boot, not when loading a savestate.
 - Splash screens and videos are shown on a flat screen in front of you.
 - **Known issues:** flames can fade oddly right next to walls; some distant objects may still pop in.
+  On the first run of a new install the menus and HUD may not show correctly (not scaled into the HUD box);
+  they are fine from the second launch.
 
 ### 4. Shadow of the Colossus (BCUS98259, ICO & Shadow of the Colossus Collection): 60 FPS
 
