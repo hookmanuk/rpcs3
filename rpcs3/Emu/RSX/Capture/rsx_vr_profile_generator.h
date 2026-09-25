@@ -6,8 +6,8 @@
 // get VR without offline analysis. Started from the home menu's VR tab: after
 // the menu closes it samples ten seconds of gameplay (the vertex
 // constants of every draw), finds the camera blocks and their matrix layout,
-// the camera position slot and the HUD block, writes the profile, reloads it
-// and turns VR on. The method is plans/5-vr-profile-playbook.md step 3
+// the camera position slot, the HUD block and the game's frame rate, writes the
+// profile, reloads it and turns VR on. The method is plans/5-vr-profile-playbook.md step 3
 // (plans/tools/profile_survey.py); the choices it makes are logged in detail.
 
 #include <array>
@@ -57,6 +57,7 @@ namespace rsx::vr
 		atomic_t<bool> m_sample_this_frame{ false };
 		u32 m_frame_counter = 0;
 		u32 m_frames_sampled = 0;
+		u32 m_flips = 0;         // game frames within the play time (frame rate)
 		u64 m_played_us = 0;
 		u64 m_next_sample_us = 0;
 		u64 m_last_frame_us = 0;
