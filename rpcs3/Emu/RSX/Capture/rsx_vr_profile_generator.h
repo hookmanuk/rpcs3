@@ -35,7 +35,9 @@ namespace rsx::vr
 		// One draw's vertex constants, by original guest index. constant_ids empty
 		// means the program reads the whole bank (indexed constants). textures: what the
 		// fragment program samples (bit 0 ordinary textures, bit 1 colour render targets).
-		void record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures);
+		// target: colour address 0; ucode: the vertex program's ucode hash (profile hud_programs).
+		void record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures,
+			u32 target, u64 ucode);
 
 		// Frame boundary (game flips only).
 		void on_frame_end();
@@ -49,6 +51,8 @@ namespace rsx::vr
 			bool full_bank = false;
 			bool depth_test = false;
 			u8 textures = 0;         // bit 0 ordinary textures, bit 1 colour render targets
+			u32 target = 0;          // colour address 0
+			u64 ucode = 0;           // vertex program ucode hash
 			std::vector<u16> ids;
 			std::vector<std::array<f32, 4>> values;
 		};

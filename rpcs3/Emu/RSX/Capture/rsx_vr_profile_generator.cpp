@@ -19,6 +19,7 @@
 #include <bit>
 #include <cmath>
 #include <map>
+#include <set>
 #include <optional>
 
 LOG_CHANNEL(vr_gen_log, "VRGEN");
@@ -40,6 +41,7 @@ namespace rsx::vr
 		constexpr f64 aspect_tolerance = 0.1;   // B/A against the output aspect
 		constexpr f64 human_ipd = 0.064;         // metres
 		constexpr f64 reference_near_plane = 0.1; // metres; a common engine near plane (Pure's is exactly 0.1)
+		constexpr f64 min_metre_near_plane = 0.01, max_metre_near_plane = 1.0; // near planes that mean metres
 		constexpr f64 convergence_in_baselines = 40.0;
 		constexpr f64 view_aspect_tolerance = 0.05;  // render targets that count as camera views
 		constexpr f64 min_scene_coverage = 0.8;      // below: clip_space_scene_draws
@@ -279,7 +281,8 @@ namespace rsx::vr
 		rsx::overlays::queue_message(localized_string_id::VR_PROFILE_GENERATING, 10'000'000);
 	}
 
-	void profile_generator::record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures)
+	void profile_generator::record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures,
+		u32 target, u64 ucode)
 	{
 		const auto& bank = rsx::method_registers.transform_constants;
 
@@ -290,6 +293,8 @@ namespace rsx::vr
 		s.full_bank = constant_ids.empty();
 		s.depth_test = depth_test;
 		s.textures = static_cast<u8>(textures);
+		s.target = target;
+		s.ucode = ucode;
 
 		const auto push = [&](u32 index)
 		{
@@ -780,15 +785,94 @@ namespace rsx::vr
 			vr_gen_log.notice("HUD block c[%u] (%u HUD draws) is also read by %u full-screen passes: hud_skips_passes.", hud_block, hud_best, pass_hits[hud_block]);
 		}
 
-		// 5. World scale. Nothing in the constants says how big a unit is; the near
-		// plane is the best cue (engines put it a similar real distance from the eye).
-		// Pure: 0.1 units, metres. WipEout: 0.542 units -> 0.347 (native 3D: 0.240).
-		// World Scale in the VR settings corrects the rest in the headset.
+		// 4b. HUD drawn without a matrix (positions already in screen space: ICO's pause menu,
+		// Ridge Racer 7's race HUD): full-frame draws without depth test that read no 4-slot
+		// block in any layout and sample ordinary textures only. passthrough_hud boxes them;
+		// programs drawing into a target camera draws also wrote in that frame go in
+		// hud_programs (Ridge Racer 7 and SotC draw the HUD into the scene's final image).
+		const auto camera_draw = [&](const draw_sample& s)
+		{
+			const slot_reader r{ s.ids, s.values, s.full_bank };
+			for (const u32 base : blocks)
+			{
+				if (const auto b = read_block(r, base, columns); b && is_perspective(b->m) && (!require_rigid || rigidity(b->m) <= rigid_tolerance) &&
+					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		const auto matrix_less = [&](const draw_sample& s)
+		{
+			if (s.full_bank) return false;
+			const slot_reader r{ s.ids, s.values, false };
+			for (const u16 base : s.ids)
+			{
+				for (u32 layout = 0; layout < layout_count; ++layout)
+				{
+					if (read_block(r, base, layout)) return false;
+				}
+				if (read_flat_rows(r, base)) return false;
+			}
+			return true;
+		};
+		std::map<u64, std::pair<u32, u32>> flat_hud; // program ucode -> (draws, draws into a camera target)
+		std::set<u32> frame_camera_targets;
+		u32 flat_hud_draws = 0;
+		for (const auto& s : samples)
+		{
+			if (s.program == umax)
+			{
+				frame_camera_targets.clear(); // frame marker
+				continue;
+			}
+			if (!s.height) continue;
+			if (camera_draw(s))
+			{
+				frame_camera_targets.insert(s.target);
+				continue;
+			}
+			const bool full_frame = std::fabs((static_cast<f64>(s.width) / s.height) / output_aspect - 1.0) <= view_aspect_tolerance &&
+				s.width * 20u >= eye.width * 19u;
+			if (!full_frame || s.depth_test || !(s.textures & texture_ordinary) || (s.textures & texture_colour_target) || !matrix_less(s))
+			{
+				continue;
+			}
+			auto& h = flat_hud[s.ucode];
+			h.first++;
+			h.second += frame_camera_targets.contains(s.target) ? 1 : 0;
+			flat_hud_draws++;
+		}
+		const bool passthrough_hud = hud_block == umax && flat_hud_draws >= 20;
+		std::vector<u64> hud_programs;
+		if (passthrough_hud)
+		{
+			for (const auto& [ucode, counts] : flat_hud)
+			{
+				vr_gen_log.notice("Matrix-less HUD program %016llx: %u draws, %u into a camera target.", ucode, counts.first, counts.second);
+				if (counts.first >= 5 && counts.second * 2 >= counts.first)
+				{
+					hud_programs.push_back(ucode);
+				}
+			}
+			vr_gen_log.notice("%u full-frame draws without a matrix (screen-space HUD): passthrough_hud, %u hud_programs.", flat_hud_draws, ::size32(hud_programs));
+		}
+
+		// 5. World scale. Nothing in the constants says how big a unit is. Most engines use
+		// metres, with near planes anywhere from 0.05 (Demon's Souls) through 0.1 (Pure) to 0.3
+		// (Ridge Racer 7, whose car has a 1.6-unit track and a chase camera 5.7 units behind:
+		// metres), so a near plane in that range means metres. Only one far outside it says
+		// the units differ (inFamous: near 10, centimetres). World Scale in the VR settings
+		// corrects the rest in the headset.
 		f64 baseline = human_ipd;
 		if (!near_planes.empty())
 		{
 			const f64 n = median(near_planes);
-			baseline = std::clamp(human_ipd * n / reference_near_plane, human_ipd / 20.0, human_ipd * 200.0); // up to centimetre worlds (inFamous: near 10)
+			if (n < min_metre_near_plane || n > max_metre_near_plane)
+			{
+				baseline = std::clamp(human_ipd * n / reference_near_plane, human_ipd / 20.0, human_ipd * 200.0);
+			}
 			vr_gen_log.notice("Near plane %.4f units: eye_baseline %.4f (world units per metre %.3f).", n, baseline, baseline / human_ipd);
 		}
 
@@ -865,9 +949,16 @@ namespace rsx::vr
 		{
 			vr_gen_log.notice("%u camera draws are camera-space geometry at a fixed depth (a 3D HUD): depth_offset_projection.", depth_offset_draws);
 		}
-		if (hud_block != umax || bare_projection || depth_offset_projection)
+		if (hud_block != umax || bare_projection || depth_offset_projection || passthrough_hud)
 		{
 			std::vector<std::string> entries;
+			if (passthrough_hud) entries.push_back("    \"passthrough_hud\": true");
+			if (!hud_programs.empty())
+			{
+				std::string list;
+				for (const u64 p : hud_programs) list += fmt::format("%s\"%016llx\"", list.empty() ? "" : ", ", p);
+				entries.push_back(fmt::format("    \"hud_programs\": [%s]", list));
+			}
 			if (hud_block != umax) entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
 			if (hud_skips_passes) entries.push_back("    \"hud_skips_passes\": true");
 			if (bare_projection) entries.push_back("    \"bare_projection\": true");

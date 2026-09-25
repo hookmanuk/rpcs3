@@ -6,6 +6,7 @@
 #include "../Capture/rsx_stereo_inspector.h"
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_profile_generator.h"
+#include "../Utils/rsx_utils.h"
 
 #include "VKAsyncScheduler.h"
 #include "VKGSRender.h"
@@ -1412,7 +1413,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		// guest registers, so they are right even while the shader interpreter draws.
 		const bool full_bank = m_vertex_prog->constant_ids.empty();
 		generator.record_draw(full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids),
-			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height, rsx::method_registers.depth_test_enabled(), vr_sampled_textures());
+			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height, rsx::method_registers.depth_test_enabled(), vr_sampled_textures(),
+			m_framebuffer_layout.color_addresses[0], program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program));
 	}
 
 	// Keep Vulkan command emission in one host-only callable. Gate 5 invokes it
@@ -2160,8 +2162,12 @@ bool VKGSRender::vr_is_passthrough_hud()
 		}
 	}
 	// Full frame or larger: smaller buffers are intermediate passes (ICO's shadow mask).
+	// The frame is the scene or the output, whichever is narrower: Ridge Racer 7 renders
+	// its scene 1408 wide and draws the HUD at the 1280 output size.
 	const vk::render_target* scene = m_vr_camera_targets.empty() ? nullptr : m_rtts.get_surface_at(m_vr_camera_targets.back());
-	if (!scene || m_framebuffer_layout.width * 20 < scene->get_surface_width<rsx::surface_metrics::pixels>() * 19)
+	const u32 output_width = g_fxo->get<rsx::avconf>().video_frame_size().width;
+	const u32 frame_width = scene ? std::min<u32>(scene->get_surface_width<rsx::surface_metrics::pixels>(), output_width ? output_width : umax) : 0;
+	if (!scene || m_framebuffer_layout.width * 20 < frame_width * 19)
 	{
 		return false;
 	}
