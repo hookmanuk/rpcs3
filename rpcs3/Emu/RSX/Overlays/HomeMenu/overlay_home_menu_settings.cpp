@@ -202,11 +202,15 @@ namespace rsx
 			if (const auto* profile = rsx::vr::camera_probe::get().profile())
 			{
 				const u32 max_fps = profile->max_fps;
-				const u32 default_option = rsx::vr::frame_rate_option_for_fps(profile->default_fps);
-				// Until a rate is chosen (Default), the game's own default rate is selected.
+				const u32 default_fps = profile->default_fps;
+				// "Default" names the game's own default rate (from its VR profile).
 				add_dropdown(&g_cfg.video.vr.frame_rate, localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_RATE,
 					[max_fps](u32 option) { return rsx::vr::frame_rate_option_allowed(option, max_fps); },
-					[default_option](u32) { return default_option; });
+					[default_fps](u32 option, const std::string& text)
+					{
+						if (rsx::vr::frame_rate_option_fps(option) != umax) return text;
+						return default_fps ? fmt::format("%s (%u FPS)", text, default_fps) : fmt::format("%s (headset refresh rate)", text);
+					});
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);

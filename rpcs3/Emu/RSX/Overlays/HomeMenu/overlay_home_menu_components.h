@@ -122,10 +122,10 @@ namespace rsx
 		{
 		public:
 			// filter (optional): which of the setting's values (by index) are offered.
-			// shown_as (optional): the entry shown for a stored value that is not offered.
-			home_menu_dropdown(cfg::_enum<T>* setting, const std::string& text, std::function<bool(u32)> filter = {}, std::function<u32(u32)> shown_as = {})
+			// relabel (optional): an entry's text from its value index and translated text.
+			home_menu_dropdown(cfg::_enum<T>* setting, const std::string& text, std::function<bool(u32)> filter = {},
+				std::function<std::string(u32, const std::string&)> relabel = {})
 				: home_menu_setting<T, cfg::_enum<T>>(setting, text)
-				, m_shown_as(std::move(shown_as))
 			{
 				for (size_t index = 0; index < setting->size(); index++)
 				{
@@ -134,6 +134,10 @@ namespace rsx
 						continue;
 					}
 					auto translated = g_emu_callbacks.get_localized_setting(home_menu_setting<T, cfg::_enum<T>>::m_setting, static_cast<u32>(index));
+					if (relabel)
+					{
+						translated = relabel(static_cast<u32>(index), translated);
+					}
 					m_options.emplace_back(std::move(translated));
 					m_values.push_back(static_cast<u32>(index));
 				}
@@ -157,10 +161,6 @@ namespace rsx
 						current_index = index;
 						break;
 					}
-				}
-				if (m_shown_as && std::find(m_values.begin(), m_values.end(), current_index) == m_values.end())
-				{
-					current_index = m_shown_as(current_index);
 				}
 				for (s32 pos = 0; pos < static_cast<s32>(m_values.size()); ++pos)
 				{
@@ -311,7 +311,6 @@ namespace rsx
 		private:
 			std::vector<std::string> m_options;
 			std::vector<u32> m_values; // the setting value index of each entry in m_options
-			std::function<u32(u32)> m_shown_as;
 			select* m_dropdown = nullptr;
 
 			int m_previous_selection = -1;

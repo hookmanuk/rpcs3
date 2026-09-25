@@ -689,9 +689,8 @@ namespace rsx::vr
 
 	bool frame_rate_option_allowed(u32 option, u32 max_fps)
 	{
-		// Default is not listed (the lists show the game's default rate in its place).
 		const u32 fps = frame_rate_option_fps(option);
-		return fps != umax && (!max_fps || (fps && fps <= max_fps));
+		return fps == umax || !max_fps || (fps && fps <= max_fps);
 	}
 
 	namespace

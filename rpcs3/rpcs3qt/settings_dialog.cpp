@@ -598,16 +598,32 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	EnhanceCheckBox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
 	{
-		// Each game's default rate, from its VR profile.
+		// Each game's default rate, from its VR profile, with the headset refresh rates that
+		// are an exact multiple of it.
 		QString tooltip = tooltips.settings.vr_frame_rate;
 		if (vr_profiled_title)
 		{
 			for (const auto& game_rate : rsx::vr::title_frame_rates(game->serial))
 			{
 				const QString name = QString::fromStdString(game_rate.name);
-				tooltip += !game_rate.default_fps ? tr("\n%1: headset refresh rate", "VR frame rate").arg(name)
-					: game_rate.max_fps == game_rate.default_fps ? tr("\n%1: %2 FPS (maximum)", "VR frame rate").arg(name).arg(game_rate.default_fps)
-					: tr("\n%1: %2 FPS", "VR frame rate").arg(name).arg(game_rate.default_fps);
+				if (!game_rate.default_fps)
+				{
+					tooltip += tr("\n%1: headset refresh rate (any)", "VR frame rate").arg(name);
+					continue;
+				}
+				QStringList rates;
+				for (const u32 hz : { 60u, 72u, 75u, 80u, 90u, 100u, 120u, 144u })
+				{
+					if (hz % game_rate.default_fps == 0)
+					{
+						rates << QString::number(hz);
+					}
+				}
+				const QString headset = rates.empty() ? QString() : tr(", headset %1 Hz", "VR frame rate").arg(rates.join("/"));
+				tooltip += game_rate.max_fps == game_rate.default_fps
+					? tr("\n%1: %2 FPS (maximum%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset)
+					: headset.isEmpty() ? tr("\n%1: %2 FPS", "VR frame rate").arg(name).arg(game_rate.default_fps)
+					: tr("\n%1: %2 FPS (%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset.mid(2));
 			}
 		}
 		SubscribeTooltip(ui->gb_vrFrameRate, tooltip);
@@ -616,31 +632,31 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	{
 		// Only rates up to the most any game of this title works at (a collection's games
 		// share this configuration; each clamps to its own maximum when it runs).
-		// Default is not an entry: until a rate is chosen the box is empty and shows each game's
-		// default rate as its placeholder. Signals are blocked so nothing is saved here.
+		// Signals are blocked so nothing is saved here.
 		const u32 max_fps = rsx::vr::title_max_fps(game->serial);
 		const QSignalBlocker blocker(ui->vrFrameRate);
 		const int current = ui->vrFrameRate->currentIndex();
-		const bool is_default = current >= 0 && ui->vrFrameRate->itemData(current).toList().value(1).toUInt() == 0;
-		for (int i = ui->vrFrameRate->count() - 1; i >= 0; --i)
-		{
-			const QVariantList data = ui->vrFrameRate->itemData(i).toList();
-			if (data.size() == 2 && !rsx::vr::frame_rate_option_allowed(data[1].toUInt(), max_fps) &&
-				(i != current || is_default))
-			{
-				ui->vrFrameRate->removeItem(i);
-			}
-		}
 		QStringList defaults;
 		for (const u32 fps : rsx::vr::title_default_fps(game->serial))
 		{
 			defaults << (fps ? tr("%1 FPS", "VR frame rate").arg(fps) : tr("headset refresh rate", "VR frame rate"));
 		}
-		ui->vrFrameRate->setPlaceholderText(defaults.size() > 1 ? tr("Each game's default: %1", "VR frame rate").arg(defaults.join(" / "))
-			: tr("Game default: %1", "VR frame rate").arg(defaults.value(0)));
-		if (is_default)
+		for (int i = ui->vrFrameRate->count() - 1; i >= 0; --i)
 		{
-			ui->vrFrameRate->setCurrentIndex(-1);
+			const QVariantList data = ui->vrFrameRate->itemData(i).toList();
+			if (data.size() != 2)
+			{
+				continue;
+			}
+			if (data[1].toUInt() == 0)
+			{
+				// "Default (60 FPS)", or each game's for a collection ("Default (30 FPS / 60 FPS)").
+				ui->vrFrameRate->setItemText(i, tr("Default (%1)", "VR frame rate").arg(defaults.join(" / ")));
+			}
+			else if (i != current && !rsx::vr::frame_rate_option_allowed(data[1].toUInt(), max_fps))
+			{
+				ui->vrFrameRate->removeItem(i);
+			}
 		}
 	}
 	{
