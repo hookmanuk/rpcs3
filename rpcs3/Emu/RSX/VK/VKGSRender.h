@@ -181,6 +181,35 @@ private:
 	void vr_trace_flush_cam();
 	void vr_track_frame_boundary();  // prepare_rtts: detect the move away from a display buffer
 
+	// Dev (RPCS3_VR_GPUPROF=1): GPU time per render target. A timestamp at each render
+	// target change and flip; every 120 frames the log lists the targets by GPU ms/frame.
+	struct gpuprof_mark_t
+	{
+		u32 addr = 0;
+		u32 width = 0;
+		u32 height = 0;
+		u32 format = 0; // umax: flip/present
+	};
+	s32 m_gpuprof_enabled = -1;
+	VkQueryPool m_gpuprof_pool = VK_NULL_HANDLE;
+	std::vector<gpuprof_mark_t> m_gpuprof_marks[3];
+	bool m_gpuprof_ended[3]{};
+	u32 m_gpuprof_slot = 0;
+	u32 m_gpuprof_frames = 0;
+	f64 m_gpuprof_total_ms = 0.;
+	u32 m_gpuprof_target = 0;      // RPCS3_VR_GPUPROF_TARGET=<hex address>: also time each draw into it
+	u32 m_gpuprof_draw = 0;        // draws since the flip
+	atomic_t<u64> m_gpuprof_readback_ns{0}; // guest threads blocked in GPU readbacks (on_access_violation)
+	atomic_t<u32> m_gpuprof_readbacks{0};
+	atomic_t<u32> m_gpuprof_readback_addr{0};
+	f64 m_gpuprof_sync_ms = 0.;   // RSX thread blocked in hard syncs (flush_command_queue(true))
+	u32 m_gpuprof_syncs = 0;
+	std::unordered_map<u64, std::pair<f64, u32>> m_gpuprof_sum; // key -> (ms, segments)
+	std::unordered_map<u64, gpuprof_mark_t> m_gpuprof_keys;
+	bool gpuprof_enabled();
+	void gpuprof_mark(const gpuprof_mark_t& mark);
+	void gpuprof_flip();
+
 	// Right-eye pixels a blit staged in memory with no surface (ICO bounces its
 	// frame through main memory). One
 	// image covers a full row of the pitch, so column chunks (1024 + 256) land in

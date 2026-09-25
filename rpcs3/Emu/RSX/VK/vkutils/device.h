@@ -149,6 +149,10 @@ namespace vk
 		VkQueue m_graphics_queue = VK_NULL_HANDLE;
 		VkQueue m_present_queue = VK_NULL_HANDLE;
 		VkQueue m_transfer_queue = VK_NULL_HANDLE;
+		// A spare graphics queue for the OpenXR frame thread (VR), so the runtime's
+		// waits in xrEndFrame and the swapchain calls never hold RPCS3's queue.
+		VkQueue m_xr_queue = VK_NULL_HANDLE;
+		u32 m_xr_queue_index = 0;
 
 		u32 m_graphics_queue_family = 0;
 		u32 m_present_queue_family = 0;
@@ -200,6 +204,8 @@ namespace vk
 		VkQueue get_present_queue() const { return m_present_queue; }
 		VkQueue get_graphics_queue() const { return m_graphics_queue; }
 		VkQueue get_transfer_queue() const { return m_transfer_queue; }
+		VkQueue get_xr_queue() const { return m_xr_queue; }
+		u32 get_xr_queue_index() const { return m_xr_queue_index; }
 		u32 get_graphics_queue_family() const { return m_graphics_queue_family; }
 		u32 get_present_queue_family() const { return m_graphics_queue_family; }
 		u32 get_transfer_queue_family() const { return m_transfer_queue_family; }

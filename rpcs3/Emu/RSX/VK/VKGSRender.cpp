@@ -498,9 +498,12 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 
 	if (vk::xr::is_prepared())
 	{
-		// RPCS3 submits graphics work to queue 0 of the graphics family.
+		// RPCS3 submits graphics work to queue 0 of the graphics family; the OpenXR
+		// runtime gets a spare queue of that family when there is one.
+		const VkQueue xr_queue = m_device->get_xr_queue();
 		vk::xr::create_session(m_instance.handle(), m_device->gpu(), *m_device,
-			m_device->get_graphics_queue(), m_device->get_graphics_queue_family(), 0);
+			xr_queue ? xr_queue : m_device->get_graphics_queue(), m_device->get_graphics_queue_family(),
+			xr_queue ? m_device->get_xr_queue_index() : 0, m_device->get_graphics_queue());
 	}
 
 	m_swapchain_dims.width = m_frame->client_width();
@@ -989,6 +992,31 @@ bool VKGSRender::on_access_violation(u32 address, bool is_writing)
 
 	if (result.num_flushable > 0)
 	{
+		// Dev GPU profile: time the guest thread spends blocked here.
+		struct readback_timer
+		{
+			VKGSRender* r;
+			std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+			~readback_timer()
+			{
+				if (r->m_gpuprof_enabled > 0)
+				{
+					r->m_gpuprof_readback_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();
+					r->m_gpuprof_readbacks++;
+				}
+			}
+		} readback_timer_{ this };
+		m_gpuprof_readback_addr = address;
+		if (m_gpuprof_enabled > 0)
+		{
+			static atomic_t<u32> s_logged{0};
+			if (s_logged++ < 6)
+			{
+				const auto* cpu = cpu_thread::get_current();
+				rsx_log.notice("GPU profile: readback of 0x%x (%s) by %s", address, is_writing ? "write" : "read", cpu ? cpu->get_name() : std::string("host thread"));
+			}
+		}
+
 		if (g_fxo->get<rsx::dma_manager>().is_current_thread())
 		{
 			// The offloader thread cannot handle flush requests
@@ -1791,6 +1819,7 @@ void VKGSRender::vr_batch_execute()
 
 void VKGSRender::flush_command_queue(bool hard_sync, bool do_not_switch)
 {
+	const auto sync_start = hard_sync && m_gpuprof_enabled > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	close_and_submit_command_buffer();
 
 	if (hard_sync)
@@ -1808,6 +1837,12 @@ void VKGSRender::flush_command_queue(bool hard_sync, bool do_not_switch)
 		}
 
 		m_flush_requests.clear_pending_flag();
+
+		if (m_gpuprof_enabled > 0)
+		{
+			m_gpuprof_sync_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - sync_start).count();
+			m_gpuprof_syncs++;
+		}
 	}
 
 	if (!do_not_switch)
@@ -2843,6 +2878,13 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		vr_track_frame_boundary();
 	}
 
+	if (gpuprof_enabled())
+	{
+		gpuprof_mark({ m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address,
+			m_framebuffer_layout.width, m_framebuffer_layout.height,
+			m_framebuffer_layout.color_addresses[0] ? static_cast<u32>(m_framebuffer_layout.color_format) : 0x1000u + static_cast<u32>(m_framebuffer_layout.depth_format) });
+	}
+
 	// Gate 5: bind an isomorphic, host-only target set for the right eye. This
 	// deliberately uses a separate surface cache: guest addresses remain the
 	// semantic key, but no right-eye image is ever exposed to guest memory or
@@ -3742,4 +3784,117 @@ void VKGSRender::vr_redirect_previous_frame_copy(rsx::blit_src_info& src)
 		src.pixels += delta;
 		return;
 	}
+}
+
+
+bool VKGSRender::gpuprof_enabled()
+{
+	if (m_gpuprof_enabled < 0)
+	{
+		const char* env = std::getenv("RPCS3_VR_GPUPROF");
+		m_gpuprof_enabled = env && env[0] == '1';
+		if (m_gpuprof_enabled)
+		{
+			VkQueryPoolCreateInfo info{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+			info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			info.queryCount = 3 * 1024;
+			if (vkCreateQueryPool(*m_device, &info, nullptr, &m_gpuprof_pool) != VK_SUCCESS)
+			{
+				m_gpuprof_enabled = 0;
+			}
+			else
+			{
+				if (const char* target = std::getenv("RPCS3_VR_GPUPROF_TARGET"))
+				{
+					m_gpuprof_target = static_cast<u32>(std::strtoul(target, nullptr, 16));
+				}
+				rsx_log.success("GPU profile: GPU time per render target, logged every 120 frames (per draw into 0x%x).", m_gpuprof_target);
+			}
+		}
+	}
+	return m_gpuprof_enabled > 0;
+}
+
+void VKGSRender::gpuprof_mark(const gpuprof_mark_t& mark)
+{
+	auto& marks = m_gpuprof_marks[m_gpuprof_slot];
+	if (marks.empty() || marks.size() >= 1023)
+	{
+		return; // before the first flip, or full
+	}
+	vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024 + ::size32(marks));
+	marks.push_back(mark);
+}
+
+void VKGSRender::gpuprof_flip()
+{
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+
+	// End this frame: one more timestamp closes its last segment.
+	auto& current = m_gpuprof_marks[m_gpuprof_slot];
+	if (!current.empty())
+	{
+		vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024 + ::size32(current));
+		m_gpuprof_ended[m_gpuprof_slot] = true;
+	}
+
+	// Collect the frame recorded in the next slot (three flips ago), then reuse it.
+	m_gpuprof_slot = (m_gpuprof_slot + 1) % 3;
+	auto& marks = m_gpuprof_marks[m_gpuprof_slot];
+	if (m_gpuprof_ended[m_gpuprof_slot] && !marks.empty())
+	{
+		std::vector<u64> ts(marks.size() + 1);
+		if (vkGetQueryPoolResults(*m_device, m_gpuprof_pool, m_gpuprof_slot * 1024, ::size32(ts), ts.size() * sizeof(u64), ts.data(), sizeof(u64),
+			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS)
+		{
+			const f64 period_ms = m_device->gpu().get_limits().timestampPeriod / 1e6;
+			for (usz i = 0; i < marks.size(); ++i)
+			{
+				const auto& m = marks[i];
+				const u64 key = (u64{ m.addr } << 32) ^ (u64{ m.width } << 20) ^ (u64{ m.height } << 8) ^ m.format;
+				auto& sum = m_gpuprof_sum[key];
+				sum.first += (ts[i + 1] - ts[i]) * period_ms;
+				sum.second++;
+				m_gpuprof_keys[key] = m;
+			}
+			m_gpuprof_total_ms += (ts.back() - ts.front()) * period_ms;
+			if (++m_gpuprof_frames == 120)
+			{
+				std::vector<std::pair<f64, u64>> order;
+				for (const auto& [key, sum] : m_gpuprof_sum)
+				{
+					order.emplace_back(sum.first, key);
+				}
+				std::sort(order.rbegin(), order.rend());
+				std::string text = fmt::format("GPU profile: %.2f ms/frame over 120 frames (scale %u%%, %s); RSX thread in hard syncs %.2f ms/frame (%.1f/frame)",
+					m_gpuprof_total_ms / 120, resolution_scaling_config.scale_percent, rsx::vr::camera_probe::get().render_enabled() ? "stereo" : "flat",
+					m_gpuprof_sync_ms / 120, m_gpuprof_syncs / 120.);
+				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.1f/frame, last at 0x%x)",
+					m_gpuprof_readback_ns.exchange(0) / 1e6 / 120, m_gpuprof_readbacks.exchange(0) / 120., m_gpuprof_readback_addr.load());
+				m_gpuprof_sync_ms = 0.;
+				m_gpuprof_syncs = 0;
+				for (usz i = 0; i < std::min<usz>(order.size(), 24); ++i)
+				{
+					const auto& m = m_gpuprof_keys[order[i].second];
+					const auto& sum = m_gpuprof_sum[order[i].second];
+					text += m.format == umax ? fmt::format("\n  %7.3f ms  x%5.1f  flip/present", sum.first / 120, sum.second / 120.)
+						: fmt::format("\n  %7.3f ms  x%5.1f  %08x %ux%u fmt 0x%x", sum.first / 120, sum.second / 120., m.addr, m.width, m.height, m.format);
+				}
+				rsx_log.notice("%s", text);
+				m_gpuprof_sum.clear();
+				m_gpuprof_frames = 0;
+				m_gpuprof_total_ms = 0.;
+			}
+		}
+	}
+
+	marks.clear();
+	m_gpuprof_draw = 0;
+	m_gpuprof_ended[m_gpuprof_slot] = false;
+	vkCmdResetQueryPool(*m_current_command_buffer, m_gpuprof_pool, m_gpuprof_slot * 1024, 1024);
+	vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024);
+	marks.push_back({ 0, 0, 0, umax });
 }

@@ -47,8 +47,10 @@ namespace vk::xr
 	VkPhysicalDevice get_physical_device(VkInstance instance);
 
 	// Also starts the OpenXR frame thread, which submits its swapchain copies to
-	// `queue` under RPCS3's global submit lock.
-	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index);
+	// `queue`. If that is not `render_queue` (RPCS3's), the frame thread and the
+	// runtime own it outright; otherwise they share it under RPCS3's global submit lock.
+	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index,
+		VkQueue render_queue);
 	void destroy();
 
 	// True while the headset session is running (the frame thread is presenting).
@@ -58,6 +60,11 @@ namespace vk::xr
 	// free eye buffer inside RPCS3's command buffer. right may equal left. If this
 	// returns true, submit the command buffer, then call commit_eyes().
 	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
+
+	// After submitting a command buffer with published eyes/overlay, before commit_*:
+	// marks the point on RPCS3's queue the frame thread waits for before copying them
+	// (only when OpenXR has its own queue).
+	void signal_published();
 
 	// Make the just-submitted eye pair the newest one, tagged with the pose it was
 	// rendered with (pose_id from locate_render_pose; 0 = none) and (game-FOV mode)

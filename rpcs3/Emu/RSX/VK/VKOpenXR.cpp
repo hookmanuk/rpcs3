@@ -52,6 +52,7 @@ namespace vk::xr
 			bool have_fov = false;
 			f32 tan_half_x = 0.f;
 			f32 tan_half_y = 0.f;
+			s32 ready = -1; // ready_fences entry signalled after RPCS3's copy into this slot (own queue)
 		};
 
 		struct state_t
@@ -107,6 +108,21 @@ namespace vk::xr
 			VkCommandPool cmd_pool = VK_NULL_HANDLE;
 			VkCommandBuffer cmd = VK_NULL_HANDLE;
 			VkFence fence = VK_NULL_HANDLE;
+			// Own queue: the frame thread and the runtime use `queue` alone, under
+			// queue_mutex, and RPCS3 renders on render_queue. Sharing RPCS3's queue meant
+			// holding its global submit lock through xrEndFrame and xrWaitSwapchainImage,
+			// where the runtime can wait for the GPU: RPCS3 could not submit meanwhile, so
+			// at high resolution scales the CPU and GPU took turns and the game missed
+			// frames. After a flip publishes eyes, RPCS3 submits an empty batch with one of
+			// the ready fences on its queue; the frame thread waits for it before copying.
+			bool own_queue = false;
+			VkQueue render_queue = VK_NULL_HANDLE;
+			std::mutex queue_mutex;
+			VkFence ready_fences[8]{};
+			bool ready_submitted[8]{};
+			u32 ready_next = 0;
+			s32 ready_pending = -1;               // under slot_mutex: fence of the last publishing flip
+			s32 overlay_ready[3]{ -1, -1, -1 };   // under slot_mutex
 			std::thread thread;
 			std::atomic<bool> stop{ false };
 
@@ -198,6 +214,42 @@ namespace vk::xr
 		};
 
 		state_t g_xr;
+
+		// External synchronization of the OpenXR queue (the runtime's calls and our submits).
+		void lock_queue()
+		{
+			if (g_xr.own_queue) g_xr.queue_mutex.lock();
+			else vk::acquire_global_submit_lock();
+		}
+
+		void unlock_queue()
+		{
+			if (g_xr.own_queue) g_xr.queue_mutex.unlock();
+			else vk::release_global_submit_lock();
+		}
+
+		// Frame thread: RPCS3's copy into a slot (signalled by ready fence `ready`) is done.
+		void wait_ready(s32 ready)
+		{
+			if (g_xr.own_queue && ready >= 0)
+			{
+				vkWaitForFences(g_xr.device, 1, &g_xr.ready_fences[ready], VK_TRUE, 100'000'000);
+			}
+		}
+
+		// Both queues idle (eye/overlay buffers about to be freed).
+		void drain_queues()
+		{
+			lock_queue();
+			vkQueueWaitIdle(g_xr.queue);
+			unlock_queue();
+			if (g_xr.own_queue && g_xr.render_queue)
+			{
+				vk::acquire_global_submit_lock();
+				vkQueueWaitIdle(g_xr.render_queue);
+				vk::release_global_submit_lock();
+			}
+		}
 
 		std::string result_string(XrResult result)
 		{
@@ -475,16 +527,16 @@ namespace vk::xr
 					{
 						XrSessionBeginInfo begin{ XR_TYPE_SESSION_BEGIN_INFO };
 						begin.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-						vk::acquire_global_submit_lock();
+						lock_queue();
 						g_xr.session_running = check(g_xr.xrBeginSession(g_xr.session, &begin), "xrBeginSession");
-						vk::release_global_submit_lock();
+						unlock_queue();
 						query_display_refresh_rate();
 					}
 					else if (changed.state == XR_SESSION_STATE_STOPPING)
 					{
-						vk::acquire_global_submit_lock();
+						lock_queue();
 						g_xr.xrEndSession(g_xr.session);
-						vk::release_global_submit_lock();
+						unlock_queue();
 						g_xr.session_running = false;
 						rsx::vr::set_headset_refresh_rate(0);
 					}
@@ -698,11 +750,23 @@ namespace vk::xr
 		return pdev;
 	}
 
-	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index)
+	bool create_session(VkInstance instance, VkPhysicalDevice pdev, VkDevice device, VkQueue queue, u32 queue_family, u32 queue_index,
+		VkQueue render_queue)
 	{
 		if (!g_xr.instance || g_xr.session)
 		{
 			return g_xr.session != XR_NULL_HANDLE;
+		}
+
+		g_xr.own_queue = render_queue && queue != render_queue;
+		g_xr.render_queue = render_queue;
+		if (g_xr.own_queue)
+		{
+			xr_log.notice("OpenXR queue: own (graphics family %u, index %u)", queue_family, queue_index);
+		}
+		else
+		{
+			xr_log.notice("OpenXR queue: shared with RPCS3 (no spare graphics queue)");
 		}
 
 		XrGraphicsBindingVulkanKHR binding{ XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR };
@@ -716,9 +780,9 @@ namespace vk::xr
 		create.next = &binding;
 		create.systemId = g_xr.system;
 
-		vk::acquire_global_submit_lock();
+		lock_queue();
 		const XrResult result = g_xr.xrCreateSession(g_xr.instance, &create, &g_xr.session);
-		vk::release_global_submit_lock();
+		unlock_queue();
 
 		if (!check(result, "xrCreateSession"))
 		{
@@ -758,7 +822,9 @@ namespace vk::xr
 		VkFenceCreateInfo fence_info{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
 		if (vkCreateCommandPool(device, &pool_info, nullptr, &g_xr.cmd_pool) != VK_SUCCESS ||
 			(cmd_info.commandPool = g_xr.cmd_pool, vkAllocateCommandBuffers(device, &cmd_info, &g_xr.cmd) != VK_SUCCESS) ||
-			vkCreateFence(device, &fence_info, nullptr, &g_xr.fence) != VK_SUCCESS)
+			vkCreateFence(device, &fence_info, nullptr, &g_xr.fence) != VK_SUCCESS ||
+			std::any_of(std::begin(g_xr.ready_fences), std::end(g_xr.ready_fences),
+				[&](VkFence& f) { return vkCreateFence(device, &fence_info, nullptr, &f) != VK_SUCCESS; }))
 		{
 			xr_log.error("Could not create the OpenXR frame thread's Vulkan objects");
 			return false;
@@ -912,7 +978,7 @@ namespace vk::xr
 		// One headset frame on the OpenXR thread: present the newest published eye
 		// pair (re-presenting the previous one only after the 100 ms idle timeout).
 		// Copy overlay buffer `index` into the overlay swapchain (frame thread).
-		bool copy_overlay(s32 index)
+		bool copy_overlay(s32 index, s32 ready)
 		{
 			if (!ensure_overlay_chain(g_xr.overlay_w, g_xr.overlay_h, g_xr.overlay_format))
 			{
@@ -923,13 +989,14 @@ namespace vk::xr
 			XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
 			XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
 			wait.timeout = 100'000'000; // 100 ms
-			vk::acquire_global_submit_lock();
+			lock_queue();
 			bool ok = check(g_xr.xrAcquireSwapchainImage(chain.handle, &acquire, &chain.acquired), "xrAcquireSwapchainImage");
 			ok = ok && check(g_xr.xrWaitSwapchainImage(chain.handle, &wait), "xrWaitSwapchainImage");
-			vk::release_global_submit_lock();
+			unlock_queue();
 
 			if (ok)
 			{
+				wait_ready(ready);
 				VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 				begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 				vkResetCommandBuffer(g_xr.cmd, 0);
@@ -953,9 +1020,9 @@ namespace vk::xr
 				VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 				submit.commandBufferCount = 1;
 				submit.pCommandBuffers = &g_xr.cmd;
-				vk::acquire_global_submit_lock();
+				lock_queue();
 				vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
-				vk::release_global_submit_lock();
+				unlock_queue();
 				vkWaitForFences(g_xr.device, 1, &g_xr.fence, VK_TRUE, UINT64_MAX);
 				vkResetFences(g_xr.device, 1, &g_xr.fence);
 			}
@@ -963,9 +1030,9 @@ namespace vk::xr
 			if (chain.acquired != umax)
 			{
 				XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-				vk::acquire_global_submit_lock();
+				lock_queue();
 				ok = check(g_xr.xrReleaseSwapchainImage(chain.handle, &release), "xrReleaseSwapchainImage") && ok;
-				vk::release_global_submit_lock();
+				unlock_queue();
 				chain.acquired = umax;
 			}
 			return ok;
@@ -986,9 +1053,9 @@ namespace vk::xr
 				rsx::vr::set_headset_refresh_rate(static_cast<u32>(std::lround(g_xr.fb_display_hz)));
 			}
 
-			vk::acquire_global_submit_lock();
+			lock_queue();
 			const XrResult begun = g_xr.xrBeginFrame(g_xr.session, nullptr);
-			vk::release_global_submit_lock();
+			unlock_queue();
 			if (!check(begun, "xrBeginFrame"))
 			{
 				return;
@@ -1001,6 +1068,7 @@ namespace vk::xr
 			f32 screen_pos[3] = { 0.f, 0.f, -g_xr.screen_distance };
 			f32 screen_width = g_xr.screen_width;
 			s32 overlay_index = -1;
+			s32 overlay_ready = -1;
 			bool overlay_world = false;
 			f32 overlay_pos[3]{};
 			f32 overlay_width = 0.f;
@@ -1009,6 +1077,7 @@ namespace vk::xr
 				if (g_xr.overlay_shown && g_xr.overlay_latest >= 0)
 				{
 					overlay_index = g_xr.overlay_latest;
+					overlay_ready = g_xr.overlay_ready[overlay_index];
 					g_xr.overlay_in_use = overlay_index;
 					overlay_world = g_xr.overlay_world;
 					overlay_pos[0] = g_xr.overlay_x;
@@ -1048,14 +1117,15 @@ namespace vk::xr
 					XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
 					XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
 					wait.timeout = 100'000'000; // 100 ms
-					vk::acquire_global_submit_lock();
+					lock_queue();
 					ok = ok && check(g_xr.xrAcquireSwapchainImage(eye.handle, &acquire, &eye.acquired), "xrAcquireSwapchainImage");
 					ok = ok && check(g_xr.xrWaitSwapchainImage(eye.handle, &wait), "xrWaitSwapchainImage");
-					vk::release_global_submit_lock();
+					unlock_queue();
 				}
 
 				if (ok)
 				{
+					wait_ready(meta.ready);
 					VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 					begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 					vkResetCommandBuffer(g_xr.cmd, 0);
@@ -1083,9 +1153,9 @@ namespace vk::xr
 					VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
 					submit.commandBufferCount = 1;
 					submit.pCommandBuffers = &g_xr.cmd;
-					vk::acquire_global_submit_lock();
+					lock_queue();
 					vkQueueSubmit(g_xr.queue, 1, &submit, g_xr.fence);
-					vk::release_global_submit_lock();
+					unlock_queue();
 
 					// The copy is tiny; waiting here keeps the slot and command buffer
 					// lifetimes trivial and never touches the RSX thread.
@@ -1093,7 +1163,7 @@ namespace vk::xr
 					vkResetFences(g_xr.device, 1, &g_xr.fence);
 				}
 
-				vk::acquire_global_submit_lock();
+				lock_queue();
 				for (auto& eye : g_xr.eyes)
 				{
 					if (eye.acquired != umax)
@@ -1103,7 +1173,7 @@ namespace vk::xr
 						eye.acquired = umax;
 					}
 				}
-				vk::release_global_submit_lock();
+				unlock_queue();
 
 				if (ok && !screen_mode && meta.pose_valid && meta.have_fov)
 				{
@@ -1159,7 +1229,7 @@ namespace vk::xr
 			}
 
 			// RPCS3's overlays, over the game, blended by their own alpha.
-			if (overlay_index >= 0 && frame_state.shouldRender && copy_overlay(overlay_index))
+			if (overlay_index >= 0 && frame_state.shouldRender && copy_overlay(overlay_index, overlay_ready))
 			{
 				overlay_quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
 				overlay_quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
@@ -1184,9 +1254,9 @@ namespace vk::xr
 			end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			end.layerCount = layer_count;
 			end.layers = layers;
-			vk::acquire_global_submit_lock();
+			lock_queue();
 			check(g_xr.xrEndFrame(g_xr.session, &end), "xrEndFrame");
-			vk::release_global_submit_lock();
+			unlock_queue();
 
 			static bool s_reported = false;
 			if (layer_count && !std::exchange(s_reported, true))
@@ -1258,13 +1328,15 @@ namespace vk::xr
 			// The frame thread is joined; drain its (and RSX's) copies before freeing.
 			if (g_xr.queue)
 			{
-				vk::acquire_global_submit_lock();
-				vkQueueWaitIdle(g_xr.queue);
-				vk::release_global_submit_lock();
+				drain_queues();
 			}
 			destroy_slots();
 			destroy_overlay_images();
 			if (g_xr.fence) vkDestroyFence(g_xr.device, g_xr.fence, nullptr);
+			for (VkFence f : g_xr.ready_fences)
+			{
+				if (f) vkDestroyFence(g_xr.device, f, nullptr);
+			}
 			if (g_xr.cmd_pool) vkDestroyCommandPool(g_xr.device, g_xr.cmd_pool, nullptr);
 		}
 
@@ -1303,9 +1375,7 @@ namespace vk::xr
 				std::this_thread::yield();
 				lock.lock();
 			}
-			vk::acquire_global_submit_lock();
-			vkQueueWaitIdle(g_xr.queue);
-			vk::release_global_submit_lock();
+			drain_queues();
 			destroy_slots();
 			if (!create_slots(width, height, format))
 			{
@@ -1345,6 +1415,31 @@ namespace vk::xr
 		return true;
 	}
 
+	void signal_published()
+	{
+		if (!g_xr.own_queue || !g_xr.render_queue)
+		{
+			return;
+		}
+
+		// An empty batch on RPCS3's queue: its fence signals once everything submitted
+		// before it (this flip's copies into the eye/overlay buffers) has completed.
+		const u32 k = g_xr.ready_next++ % std::size(g_xr.ready_fences);
+		VkFence fence = g_xr.ready_fences[k];
+		if (g_xr.ready_submitted[k])
+		{
+			// Eight flips old: long complete.
+			vkWaitForFences(g_xr.device, 1, &fence, VK_TRUE, 1'000'000'000);
+			vkResetFences(g_xr.device, 1, &fence);
+		}
+		vk::acquire_global_submit_lock();
+		g_xr.ready_submitted[k] = vkQueueSubmit(g_xr.render_queue, 0, nullptr, fence) == VK_SUCCESS;
+		vk::release_global_submit_lock();
+
+		std::lock_guard lock(g_xr.slot_mutex);
+		g_xr.ready_pending = g_xr.ready_submitted[k] ? static_cast<s32>(k) : -1;
+	}
+
 	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
@@ -1379,11 +1474,13 @@ namespace vk::xr
 		slot.tan_half_x = tan_half_x;
 		slot.tan_half_y = tan_half_y;
 
+		slot.ready = std::exchange(g_xr.ready_pending, -1);
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
 		if (g_xr.overlay_writing >= 0)
 		{
 			// Published in the same flip: show it with these eyes.
+			g_xr.overlay_ready[g_xr.overlay_writing] = slot.ready;
 			g_xr.overlay_latest = g_xr.overlay_writing;
 			g_xr.overlay_writing = -1;
 			g_xr.overlay_shown = true;
@@ -1413,9 +1510,7 @@ namespace vk::xr
 				std::this_thread::yield();
 				lock.lock();
 			}
-			vk::acquire_global_submit_lock();
-			vkQueueWaitIdle(g_xr.queue);
-			vk::release_global_submit_lock();
+			drain_queues();
 			destroy_overlay_images();
 			if (!create_overlay_images(width, height, format))
 			{
@@ -1456,6 +1551,7 @@ namespace vk::xr
 			return;
 		}
 
+		g_xr.overlay_ready[g_xr.overlay_writing] = std::exchange(g_xr.ready_pending, -1);
 		g_xr.overlay_latest = g_xr.overlay_writing;
 		g_xr.overlay_writing = -1;
 		g_xr.overlay_shown = true;

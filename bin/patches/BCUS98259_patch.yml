@@ -84,11 +84,10 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
         BCUS98259: [ 01.00 ]
     Author: "VR fork (disc port of Margen67's 60 FPS patch)"
     Notes: "Presents a frame on every vblank instead of every second one (the game's 30 FPS cap): 60 FPS on a TV, the headset's refresh rate in VR. The VR profile keeps the game's frame time correct at any vblank rate."
-    Patch Version: 1.0
+    Patch Version: 1.1
     Enabled By Default: true
     Patch:
-      - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384, first init site
-      - [ be32, 0x0031f654, 0x39200001 ] # li r9,1 (was li r9,2): second init site (the PSN version's 60 FPS byte)
+      - [ be32, 0x0031eea4, 0x39200001 ] # li r9,1 (was li r9,2): frame interval at device+0x384 (init 0x31eb2c; its twin 0x31f1b8 has no callers)
   "Wider view (VR culling)":
     Games:
       "Shadow of the Colossus":
@@ -103,8 +102,13 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
         Value: 3.0
         Allowed Values:
           "1.0 (off)": 1.0
+          "1.25": 1.25
           "1.5": 1.5
+          "1.75": 1.75
           "2.0": 2.0
+          "2.25": 2.25
+          "2.5": 2.5
+          "2.75": 2.75
           "3.0": 3.0
           "4.0": 4.0
     Patch:

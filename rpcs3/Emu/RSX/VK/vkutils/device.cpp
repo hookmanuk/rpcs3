@@ -469,7 +469,7 @@ namespace vk
 	// Render Device - The actual usable device
 	void render_device::create(vk::physical_device& pdev, u32 graphics_queue_idx, u32 present_queue_idx, u32 transfer_queue_idx)
 	{
-		float queue_priorities[1] = { 0.f };
+		float queue_priorities[3] = { 0.f, 0.f, 0.f };
 		pgpu = &pdev;
 
 		ensure(graphics_queue_idx == present_queue_idx || present_queue_idx == umax); // TODO
@@ -497,6 +497,13 @@ namespace vk
 				graphics_queue.queueCount++;
 				transfer_queue_sub_index = 1;
 			}
+		}
+
+		// One more graphics queue, if the family has it, for the OpenXR frame thread.
+		u32 xr_queue_sub_index = umax;
+		if (pdev.get_queue_properties(graphics_queue_idx).queueCount > graphics_queue.queueCount)
+		{
+			xr_queue_sub_index = graphics_queue.queueCount++;
 		}
 
 		m_graphics_queue_family = graphics_queue_idx;
@@ -859,6 +866,11 @@ namespace vk
 		// Initialize queues
 		vkGetDeviceQueue(dev, graphics_queue_idx, 0, &m_graphics_queue);
 		vkGetDeviceQueue(dev, transfer_queue_idx, transfer_queue_sub_index, &m_transfer_queue);
+		if (xr_queue_sub_index != umax)
+		{
+			vkGetDeviceQueue(dev, graphics_queue_idx, xr_queue_sub_index, &m_xr_queue);
+			m_xr_queue_index = xr_queue_sub_index;
+		}
 
 		if (present_queue_idx != umax)
 		{

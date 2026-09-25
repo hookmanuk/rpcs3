@@ -437,6 +437,11 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// Gate 6: the right eye's last batched draws must land before it is presented.
 	vr_batch_flush();
 
+	if (gpuprof_enabled())
+	{
+		gpuprof_flip();
+	}
+
 	// Check swapchain condition/status
 	if (!m_swapchain->supports_automatic_wm_reports())
 	{
@@ -711,6 +716,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 				// The submit may still be queued on the offload thread.
 				g_fxo->get<rsx::dma_manager>().sync();
 			}
+			vk::xr::signal_published();
 		}
 
 		if (xr_eyes)

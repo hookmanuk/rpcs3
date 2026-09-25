@@ -1651,6 +1651,13 @@ void VKGSRender::end()
 
 	analyse_current_rsx_pipeline();
 
+	m_gpuprof_draw++;
+	if (m_gpuprof_target && m_gpuprof_enabled > 0 && m_framebuffer_layout.color_addresses[0] == m_gpuprof_target)
+	{
+		// Per-draw segment: "fmt" 0x10000 + the draw's index in the frame.
+		gpuprof_mark({ m_gpuprof_target, m_framebuffer_layout.width, m_framebuffer_layout.height, 0x10000u + m_gpuprof_draw });
+	}
+
 	m_frame_stats.setup_time += m_profiler.duration();
 
 	load_texture_env();
