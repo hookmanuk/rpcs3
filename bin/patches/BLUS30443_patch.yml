@@ -11,3 +11,25 @@ PPU-83681f6110d33442329073b72b8dc88a2f677172:
     Enabled By Default: true
     Patch:
       - [ byte, 0x00217e7c, 0x41 ]
+  "Wider view (VR culling)":
+    Games:
+      "Demon's Souls":
+        BLUS30443: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the main camera's vertical field of view (default 43 degrees; the camera block at 0x018cefb4 holds FOV, aspect, near, far) so objects outside the TV frame are still drawn: the game culls to its own view, so looking up in VR showed the sky through missing ceilings. The headset view is remapped from the game's projection, so the image keeps its scale. Larger values draw more but cost frame rate and may lower detail. Without VR the TV picture becomes a wide-angle view: set 43 to play flat."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Configurable Values:
+      "Vertical FOV (degrees)":
+        Type: double_enum
+        Value: 2.268928
+        Allowed Values:
+          "43 (off)": 0.750492
+          "70": 1.221730
+          "90": 1.570796
+          "110": 1.919862
+          "130": 2.268928
+          "150": 2.617994
+          "165": 2.879793
+    Patch:
+      - [ bef32, 0x018cefb4, "Vertical FOV (degrees)" ] # main camera FOV (radians)

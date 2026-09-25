@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30443",
+  "app_version": "01.00",
+  "name": "Demon's Souls",
+  "max_fps": 60,
+  "default_fps": 60,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0, 8],
+  "require_rigid_camera": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 158,
+    "eye_baseline": 0.0320005
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.00327873,
+    "convergence": 1.28002,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 0,
+    "hud_skips_passes": true
+  }
+}

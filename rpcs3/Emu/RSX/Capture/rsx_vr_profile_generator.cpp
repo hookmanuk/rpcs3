@@ -845,6 +845,10 @@ namespace rsx::vr
 		json += fmt::format("    \"eye_baseline\": %s\n  },\n\n", fmt_number(baseline));
 		json += "  \"stereo\": {\n    \"formula\": \"clip_x_shear\",\n";
 		json += fmt::format("    \"per_eye_separation\": %s,\n    \"convergence\": %s", fmt_number(separation), fmt_number(convergence));
+		// Eyes eye_baseline apart in world units, from each camera matrix's own scale: the
+		// clip-space shear only equals it at the projection sampled, and a Wider view patch
+		// (culling), an aiming zoom or a cutscene FOV changes the projection.
+		json += ",\n    \"eye_offset\": \"baseline\"";
 		if (!width_rules.empty())
 		{
 			json += ",\n    \"by_target_width\": [\n";
