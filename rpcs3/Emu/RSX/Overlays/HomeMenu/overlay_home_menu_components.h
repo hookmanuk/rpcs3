@@ -122,8 +122,10 @@ namespace rsx
 		{
 		public:
 			// filter (optional): which of the setting's values (by index) are offered.
-			home_menu_dropdown(cfg::_enum<T>* setting, const std::string& text, std::function<bool(u32)> filter = {})
+			// shown_as (optional): the entry shown for a stored value that is not offered.
+			home_menu_dropdown(cfg::_enum<T>* setting, const std::string& text, std::function<bool(u32)> filter = {}, std::function<u32(u32)> shown_as = {})
 				: home_menu_setting<T, cfg::_enum<T>>(setting, text)
+				, m_shown_as(std::move(shown_as))
 			{
 				for (size_t index = 0; index < setting->size(); index++)
 				{
@@ -147,9 +149,22 @@ namespace rsx
 
 				const auto current = fmt::format("%s", setting->get());
 				const auto list = setting->to_list();
+				u32 current_index = umax;
+				for (u32 index = 0; index < list.size(); ++index)
+				{
+					if (list[index] == current)
+					{
+						current_index = index;
+						break;
+					}
+				}
+				if (m_shown_as && std::find(m_values.begin(), m_values.end(), current_index) == m_values.end())
+				{
+					current_index = m_shown_as(current_index);
+				}
 				for (s32 pos = 0; pos < static_cast<s32>(m_values.size()); ++pos)
 				{
-					if (m_values[pos] >= list.size() || list[m_values[pos]] != current)
+					if (m_values[pos] != current_index)
 					{
 						continue;
 					}
@@ -296,6 +311,7 @@ namespace rsx
 		private:
 			std::vector<std::string> m_options;
 			std::vector<u32> m_values; // the setting value index of each entry in m_options
+			std::function<u32(u32)> m_shown_as;
 			select* m_dropdown = nullptr;
 
 			int m_previous_selection = -1;

@@ -263,11 +263,16 @@ namespace rsx::vr
 	// The VR "Frame Rate" option at this index (vr_frame_rate): its frame rate, 0 for
 	// Unlimited, umax for Default.
 	u32 frame_rate_option_fps(u32 option);
-	// Whether a game with this max_fps offers the option (Default always).
+	// Whether a game with this max_fps lists the option (never Default).
 	bool frame_rate_option_allowed(u32 option, u32 max_fps);
 	// The highest max_fps among the title's profiles (0 = no maximum), for the settings
 	// dialog, which cannot tell which game of a collection will run.
 	u32 title_max_fps(std::string_view title_id);
+	// The distinct default_fps of the title's profiles, ascending (0 = the headset's rate).
+	std::vector<u32> title_default_fps(std::string_view title_id);
+	// The Frame Rate option for this rate (0 = Unlimited), umax if none. "Default" is not
+	// listed: while the setting is Default, the lists show the game's default rate.
+	u32 frame_rate_option_for_fps(u32 fps);
 
 	// The running game's frame rate in VR (0 = the headset's refresh rate).
 	u32 effective_frame_rate();

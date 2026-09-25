@@ -688,39 +688,79 @@ namespace rsx::vr
 
 	bool frame_rate_option_allowed(u32 option, u32 max_fps)
 	{
+		// Default is not listed (the lists show the game's default rate in its place).
 		const u32 fps = frame_rate_option_fps(option);
-		return fps == umax || !max_fps || (fps && fps <= max_fps);
+		return fps != umax && (!max_fps || (fps && fps <= max_fps));
+	}
+
+	namespace
+	{
+		// <TITLE_ID>.json and every <TITLE_ID>.<executable>.json.
+		std::vector<std::shared_ptr<const title_profile>> title_profiles(std::string_view title_id)
+		{
+			std::vector<std::shared_ptr<const title_profile>> result;
+			const std::string dir = fs::get_executable_dir() + "vr_profiles/";
+			for (const auto& entry : fs::dir(dir))
+			{
+				if (entry.is_directory || !entry.name.starts_with(title_id) || !entry.name.ends_with(".json"))
+				{
+					continue;
+				}
+				const std::string_view rest = std::string_view(entry.name).substr(title_id.size());
+				std::string executable;
+				if (rest != ".json")
+				{
+					if (!rest.starts_with(".") || rest.size() <= 6)
+					{
+						continue;
+					}
+					executable = std::string(rest.substr(1, rest.size() - 6));
+				}
+				if (auto profile = load_title_profile(title_id, executable))
+				{
+					result.push_back(std::move(profile));
+				}
+			}
+			return result;
+		}
 	}
 
 	u32 title_max_fps(std::string_view title_id)
 	{
-		// <TITLE_ID>.json and every <TITLE_ID>.<executable>.json.
 		u32 result = 0;
 		bool unlimited = false;
-		const std::string dir = fs::get_executable_dir() + "vr_profiles/";
-		for (const auto& entry : fs::dir(dir))
+		for (const auto& profile : title_profiles(title_id))
 		{
-			if (entry.is_directory || !entry.name.starts_with(title_id) || !entry.name.ends_with(".json"))
-			{
-				continue;
-			}
-			const std::string_view rest = std::string_view(entry.name).substr(title_id.size());
-			std::string executable;
-			if (rest != ".json")
-			{
-				if (!rest.starts_with(".") || rest.size() <= 6)
-				{
-					continue;
-				}
-				executable = std::string(rest.substr(1, rest.size() - 6));
-			}
-			if (const auto profile = load_title_profile(title_id, executable))
-			{
-				unlimited |= !profile->max_fps;
-				result = std::max(result, profile->max_fps);
-			}
+			unlimited |= !profile->max_fps;
+			result = std::max(result, profile->max_fps);
 		}
 		return unlimited ? 0 : result;
+	}
+
+	std::vector<u32> title_default_fps(std::string_view title_id)
+	{
+		std::vector<u32> result;
+		for (const auto& profile : title_profiles(title_id))
+		{
+			if (std::find(result.begin(), result.end(), profile->default_fps) == result.end())
+			{
+				result.push_back(profile->default_fps);
+			}
+		}
+		std::sort(result.begin(), result.end());
+		return result;
+	}
+
+	u32 frame_rate_option_for_fps(u32 fps)
+	{
+		for (u32 option = 0; option <= static_cast<u32>(vr_frame_rate::unlimited); ++option)
+		{
+			if (frame_rate_option_fps(option) == fps)
+			{
+				return option;
+			}
+		}
+		return umax;
 	}
 
 	u32 effective_frame_rate()

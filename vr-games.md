@@ -112,7 +112,7 @@ Defaults, all changeable per game:
 
 | Setting | Default | What it does |
 |---|---|---|
-| Frame Rate | Default | The game's frame rate in the headset: Default (the rate in the table above), 30, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
+| Frame Rate | the game's own (table above) | The game's frame rate in the headset: 30, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Until you choose one, each game runs its own default (ICO and Shadow of the Colossus share a configuration but keep their own). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees when the game runs below the headset's refresh rate, 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |

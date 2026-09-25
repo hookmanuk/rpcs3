@@ -1,4 +1,5 @@
 #include <QButtonGroup>
+#include <QSignalBlocker>
 #include <QCameraDevice>
 #include <QMediaDevices>
 #include <QDialogButtonBox>
@@ -601,15 +602,31 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	{
 		// Only rates up to the most any game of this title works at (a collection's games
 		// share this configuration; each clamps to its own maximum when it runs).
+		// Default is not an entry: until a rate is chosen the box is empty and shows each game's
+		// default rate as its placeholder. Signals are blocked so nothing is saved here.
 		const u32 max_fps = rsx::vr::title_max_fps(game->serial);
+		const QSignalBlocker blocker(ui->vrFrameRate);
+		const int current = ui->vrFrameRate->currentIndex();
+		const bool is_default = current >= 0 && ui->vrFrameRate->itemData(current).toList().value(1).toUInt() == 0;
 		for (int i = ui->vrFrameRate->count() - 1; i >= 0; --i)
 		{
 			const QVariantList data = ui->vrFrameRate->itemData(i).toList();
-			if (data.size() == 2 && i != ui->vrFrameRate->currentIndex() &&
-				!rsx::vr::frame_rate_option_allowed(data[1].toUInt(), max_fps))
+			if (data.size() == 2 && !rsx::vr::frame_rate_option_allowed(data[1].toUInt(), max_fps) &&
+				(i != current || is_default))
 			{
 				ui->vrFrameRate->removeItem(i);
 			}
+		}
+		QStringList defaults;
+		for (const u32 fps : rsx::vr::title_default_fps(game->serial))
+		{
+			defaults << (fps ? tr("%1 FPS", "VR frame rate").arg(fps) : tr("headset refresh rate", "VR frame rate"));
+		}
+		ui->vrFrameRate->setPlaceholderText(defaults.size() > 1 ? tr("Each game's default: %1", "VR frame rate").arg(defaults.join(" / "))
+			: tr("Game default: %1", "VR frame rate").arg(defaults.value(0)));
+		if (is_default)
+		{
+			ui->vrFrameRate->setCurrentIndex(-1);
 		}
 	}
 	{
