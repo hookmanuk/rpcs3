@@ -1,0 +1,173 @@
+Version: 1.2
+
+PPU-de2b587bf99874b3fe390329ef4f18150e4f853f:
+  "Frame rate follows VR":
+    Games:
+      "RIDGE RACER 7":
+        BCAS20001: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Ridge Racer 7 runs one game step per vblank and counts time in frames, so at 90 Hz everything ran 1.5x. The VR profile writes the frame rate here (0x4d8ff4) and the milliseconds per frame (0x4d8ff0); the race timers, lap/race/time-limit clocks, per-car and HUD frame counters and the 2D animation clock then advance by the real time of each frame (from the vblank count at 0x1028d6e4), so races run at real speed with correct times at any VR frame rate. At 60 Hz nothing changes. Physics follows the frame time floats the profile writes."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x004d8ff0, 17 ]          # milliseconds per frame (native 60 FPS: 17), written by the VR profile
+      - [ be32, 0x004d8ff4, 60 ]          # game frames per second (native 60), written by the VR profile
+      - [ be32, 0x0013143c, 0x80A2A758 ]  # lwz r5,-0x58a8(r2) = [0x4d8ff0] (was li r5,17)
+      - [ be32, 0x0013145c, 0x80A2A758 ]
+      - [ be32, 0x00131ebc, 0x80A2A758 ]
+      - [ be32, 0x00131ed4, 0x80A2A758 ]
+      - [ calloc, 0x0026ba98, 11 ]        # per-car frame counter: += floor(A*60/fps) - floor((A-1)*60/fps), A = vblank count (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count at 0x1028d6e4
+      - [ be32, 0x0, 0x8002A75C ]         # lwz r0,-0x58a4(r2)    fps at 0x4d8ff4
+      - [ be32, 0x0, 0x1D4C003C ]         # mulli r10,r12,60
+      - [ be32, 0x0, 0x7D4A0396 ]         # divwu r10,r10,r0
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7D8C5050 ]         # subf r12,r12,r10     ticks this frame (0, 1 or more)
+      - [ be32, 0x0, 0x7D6B6214 ]         # add r11,r11,r12
+      - [ be32, 0x0, 0x39400000 ]         # li r10,0             (the function returns r10 = 0)
+      - [ calloc, 0x0012e718, 10 ]        # race frame counter (car state +0x10): += ticks (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count
+      - [ be32, 0x0, 0x8162A75C ]         # lwz r11,-0x58a4(r2)   fps
+      - [ be32, 0x0, 0x1D4C003C ]         # mulli r10,r12,60
+      - [ be32, 0x0, 0x7D4A5B96 ]         # divwu r10,r10,r11
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C5B96 ]         # divwu r12,r12,r11
+      - [ be32, 0x0, 0x7D8C5050 ]         # subf r12,r12,r10
+      - [ be32, 0x0, 0x7D296214 ]         # add r9,r9,r12
+      - [ calloc, 0x0012e378, 10 ]        # global frame count (0x104a5160): += ticks (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count
+      - [ be32, 0x0, 0x80C2A75C ]         # lwz r6,-0x58a4(r2)    fps
+      - [ be32, 0x0, 0x1CAC003C ]         # mulli r5,r12,60
+      - [ be32, 0x0, 0x7CA53396 ]         # divwu r5,r5,r6
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C3396 ]         # divwu r12,r12,r6
+      - [ be32, 0x0, 0x7D8C2850 ]         # subf r12,r12,r5
+      - [ be32, 0x0, 0x7D296214 ]         # add r9,r9,r12
+      - [ calloc, 0x002c6a04, 12 ]        # race object +0x324 (0x106c3344): += ticks (was += 1)
+      - [ be32, 0x0, 0x8002A75C ]         # lwz r0,-0x58a4(r2)    fps
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7CE76214 ]         # add r7,r7,r12       + floor(60A/fps)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7CEC3850 ]         # subf r7,r12,r7      - floor(60(A-1)/fps)
+      - [ calloc, 0x0030c33c, 10 ]        # race HUD frame timers (lap time etc., 14 x {count, running}): += ticks (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x8002A75C ]         # lwz r0,-0x58a4(r2)    fps
+      - [ be32, 0x0, 0x1D4C003C ]         # mulli r10,r12,60
+      - [ be32, 0x0, 0x7D4A0396 ]         # divwu r10,r10,r0
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7D8C5050 ]         # subf r12,r12,r10
+      - [ be32, 0x0, 0x7D296214 ]         # add r9,r9,r12
+      - [ calloc, 0x000ff5bc, 10 ]        # per-car race frame counter (car object +0x1b0, lap/race times): += ticks (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x8002A75C ]         # lwz r0,-0x58a4(r2)    fps
+      - [ be32, 0x0, 0x1D4C003C ]         # mulli r10,r12,60
+      - [ be32, 0x0, 0x7D4A0396 ]         # divwu r10,r10,r0
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7D8C5050 ]         # subf r12,r12,r10
+      - [ be32, 0x0, 0x7D296214 ]         # add r9,r9,r12
+      - [ calloc, 0x00100640, 10 ]        # per-car lap frame counter (car object +0x1e8, lap time display): += ticks (was += 1)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x8002A75C ]         # lwz r0,-0x58a4(r2)    fps
+      - [ be32, 0x0, 0x1D4C003C ]         # mulli r10,r12,60
+      - [ be32, 0x0, 0x7D4A0396 ]         # divwu r10,r10,r0
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C0396 ]         # divwu r12,r12,r0
+      - [ be32, 0x0, 0x7D8C5050 ]         # subf r12,r12,r10
+      - [ be32, 0x0, 0x7D296214 ]         # add r9,r9,r12
+      - [ calloc, 0x00129c8c, 9 ]         # HUD/2D animation ms per frame (was 16,17,17): floor(1000A/fps) - floor(1000(A-1)/fps)
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x8162A75C ]         # lwz r11,-0x58a4(r2)   fps
+      - [ be32, 0x0, 0x1D4C03E8 ]         # mulli r10,r12,1000
+      - [ be32, 0x0, 0x7D4A5B92 ]         # divdu r10,r10,r11
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C03E8 ]         # mulli r12,r12,1000
+      - [ be32, 0x0, 0x7D8C5B92 ]         # divdu r12,r12,r11
+      - [ be32, 0x0, 0x7C0C5050 ]         # subf r0,r12,r10      ms this frame
+      - [ be32, 0x00129c90, 0x60000000 ]  # nop (was li r0,16; the li r0,17 path is no longer taken)
+      - [ calloc, 0x002471e0, 15 ]        # race timeline frame counter (object +4; lap time display, frame events): += ticks, skip the frame's event checks when 0
+      - [ be32, 0x0, 0x3D801029 ]         # lis r12,0x1029
+      - [ be32, 0x0, 0x818CD6E4 ]         # lwz r12,-0x291c(r12)  vblank count A
+      - [ be32, 0x0, 0x8162A75C ]         # lwz r11,-0x58a4(r2)   fps
+      - [ be32, 0x0, 0x1D0C003C ]         # mulli r8,r12,60
+      - [ be32, 0x0, 0x7D085B92 ]         # divdu r8,r8,r11
+      - [ be32, 0x0, 0x398CFFFF ]         # addi r12,r12,-1
+      - [ be32, 0x0, 0x1D8C003C ]         # mulli r12,r12,60
+      - [ be32, 0x0, 0x7D8C5B92 ]         # divdu r12,r12,r11
+      - [ be32, 0x0, 0x7D8C4051 ]         # subf. r12,r12,r8     ticks this frame
+      - [ be32, 0x0, 0x7D2A6214 ]         # add r9,r10,r12       (was addi r9,r10,1)
+      - [ be32, 0x0, 0x40820014 ]         # bne +0x14            ticks: continue as before
+      - [ be32, 0x0, 0x3D800024 ]         # lis r12,0x24
+      - [ be32, 0x0, 0x618C7164 ]         # ori r12,r12,0x7164   no tick: return 0 (li r3,0; epilogue restores LR)
+      - [ be32, 0x0, 0x7D8803A6 ]         # mtlr r12
+      - [ be32, 0x0, 0x4E800020 ]         # blr
+      - [ calloc, 0x0023ad34, 47 ]        # race/lap timers (race object +0x3f4/+0x4b8/+0x650 up, +0x3e4 time limit down, 1/3000 s, 50 per frame at ~55 sites): once per frame a 50 step becomes the exact 1/3000 s of this frame (shadows 0x4d8ff8..0x4d9004)
+      - [ be32, 0x0, 0xE8410028 ]         # ld r2,0x28(r1)       (original)
+      - [ be32, 0x0, 0x81828590 ]         # lwz r12,-0x7a70(r2)
+      - [ be32, 0x0, 0x818C8010 ]         # lwz r12,-0x7ff0(r12)
+      - [ be32, 0x0, 0x818C0000 ]         # lwz r12,0(r12)       race object
+      - [ be32, 0x0, 0x2C0C0000 ]         # cmpwi r12,0
+      - [ be32, 0x0, 0x418200A8 ]         # beq end
+      - [ be32, 0x0, 0x3D001029 ]         # lis r8,0x1029
+      - [ be32, 0x0, 0x8108D6E4 ]         # lwz r8,-0x291c(r8)   vblank count A
+      - [ be32, 0x0, 0x80E2A75C ]         # lwz r7,-0x58a4(r2)   fps
+      - [ be32, 0x0, 0x1CC80BB8 ]         # mulli r6,r8,3000
+      - [ be32, 0x0, 0x7CC63B92 ]         # divdu r6,r6,r7
+      - [ be32, 0x0, 0x3908FFFF ]         # addi r8,r8,-1
+      - [ be32, 0x0, 0x1D080BB8 ]         # mulli r8,r8,3000
+      - [ be32, 0x0, 0x7D083B92 ]         # divdu r8,r8,r7
+      - [ be32, 0x0, 0x7CC83050 ]         # subf r6,r8,r6        1/3000 s this frame
+      - [ be32, 0x0, 0x816C03F4 ]         # lwz r11,0x3f4(r12)  race time now
+      - [ be32, 0x0, 0x8142A760 ]         # lwz r10,-0x58a0(r2)  race time after last correction
+      - [ be32, 0x0, 0x7D2A5850 ]         # subf r9,r10,r11
+      - [ be32, 0x0, 0x2C090032 ]         # cmpwi r9,50
+      - [ be32, 0x0, 0x4082000C ]         # bne +12              (reset, new lap, paused: take as is)
+      - [ be32, 0x0, 0x7D6A3214 ]         # add r11,r10,r6
+      - [ be32, 0x0, 0x916C03F4 ]         # stw r11,0x3f4(r12)
+      - [ be32, 0x0, 0x9162A760 ]         # stw r11,-0x58a0(r2)
+      - [ be32, 0x0, 0x816C04B8 ]         # lwz r11,0x4b8(r12)  lap time now
+      - [ be32, 0x0, 0x8142A764 ]         # lwz r10,-0x589c(r2)  lap time after last correction
+      - [ be32, 0x0, 0x7D2A5850 ]         # subf r9,r10,r11
+      - [ be32, 0x0, 0x2C090032 ]         # cmpwi r9,50
+      - [ be32, 0x0, 0x4082000C ]         # bne +12              (reset, new lap, paused: take as is)
+      - [ be32, 0x0, 0x7D6A3214 ]         # add r11,r10,r6
+      - [ be32, 0x0, 0x916C04B8 ]         # stw r11,0x4b8(r12)
+      - [ be32, 0x0, 0x9162A764 ]         # stw r11,-0x589c(r2)
+      - [ be32, 0x0, 0x816C0650 ]         # lwz r11,0x650(r12)  third timer now
+      - [ be32, 0x0, 0x8142A768 ]         # lwz r10,-0x5898(r2)  third timer after last correction
+      - [ be32, 0x0, 0x7D2A5850 ]         # subf r9,r10,r11
+      - [ be32, 0x0, 0x2C090032 ]         # cmpwi r9,50
+      - [ be32, 0x0, 0x4082000C ]         # bne +12              (reset, new lap, paused: take as is)
+      - [ be32, 0x0, 0x7D6A3214 ]         # add r11,r10,r6
+      - [ be32, 0x0, 0x916C0650 ]         # stw r11,0x650(r12)
+      - [ be32, 0x0, 0x9162A768 ]         # stw r11,-0x5898(r2)
+      - [ be32, 0x0, 0x816C03E4 ]         # lwz r11,0x3e4(r12)  time limit now
+      - [ be32, 0x0, 0x8142A76C ]         # lwz r10,-0x5894(r2)  time limit after last correction
+      - [ be32, 0x0, 0x7D2A5850 ]         # subf r9,r10,r11
+      - [ be32, 0x0, 0x2C09FFCE ]         # cmpwi r9,-50
+      - [ be32, 0x0, 0x4082000C ]         # bne +12              (reset, extension, paused: take as is)
+      - [ be32, 0x0, 0x7D665050 ]         # subf r11,r6,r10
+      - [ be32, 0x0, 0x916C03E4 ]         # stw r11,0x3e4(r12)
+      - [ be32, 0x0, 0x9162A76C ]         # stw r11,-0x5894(r2)

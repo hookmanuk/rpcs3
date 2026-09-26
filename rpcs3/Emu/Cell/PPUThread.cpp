@@ -1285,6 +1285,9 @@ static void ppu_watch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, p
 		{
 		case 231: case 487: ea &= ~15u; size = 16; break; // stvx(l)
 		case 199: ea &= ~3u; break; // stvewx
+		case 647: case 679: case 775: case 807: size = 16; break; // stvlx, stvrx(l) (approximate range)
+		case 214: size = 8; break; // stdcx.
+		case 918: size = 2; break; // sthbrx
 		case 663: case 695: is_float = true; break; // stfsx, stfsux
 		case 727: case 759: case 149: case 181: size = 8; break; // stfdx(u), stdx(u)
 		case 215: case 247: size = 1; break; // stbx(u)
@@ -1331,6 +1334,108 @@ static void ppu_watch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, p
 	return ppu_cache(addr)(ppu, {*this_op}, this_op, next_fn);
 }
 
+// VR fork dev hook: a read watch, as the write watch but for load instructions: logs
+// each distinct load address (with the loaded value and call stack) that reads from
+// [s_rwatch_addr, s_rwatch_addr + s_rwatch_len). Interpreter only.
+static u32 s_rwatch_addr = 0;
+static u32 s_rwatch_len = 0;
+
+static void ppu_rwatch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, ppu_intrp_func* next_fn)
+{
+	const u32 addr = vm::get_addr(this_op);
+	const ppu_opcode_t op{*this_op};
+	const u64 base = op.ra ? ppu.gpr[op.ra] : 0;
+	u32 ea = 0, size = 4;
+	switch (op.main)
+	{
+	case 32: case 33: ea = static_cast<u32>(base + op.simm16); break; // lwz(u)
+	case 34: case 35: ea = static_cast<u32>(base + op.simm16); size = 1; break; // lbz(u)
+	case 40: case 41: case 42: case 43: ea = static_cast<u32>(base + op.simm16); size = 2; break; // lhz(u), lha(u)
+	case 46: ea = static_cast<u32>(base + op.simm16); size = (32 - op.rd) * 4; break; // lmw
+	case 48: case 49: ea = static_cast<u32>(base + op.simm16); break; // lfs(u)
+	case 50: case 51: ea = static_cast<u32>(base + op.simm16); size = 8; break; // lfd(u)
+	case 58: ea = static_cast<u32>(base + (op.simm16 & ~3)); size = (op.opcode & 3) == 2 ? 4 : 8; break; // ld(u), lwa
+	case 31:
+	{
+		ea = static_cast<u32>(base + ppu.gpr[op.rb]);
+		switch (op.opcode >> 1 & 0x3ff)
+		{
+		case 87: case 119: size = 1; break; // lbzx(u)
+		case 103: case 359: ea &= ~15u; size = 16; break; // lvx(l)
+		case 519: case 551: size = 16; break; // lvlx, lvrx (approximate range)
+		case 790: size = 2; break; // lhbrx
+		case 84: size = 8; break; // ldarx
+		case 279: case 311: case 343: case 375: size = 2; break; // lhzx(u), lhax(u)
+		case 21: case 53: case 599: case 631: size = 8; break; // ldx(u), lfdx(u)
+		default: break; // lwzx(u), lfsx(u)
+		}
+		break;
+	}
+	default: size = 0; break;
+	}
+
+	if (size && ea < s_rwatch_addr + s_rwatch_len && ea + size > s_rwatch_addr)
+	{
+		static std::mutex s_mutex;
+		static std::map<u32, u64> s_hits;
+		std::lock_guard lock(s_mutex);
+		const u64 hits = ++s_hits[addr];
+		if (hits == 1 || hits % 1000 == 0)
+		{
+			std::string key = fmt::format("0x%x LR 0x%x", addr, static_cast<u32>(ppu.lr));
+			const auto list = ppu.dump_callstack_list();
+			for (usz i = 0; i < std::min<usz>(list.size(), 8); i++)
+			{
+				fmt::append(key, " <- 0x%x", list[i].first);
+			}
+			const u32 value = vm::check_addr(ea & ~3u) ? static_cast<u32>(vm::read32(ea & ~3u)) : 0u;
+			ppu_log.success("RWATCH load from 0x%x (%u bytes, word 0x%x) at %s [%s, hit %u]", ea, size, value, key, ppu.get_name(), hits);
+		}
+	}
+
+	return ppu_cache(addr)(ppu, {*this_op}, this_op, next_fn);
+}
+
+// Installs the read watch on every load instruction in [start, end). Returns the count.
+extern u32 ppu_rwatch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end)
+{
+	if (g_cfg.core.ppu_decoder == ppu_decoder_type::llvm)
+	{
+		return 0;
+	}
+
+	s_rwatch_addr = watch_addr;
+	s_rwatch_len = watch_len;
+	u32 count = 0;
+	for (u32 addr = start; addr < end; addr += 4)
+	{
+		if (!vm::check_addr(addr, vm::page_executable))
+		{
+			continue;
+		}
+		const ppu_opcode_t op{vm::read32(addr)};
+		bool load = (op.main >= 32 && op.main <= 35) || (op.main >= 40 && op.main <= 43) || op.main == 46 || (op.main >= 48 && op.main <= 51) || op.main == 58;
+		if (op.main == 31)
+		{
+			switch (op.opcode >> 1 & 0x3ff)
+			{
+			case 23: case 55: case 87: case 119: case 279: case 311: case 343: case 375: case 21: case 53:
+			case 535: case 567: case 599: case 631: case 20: case 84: case 534: case 790: case 103: case 359:
+			case 519: case 551:
+				load = true;
+				break;
+			default: break;
+			}
+		}
+		if (load && ppu_read(addr) != &ppu_rwatch_break && ppu_read(addr) != &ppu_watch_break && ppu_read(addr) != &ppu_trace_break)
+		{
+			write_to_ptr_unsafe<ppu_intrp_func_t>(ppu_ptr(addr), &ppu_rwatch_break);
+			count++;
+		}
+	}
+	return count;
+}
+
 // Installs the watch on every store instruction in [start, end). Returns the count.
 extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end)
 {
@@ -1356,6 +1461,7 @@ extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end)
 			{
 			case 151: case 183: case 215: case 247: case 407: case 439: case 149: case 181:
 			case 663: case 695: case 727: case 759: case 231: case 487: case 199:
+			case 150: case 214: case 662: case 918: case 983: case 647: case 679: case 775: case 807:
 				store = true;
 				break;
 			default: break;

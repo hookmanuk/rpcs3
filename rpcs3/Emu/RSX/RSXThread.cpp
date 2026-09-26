@@ -3406,7 +3406,7 @@ namespace rsx
 		}
 
 		// VR fork dev hook: RPCS3_VR_MEMDUMP=<file>; creating the file writes guest main
-		// memory 0x00000000-0x3fffffff to <file>.<n>.bin (mapped pages) and the
+		// memory 0x00000000-0xbfffffff to <file>.<n>.bin (mapped pages) and the
 		// wall time to <file>.<n>.txt, for finding a game's clock by diffing dumps.
 		static const std::string s_dump_trigger = []() -> std::string
 		{
@@ -3421,7 +3421,7 @@ namespace rsx
 			std::vector<u32> pages;
 			std::vector<u8> data;
 			const u64 start_us = get_system_time();
-			for (u32 page = 0; page < 0x40000000u; page += 0x10000)
+			for (u32 page = 0; page < 0xc0000000u; page += 0x10000)
 			{
 				if (vm::check_addr(page, vm::page_readable, 0x10000))
 				{
@@ -3435,6 +3435,38 @@ namespace rsx
 			fs::write_file(base + ".idx", fs::rewrite, pages.data(), pages.size() * sizeof(u32));
 			fs::write_file(base + ".txt", fs::rewrite, std::to_string(wall_us));
 			rsx_log.success("VR memory dump written to '%s.bin' (wall %u us)", base, wall_us);
+		}
+
+		// VR fork dev hook: RPCS3_PPU_WATCH_FILE=<file>; writing "w|r,<addr>,<len>,<code start>,<code end>"
+		// (hex) to the file installs the PPU store (w) or load (r) watch at that moment, so a
+		// watch can target memory located in the same run (PPU interpreter only).
+		static const std::string s_watch_trigger = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_PPU_WATCH_FILE");
+			return v ? v : "";
+		}();
+		if (!s_watch_trigger.empty() && fs::is_file(s_watch_trigger))
+		{
+			std::string spec;
+			if (fs::file f{s_watch_trigger}; f)
+			{
+				spec = f.to_string();
+			}
+			fs::remove_file(s_watch_trigger);
+			const auto items = fmt::split(spec, {","});
+			if (items.size() >= 5)
+			{
+				extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
+				extern u32 ppu_rwatch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
+				u32 v[4]{};
+				for (usz i = 0; i < 4; i++)
+				{
+					v[i] = static_cast<u32>(std::strtoul(items[i + 1].c_str(), nullptr, 16));
+				}
+				const bool load = items[0].find('r') != umax;
+				const u32 count = load ? ppu_rwatch_install(v[0], v[1], v[2], v[3]) : ppu_watch_install(v[0], v[1], v[2], v[3]);
+				rsx_log.success("PPU %s watch on 0x%x+0x%x: %u instructions", load ? "read" : "write", v[0], v[1], count);
+			}
 		}
 
 		// Marks the end of a frame scope GPU-side

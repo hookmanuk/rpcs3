@@ -493,6 +493,28 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		}
 	}
 
+	// RPCS3_PPU_RWATCH: the same for load instructions (who reads a variable).
+	extern u32 ppu_rwatch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
+	if (static atomic_t<bool> s_rwatch_set = false; !s_rwatch_set)
+	{
+		if (const char* spec = std::getenv("RPCS3_PPU_RWATCH"))
+		{
+			std::vector<u32> v;
+			for (const auto& item : fmt::split(spec, {","}))
+			{
+				v.push_back(static_cast<u32>(std::strtoul(item.c_str(), nullptr, 16)));
+			}
+			if (v.size() >= 4 && !s_rwatch_set.exchange(true))
+			{
+				sys_timer.success("Read watch on 0x%x+0x%x: %u load instructions", v[0], v[1], ppu_rwatch_install(v[0], v[1], v[2], v[3]));
+			}
+		}
+		else
+		{
+			s_rwatch_set = true;
+		}
+	}
+
 	// RPCS3_CALLSTACK_AT=<hex address> logs the guest call stack of every 30th sleep made from that address.
 	static const u32 s_callstack_at = [] { const char* v = std::getenv("RPCS3_CALLSTACK_AT"); return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0u; }();
 	if (static atomic_t<u32> s_callstack_hits = 0; s_callstack_at && ppu.cia - s_callstack_at <= 4 && s_callstack_hits++ % 30 == 0)
