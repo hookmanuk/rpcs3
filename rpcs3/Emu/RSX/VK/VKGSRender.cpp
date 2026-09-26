@@ -1771,6 +1771,7 @@ void VKGSRender::vr_batch_flush()
 void VKGSRender::vr_batch_execute()
 {
 	m_vr_batch_executing = true;
+	m_gpuprof_batches++;
 	m_vr_batch_cb.detach();
 
 	const VkCommandBuffer secondary = m_vr_batch_slots[m_vr_batch_slot].cb;
@@ -3901,6 +3902,9 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 					m_gpuprof_total_ms / 120, resolution_scaling_config.scale_percent, rsx::vr::camera_probe::get().render_enabled() ? "stereo" : "flat",
 					m_gpuprof_sync_ms / 120, m_gpuprof_syncs / 120.);
 				text += fmt::format("; %.0f draws/frame", m_gpuprof_draw_sum / 120.);
+				text += fmt::format(" (%.0f right-eye batches/frame, %.1f right-eye texture rebuilds/frame)", m_gpuprof_batches / 120., m_gpuprof_right_copies / 120.);
+				m_gpuprof_right_copies = 0;
+				m_gpuprof_batches = 0;
 				m_gpuprof_draw_sum = 0;
 				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
 				text += fmt::format("; RSX thread ms/frame: setup %.2f, vertex %.2f, textures %.2f, draw %.2f, flip %.2f = %.2f of %.2f between flips",

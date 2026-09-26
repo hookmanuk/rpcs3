@@ -436,6 +436,8 @@ namespace rsx::vr
 		// Cached profile of the running title (see profile()).
 		mutable std::mutex m_profile_mutex;
 		mutable std::string m_profile_title;
+		mutable std::string m_profile_title_id; // what the cached key was built from (per-draw fast path)
+		mutable std::string m_profile_boot;
 		mutable std::shared_ptr<const title_profile> m_profile;
 
 		// Probe overrides (base=, cam=); umax = the profile's.

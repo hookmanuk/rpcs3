@@ -1007,8 +1007,17 @@ namespace rsx::vr
 	const title_profile* camera_probe::profile() const
 	{
 		const std::string& title = Emu.GetTitleID();
-		const std::string executable = running_executable_name();
+		const std::string& boot = Emu.GetBoot();
 		std::lock_guard lock(m_profile_mutex);
+		// Called several times per draw: only rebuild the key when the title or boot path changed
+		// (building it every call cost Ridge Racer 7 about a tenth of the RSX thread's work).
+		if (!m_profile_title.empty() && title == m_profile_title_id && boot == m_profile_boot)
+		{
+			return m_profile.get();
+		}
+		m_profile_title_id = title;
+		m_profile_boot = boot;
+		const std::string executable = running_executable_name();
 		if (title + "|" + executable != m_profile_title)
 		{
 			m_profile_title = title + "|" + executable;

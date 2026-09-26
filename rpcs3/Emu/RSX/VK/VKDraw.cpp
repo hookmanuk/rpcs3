@@ -692,7 +692,38 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 				left_rtt = dynamic_cast<vk::render_target*>(sampler_state->image_handle->image());
 			}
 
+			// A copy whose sources are all off-aspect targets (cube-map faces, shadow maps) is the
+			// same image in both eyes: draws into them are never moved per eye. The right eye
+			// then samples the left eye's copy, which the texture cache keeps, instead of
+			// rebuilding it on every draw (Ridge Racer 7: 36 cube-map rebuilds a frame on the
+			// start grid, one per car part reflecting the environment).
+			bool shared_copy = false;
 			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && !sampler_state->image_handle)
+			{
+				const auto& desc = sampler_state->external_subresource_desc;
+				if (const auto* profile = rsx::vr::camera_probe::get().profile())
+				{
+					const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
+					const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
+					const auto invariant = [&](vk::image* src)
+					{
+						auto* rtt = dynamic_cast<vk::render_target*>(src);
+						return rtt && !profile->is_view_target(rtt->get_surface_width<rsx::surface_metrics::pixels>(),
+							rtt->get_surface_height<rsx::surface_metrics::pixels>(), output_aspect);
+					};
+					shared_copy = desc.external_handle || !desc.sections_to_copy.empty();
+					if (desc.external_handle)
+					{
+						shared_copy = shared_copy && invariant(desc.external_handle);
+					}
+					for (const auto& section : desc.sections_to_copy)
+					{
+						shared_copy = shared_copy && (!section.src || invariant(section.src));
+					}
+				}
+			}
+
+			if (vr_right_eye && !shared_copy && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && !sampler_state->image_handle)
 			{
 				auto desc = sampler_state->external_subresource_desc;
 				bool complete = true;
@@ -723,6 +754,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 					{
 						desc.op = rsx::deferred_request_command::copy_image_dynamic;
 					}
+					m_gpuprof_right_copies++;
 					view = m_texture_cache.create_temporary_subresource(*m_current_command_buffer, desc);
 				}
 			}
@@ -749,7 +781,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 			// Diagnostic: a right-eye sample left on the shared (left-eye) image although the
 			// right-eye store holds a surface in the sampled range. Logged once per address.
-			if (vr_right_eye && !view)
+			if (vr_right_eye && !view && !shared_copy)
 			{
 				const u32 address = rsx::get_address(rsx::method_registers.fragment_textures[i].offset(), rsx::method_registers.fragment_textures[i].location());
 				static std::set<u32> s_reported;

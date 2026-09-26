@@ -205,6 +205,8 @@ private:
 	u32 m_gpuprof_target = 0;      // RPCS3_VR_GPUPROF_TARGET=<hex address>: also time each draw into it
 	u32 m_gpuprof_draw = 0;        // draws since the flip
 	u64 m_gpuprof_draw_sum = 0;
+	u64 m_gpuprof_batches = 0;       // right-eye batches executed
+	u64 m_gpuprof_right_copies = 0;  // right-eye texture copies rebuilt from right-eye surfaces
 	s64 m_gpuprof_rsx_us[5]{};     // RSX thread: setup, vertex upload, texture upload, draw exec, flip
 	std::chrono::steady_clock::time_point m_gpuprof_last_flip{};
 	f64 m_gpuprof_wall_ms = 0.;
