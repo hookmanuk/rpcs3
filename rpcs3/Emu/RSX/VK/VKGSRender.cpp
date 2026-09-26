@@ -2910,6 +2910,29 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_vr_right_rtts.superseded_surfaces.clear();
 		m_vr_right_rtts.orphaned_surfaces.clear();
 
+		// Initialize new right-eye surfaces as the left eye does before its first draw
+		// (clear, or inherit from overlapping older surfaces). Without this a new or
+		// recycled right-eye image keeps whatever it last held: Ridge Racer 7's Xevious
+		// loader depth-tests its play area against a depth buffer the left eye cleared
+		// and the right eye did not, so that eye stayed black.
+		const auto init_right = [&](vk::render_target* surface)
+		{
+			if (surface && ((surface->state_flags & rsx::surface_state_flags::erase_bkgnd) || !surface->old_contents.empty()))
+			{
+				// Clears and copies cannot run inside a render pass.
+				if (vk::is_renderpass_open(*m_current_command_buffer))
+				{
+					vk::end_renderpass(*m_current_command_buffer);
+				}
+				surface->write_barrier(*m_current_command_buffer);
+			}
+		};
+		for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+		{
+			init_right(std::get<1>(m_vr_right_rtts.m_bound_render_targets[index]));
+		}
+		init_right(std::get<1>(m_vr_right_rtts.m_bound_depth_stencil));
+
 		m_vr_right_fbo_images.clear();
 		for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
 		{

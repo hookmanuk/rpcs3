@@ -565,10 +565,14 @@ namespace rsx::vr
 		}
 
 		// 2. Stray matches: data in a listed block that passes the perspective
-		// test but is no camera. If any, require rigid camera blocks.
+		// test but is no camera. If any, require rigid camera blocks. Depth-tested
+		// draws that sample no colour render target are world geometry: a strongly
+		// non-uniform object scale is not stray data (Ridge Racer 7's wheels and
+		// light glows, which rigidity left on the game camera).
 		bool require_rigid = false;
 		for (const draw_sample* s : views)
 		{
+			if (s->depth_test && !(s->textures & 2)) continue;
 			const slot_reader r{ s->ids, s->values, s->full_bank };
 			for (const u32 base : blocks)
 			{

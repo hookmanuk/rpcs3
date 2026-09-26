@@ -33,7 +33,7 @@
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [4, 0],
-  "require_rigid_camera": true,
+  "require_rigid_camera": false,
   "output_aspect_tolerance": 0.04,
 
   "camera_position": {
