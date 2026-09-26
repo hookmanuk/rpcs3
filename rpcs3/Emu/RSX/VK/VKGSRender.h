@@ -425,6 +425,11 @@ private:
 	void update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info);
 	void upload_transform_constants(const rsx::io_buffer& buffer);
 	bool bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size);
+	// Profile resolution_scaled_constants: divide the listed slots of a filled constant block by the resolution scale.
+	void scale_offset_constants(void* buffer, std::span<const u16> constant_ids);
+	const void* m_scaled_constants_program = nullptr;
+	const void* m_scaled_constants_profile = nullptr;
+	const std::vector<u16>* m_scaled_constants_slots = nullptr;
 
 	void load_texture_env();
 	bool bind_texture_env(bool vr_right_eye = false);

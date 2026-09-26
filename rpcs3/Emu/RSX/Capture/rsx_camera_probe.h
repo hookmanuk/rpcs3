@@ -193,6 +193,17 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+
+		// Vertex constants holding texture-coordinate offsets (a pass's filter taps), divided
+		// by the resolution scale so the filter keeps its footprint in rendered pixels. Ridge
+		// Racer 7's scene resolve averages three taps about a quarter of a native pixel apart;
+		// unscaled, at 600% that smeared every edge of the scene over about three pixels.
+		struct scaled_constants
+		{
+			u64 program = 0; // vertex program ucode hash
+			std::vector<u16> constant_slots; // ("slots" in the file; a Qt macro in C++)
+		};
+		std::vector<scaled_constants> resolution_scaled_constants;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box
 		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
 		// menu layers. Off by default: it broke ICO's HUD box.

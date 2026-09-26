@@ -2547,10 +2547,65 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 			? std::span<const u16>{}
 			: std::span<const u16>(m_vertex_prog->constant_ids);
 		m_draw_processor.fill_vertex_program_constants_data(buf, constant_ids);
+		scale_offset_constants(buf, constant_ids);
 	}
 	else
 	{
 		m_xform_constants_data_size = 0;
+	}
+}
+
+void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> constant_ids)
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->resolution_scaled_constants.empty() || !m_vertex_prog || resolution_scaling_config.scale_percent == 100)
+	{
+		return;
+	}
+
+	// The rule for this vertex program, looked up once per program (the hash walks the ucode).
+	if (m_scaled_constants_program != m_vertex_prog || m_scaled_constants_profile != profile)
+	{
+		m_scaled_constants_program = m_vertex_prog;
+		m_scaled_constants_profile = profile;
+		m_scaled_constants_slots = nullptr;
+		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		for (const auto& rule : profile->resolution_scaled_constants)
+		{
+			if (rule.program == hash)
+			{
+				m_scaled_constants_slots = &rule.constant_slots;
+				break;
+			}
+		}
+	}
+
+	if (!m_scaled_constants_slots)
+	{
+		return;
+	}
+
+	// Written from the guest registers, never read back from the (write-combined) buffer.
+	const f32 k = 100.f / resolution_scaling_config.scale_percent;
+	for (const u16 slot : *m_scaled_constants_slots)
+	{
+		usz index = slot;
+		if (!constant_ids.empty())
+		{
+			const auto found = std::find(constant_ids.begin(), constant_ids.end(), slot);
+			if (found == constant_ids.end())
+			{
+				continue;
+			}
+			index = found - constant_ids.begin();
+		}
+		const auto& reg = rsx::method_registers.transform_constants[slot];
+		f32 value[4];
+		for (u32 c = 0; c < 4; ++c)
+		{
+			value[c] = std::bit_cast<f32>(reg[c]) * k;
+		}
+		std::memcpy(static_cast<u8*>(buffer) + index * 16, value, sizeof(value));
 	}
 }
 
@@ -2583,6 +2638,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	scratch.resize(size);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
 	m_draw_processor.fill_vertex_program_constants_data(scratch.data(), constant_ids);
+	scale_offset_constants(scratch.data(), constant_ids);
 
 	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
 	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();

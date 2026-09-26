@@ -31,6 +31,10 @@
   "game_frame_ms_u32": ["0x4d8ff0"],
   "game_fps_u32": ["0x4d8ff4"],
 
+  "resolution_scaled_constants": [
+    { "program": "e2b9761e8fd87794", "slots": [466, 467] }
+  ],
+
   "matrix_layout": "row_vectors",
   "camera_blocks": [4, 0],
   "require_rigid_camera": false,

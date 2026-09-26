@@ -628,6 +628,28 @@ namespace rsx::vr
 		read_guest_addresses("game_frame_time_f32", profile->game_frame_time_f32);
 		read_guest_addresses("game_frame_ms_u32", profile->game_frame_ms_u32);
 		read_guest_addresses("game_fps_u32", profile->game_fps_u32);
+		if (const YAML::Node rules = child(root, "resolution_scaled_constants"); rules && rules.IsSequence())
+		{
+			// [{ "program": "<vertex ucode hash>", "slots": [466, 467] }]
+			for (const auto& node : rules)
+			{
+				title_profile::scaled_constants rule;
+				const std::string text = node["program"] ? node["program"].as<std::string>() : std::string();
+				char* end = nullptr;
+				rule.program = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("resolution_scaled_constants: '" + text + "' is not a hex program hash");
+				if (const YAML::Node slots = node["slots"]; slots && slots.IsSequence())
+				{
+					for (const auto& slot : slots)
+					{
+						const u32 value = slot.as<u32>();
+						if (value >= 468) fail(fmt::format("resolution_scaled_constants: slot %u is out of range", value));
+						rule.constant_slots.push_back(static_cast<u16>(value));
+					}
+				}
+				profile->resolution_scaled_constants.push_back(std::move(rule));
+			}
+		}
 		if (std::string current; read(root, "current_frame_copies", current, false))
 		{
 			profile->current_frame_copies = current == "true";
@@ -652,7 +674,7 @@ namespace rsx::vr
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
-			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback" });
+			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "resolution_scaled_constants" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "hud_skips_passes", "frames_without_3d_as_screen" });

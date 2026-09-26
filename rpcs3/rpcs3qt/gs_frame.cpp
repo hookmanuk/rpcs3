@@ -990,6 +990,12 @@ void gs_frame::take_screenshot(std::vector<u8>&& data, u32 sshot_width, u32 ssho
 			const auto& avconf = g_fxo->get<rsx::avconf>();
 			auto new_size = avconf.aspect_convert_dimensions(size2u{ u32(img.width()), u32(img.height()) });
 
+			// VR fork: a side-by-side stereo shot is two output-aspect eyes; keep it at full resolution.
+			if (new_size.height == static_cast<u32>(img.height()) && static_cast<u32>(img.width()) == new_size.width * 2)
+			{
+				new_size.width = img.width();
+			}
+
 			if (new_size.width != static_cast<u32>(img.width()) || new_size.height != static_cast<u32>(img.height()))
 			{
 				img = img.scaled(QSize(new_size.width, new_size.height), Qt::AspectRatioMode::IgnoreAspectRatio, Qt::TransformationMode::SmoothTransformation);
