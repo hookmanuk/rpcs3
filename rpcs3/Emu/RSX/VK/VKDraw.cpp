@@ -1716,6 +1716,15 @@ void VKGSRender::end()
 	load_texture_env();
 	m_frame_stats.textures_upload_time += m_profiler.duration();
 
+	// Probe hide=<hash>: skip this vertex program's draws (development: finding which program draws an artefact).
+	if (const auto& hidden = rsx::vr::camera_probe::get().hidden_programs(); !hidden.empty() &&
+		std::find(hidden.begin(), hidden.end(), program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)) != hidden.end())
+	{
+		execute_nop_draw();
+		rsx::thread::end();
+		return;
+	}
+
 	if (!load_program())
 	{
 		// Program is not ready, skip drawing this

@@ -352,6 +352,9 @@ namespace rsx::vr
 		// Hot-path gate. False unless a perturbation is currently configured.
 		bool enabled() const { return m_active.load(); }
 		bool render_enabled() const;
+		// Probe "hide=<hash>[+<hash>...]": vertex programs (ucode hashes) whose draws are skipped, to find which
+		// program draws an artefact. Empty unless set.
+		const std::vector<u64>& hidden_programs() const { return m_hidden_programs; }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		// The draw about to be bound has depth test enabled.
@@ -462,6 +465,7 @@ namespace rsx::vr
 		f32 m_stereo_conv = 0.f;
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
+		std::vector<u64> m_hidden_programs;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_depth_test = true;
