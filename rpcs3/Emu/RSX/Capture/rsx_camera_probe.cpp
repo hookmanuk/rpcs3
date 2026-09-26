@@ -1179,7 +1179,6 @@ namespace rsx::vr
 		m_stereo_conv = 0.f;
 		m_have_stereo = false;
 		m_render_enabled = false;
-		m_hidden_programs.clear();
 		m_render_camera_right = {};
 		m_render_camera_right_valid = false;
 		m_have_raw = false;
@@ -1286,15 +1285,6 @@ namespace rsx::vr
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
 			else if (k == "render") { m_render_enabled = (as_u() != 0); }
 			else if (k == "scene")  { m_scene_override = as_u() != 0; }
-			else if (k == "hide")
-			{
-				for (usz start = 0; start < v.size();)
-				{
-					const usz plus = v.find('+', start);
-					m_hidden_programs.push_back(std::strtoull(v.substr(start, plus == umax ? umax : plus - start).c_str(), nullptr, 16));
-					start = plus == umax ? v.size() : plus + 1;
-				}
-			}
 			else if (k == "title") m_title = v;
 		}
 
@@ -1348,19 +1338,6 @@ namespace rsx::vr
 			m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots)))
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
-			return false;
-		}
-
-		// Classifier rule 1, as on the flat probe route: only camera-view targets (the
-		// output aspect) follow the head. Off-aspect targets keep the game's camera in both
-		// eyes: Ridge Racer 7 renders its road reflections from the game camera into
-		// 128x128 tiles of a 512x128 target and looks them up with an unmodified copy of
-		// that camera, so moving the tiles with the head made the reflected headlights,
-		// brake lights and tunnel lights follow the head. Cube-map faces stay fixed too.
-		if (const size2u output = g_fxo->get<rsx::avconf>().video_frame_size();
-			output.height && !profile.is_view_target(surface_w, surface_h, static_cast<f32>(output.width) / output.height))
-		{
-			block.release();
 			return false;
 		}
 
