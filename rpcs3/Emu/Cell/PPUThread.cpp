@@ -1389,7 +1389,9 @@ static void ppu_rwatch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, 
 				fmt::append(key, " <- 0x%x", list[i].first);
 			}
 			const u32 value = vm::check_addr(ea & ~3u) ? static_cast<u32>(vm::read32(ea & ~3u)) : 0u;
-			ppu_log.success("RWATCH load from 0x%x (%u bytes, word 0x%x) at %s [%s, hit %u]", ea, size, value, key, ppu.get_name(), hits);
+			ppu_log.success("RWATCH load from 0x%x (%u bytes, word 0x%x) at %s [%s, hit %u] r3=0x%x r4=0x%x r24..r31=0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x", ea, size, value, key, ppu.get_name(), hits,
+				static_cast<u32>(ppu.gpr[3]), static_cast<u32>(ppu.gpr[4]), static_cast<u32>(ppu.gpr[24]), static_cast<u32>(ppu.gpr[25]), static_cast<u32>(ppu.gpr[26]), static_cast<u32>(ppu.gpr[27]),
+				static_cast<u32>(ppu.gpr[28]), static_cast<u32>(ppu.gpr[29]), static_cast<u32>(ppu.gpr[30]), static_cast<u32>(ppu.gpr[31]));
 		}
 	}
 

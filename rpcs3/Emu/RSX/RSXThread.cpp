@@ -3437,6 +3437,52 @@ namespace rsx
 			rsx_log.success("VR memory dump written to '%s.bin' (wall %u us)", base, wall_us);
 		}
 
+		// VR fork dev hook: RPCS3_VR_POKE=<file>; creating the file writes each of its lines
+		// "<addr hex> f32|u32 <value>" to guest memory (big-endian), e.g. to try a patch's
+		// data change on a running game or a savestate, whose memory already holds the old value.
+		static const std::string s_poke_trigger = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_VR_POKE");
+			return v ? v : "";
+		}();
+		if (!s_poke_trigger.empty() && fs::is_file(s_poke_trigger))
+		{
+			std::string spec;
+			if (fs::file f{s_poke_trigger}; f)
+			{
+				spec = f.to_string();
+			}
+			fs::remove_file(s_poke_trigger);
+			for (const auto& line : fmt::split(spec, {"\n"}))
+			{
+				const auto items = fmt::split(line, {" ", "\t", "\r"});
+				if (items.size() < 3)
+				{
+					continue;
+				}
+				const u32 addr = static_cast<u32>(std::strtoul(items[0].c_str(), nullptr, 16));
+				// Code pages are read-only: written through the supervisor mapping, then the PPU
+				// interpreter's cache is rebuilt for the word (PPU Decoder: Interpreter (static);
+				// LLVM keeps its compiled code).
+				const bool code = vm::check_addr(addr, vm::page_executable, 4);
+				if (!code && !vm::check_addr(addr, vm::page_writable, 4))
+				{
+					rsx_log.error("VR poke: 0x%x is not writable", addr);
+					continue;
+				}
+				const u32 value = items[1] == "f32" ? std::bit_cast<u32>(std::strtof(items[2].c_str(), nullptr)) :
+					static_cast<u32>(std::strtoul(items[2].c_str(), nullptr, 0));
+				const u32 old = vm::read32(addr);
+				*vm::get_super_ptr<be_t<u32>>(addr) = value;
+				if (code)
+				{
+					extern void ppu_register_function_at(u32 addr, u32 size, u64 ptr);
+					ppu_register_function_at(addr, 4, 0);
+				}
+				rsx_log.success("VR poke 0x%x%s: 0x%08x -> 0x%08x (%s %s)", addr, code ? " (code)" : "", old, value, items[1], items[2]);
+			}
+		}
+
 		// VR fork dev hook: RPCS3_PPU_WATCH_FILE=<file>; writing "w|r,<addr>,<len>,<code start>,<code end>"
 		// (hex) to the file installs the PPU store (w) or load (r) watch at that moment, so a
 		// watch can target memory located in the same run (PPU interpreter only).
