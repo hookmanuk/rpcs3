@@ -46,6 +46,7 @@ VR): get new VR builds from the same place as this one.
 | ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
 | Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
 | Ridge Racer 7 | BCAS20001 | Headset refresh rate |
+| Demon's Souls | BLUS30443 | Headset refresh rate |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -116,6 +117,17 @@ VR): get new VR builds from the same place as this one.
   grid).
 - **Known issues:** emulation can occasionally stop when the main-menu video starts; restart the game if it
   does. Don't turn on `Log shader programs` for this game: it makes this happen every time.
+
+### 6. Demon's Souls (BLUS30443, US release): headset refresh rate
+
+- **Frame rate:** the headset's refresh rate by default; a slower PC can choose a lower rate with the VR
+  **Frame Rate** setting. The patch *Unlocked frame rate (follows Vblank Rate)* is on by default (the community
+  Unlock FPS patch): game time follows the real clock, so running and rolling keep real speed at 90 FPS.
+  Below 20 FPS the game slows down.
+- **Patches on by default:** *Disable Motion Blur* (it followed the game camera, not your head) and *Wider
+  view (VR culling)*, which draws more of the world around you (130 degrees by default; lower it if frame
+  rate suffers, or set 43 to play without VR). The VR profile also turns off the game's depth of field, which
+  blurred the floor and the edges of the view.
 
 ---
 

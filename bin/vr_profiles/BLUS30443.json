@@ -3,8 +3,8 @@
   "title_id": "BLUS30443",
   "app_version": "01.00",
   "name": "Demon's Souls",
-  "max_fps": 60,
-  "default_fps": 60,
+  "max_fps": 0,
+  "default_fps": 0,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [0, 8],

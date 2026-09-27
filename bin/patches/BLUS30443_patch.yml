@@ -1,6 +1,52 @@
 Version: 1.2
 
 PPU-83681f6110d33442329073b72b8dc88a2f677172:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Demon's Souls":
+        BLUS30443: [ 01.00 ]
+    Author: "Whatcookie, Gibbed (VR fork copy of Unlock FPS 2.1, on by default)"
+    Notes: "Game time from the real clock instead of one fixed step per frame, and a frame on every vblank: the game runs at the Vblank Rate (60 on a TV, the headset's refresh rate in VR). Same patch as the community patch.yml Unlock FPS, carried here so it is on without downloading patches. Checked at 90 Hz: running and rolling cover the same distance per second as at 60. Below 20 FPS the game slows down (50 ms step cap)."
+    Patch Version: 2.1
+    Enabled By Default: true
+    Patch:
+      # Set 60 FPS with no frameskip
+      # by Gibbed
+      - [ be16, 0x00025ed8, 0x981f ]
+      # delta time
+      # by Whatcookie
+      - [ be32, 0x0001b964, 0x496ac2cd ] # jump to code cave
+      # get mftb
+      - [ be32, 0x016c7c30, 0x7eac42e6 ] # mftb r21              // move from timebase register (clock)
+      # get mftb delta
+      - [ be32, 0x016c7c34, 0x3ec00185 ] # lis r22,0x0185        // load high bits of address
+      - [ be32, 0x016c7c38, 0x3ad62608 ] # addi r22,r22,0x2608   // load low bits of address
+      - [ be32, 0x016c7c3c, 0x7e96a02a ] # ldx r20,r22,r20       // load previous frames mftb reading
+      - [ be32, 0x016c7c40, 0xfab60000 ] # std r21,0x0(r22)      // store this frames mftb reading
+      - [ be32, 0x016c7c44, 0x7e74a850 ] # subf r19,r21,r20      // subtract previous mftb reading from this mftb frames reading
+      # mftb delta to float
+      - [ be32, 0x016c7c48, 0xfa760018 ] # std r19,0x18(r22)     // store mftb delta (to be loaded into FPR)
+      - [ be32, 0x016c7c4c, 0xcbd60018 ] # lfd f30,0x18(r22)     // load mftb delta into FPR
+      - [ be32, 0x016c7c50, 0xffc0f69c ] # fcfid f30,f30         // convert integer to double
+      - [ be32, 0x016c7c54, 0xffc0f018 ] # frsp f30,f30          // round to single precision
+      # mftb delta to seconds
+      - [ be32, 0x016c7c58, 0x3e40016c ] # r18,0x16c             // load high bits constants pointer
+      - [ be32, 0x016c7c5c, 0x3a527c30 ] # addi r18,r18,0x7c30   // load low bits of constants pointer
+      - [ be32, 0x016c7c60, 0xc3b20054 ] # lfs f29,0x54(r18)     // load timebase frequency constant
+      - [ be32, 0x016c7c64, 0xc3920058 ] # lfs f28,0x58(r18)     // load maximum timestep size
+      - [ be32, 0x016c7c68, 0xeffee824 ] # fdivs f31,f30,f29     // divide timebase delta by timebase frequency
+      # check timestep size
+      - [ be32, 0x016c7c6c, 0xff9fe000 ] # fcmpu cr7,f31,f28     // compare current delta time to maximum timestep
+      - [ be32, 0x016c7c70, 0x419c0008 ] # blt +0x08             // don't return the maximum timestep size
+      # set maximum timestep
+      - [ be32, 0x016c7c74, 0xffe0e090 ] # fmr f31,f28           // move maximum timestep to be returned
+      # cleanup
+      - [ be32, 0x016c7c78, 0x7e94a278 ] # xor r20,r20,r20       // zero r20
+      - [ be32, 0x016c7c7c, 0x7e94a278 ] # xor r19,r19,r19       // zero r19
+      - [ be32, 0x016c7c80, 0x4e800020 ] # blr                   // return
+      # constants
+      - [ be32, 0x016c7c84, 0x4c989680 ] # timebase frequency as hexfloat (80mhz)
+      - [ bef32, 0x016c7c88, 0.05 ]      # maximum timestep size (50ms or 20 FPS)
   "Disable Motion Blur":
     Games:
       "Demon's Souls":
