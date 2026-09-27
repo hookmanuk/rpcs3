@@ -114,8 +114,8 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
       "Shadow of the Colossus":
         BCUS98259: [ 01.00 ]
     Author: "VR fork (from illusion's Extended FOV)"
-    Notes: "Widens the game camera's field of view so objects outside the TV frame are still drawn: the game only draws its own narrow view (44 degrees), so in VR everything beyond it was bright fog. At 3.0 the game view is about 150 x 130 degrees. The headset view is remapped from the game's projection, so the image keeps its scale. Without VR the TV picture becomes a wide-angle view: set 1.0 to play flat."
-    Patch Version: 1.0
+    Notes: "Widens the game camera's field of view so objects outside the TV frame are still drawn: the game only draws its own narrow view (44 degrees), so in VR everything beyond it was bright fog. At 3.0 the game view is about 150 x 130 degrees. The headset view is remapped from the game's projection, so the image keeps its scale. Without VR the TV picture becomes a wide-angle view: set 1.0 to play flat. 1.2: the camera's framing logic keeps the game's own field of view; with the widened one it kept pushing the camera into walls and snapping back. Only the main camera's view is widened (1.0 also widened a second 1-degree camera)."
+    Patch Version: 1.2
     Enabled By Default: true
     Configurable Values:
       "Scale":
@@ -133,7 +133,22 @@ PPU-07500788ed015ad425938fbde3b857487b38397b: # Shadow.self (Shadow of the Colos
           "3.0": 3.0
           "4.0": 4.0
     Patch:
-      - [ bef32, 0x00732894, "Scale" ] # FOV multiplier (1.0; the community Extended FOV sets 1.5)
+      - [ bef32, 0x00732894, "Scale" ] # FOV multiplier (1.0; the community Extended FOV sets 1.5), TOC-0x33cc
+      # The camera code 0xee438-0xee710 reads that constant as 1.0 for other things too; those reads
+      # now take the 1.0 at TOC-0x3398 (0x7328c8), so only the main camera's FOV multiplier is scaled.
+      - [ be32, 0x000ee570, 0xc3e2cc34 ] # lfs f31,-0x33cc(r2) (was lfs f28): f31 multiplies the main camera FOV (0xee59c)
+      - [ be32, 0x000ee574, 0xc382cc68 ] # lfs f28,-0x3398(r2) (was fmr f31,f28): the second camera's FOV and the clamp stay 1.0
+      - [ be32, 0x000ee490, 0xc022cc68 ] # lfs f1,-0x3398(r2): second camera's initial FOV 1.0
+      - [ be32, 0x000ee650, 0xc382cc68 ] # lfs f28,-0x3398(r2)
+      - [ be32, 0x000ee698, 0xc382cc68 ] # lfs f28,-0x3398(r2)
+      - [ be32, 0x000ee6a0, 0xc382cc68 ] # lfs f28,-0x3398(r2)
+      - [ be32, 0x000ee70c, 0xc382cc68 ] # lfs f28,-0x3398(r2)
+      # Camera framing (0xea628 reads the render view's field of view, then stores the view's half
+      # extent at the target's distance, +0x40/+0x44): tan(fov/2) there used the widened angle, so the
+      # camera kept moving into walls and back. It now takes fov / Scale: 0.5 * pi/180 becomes pi/360.
+      - [ be32, 0x000ea654, 0xc142cc34 ] # lfs f10,-0x33cc(r2) (was lfs f10,0.5): f10 = Scale
+      - [ be32, 0x000ea674, 0xefde5024 ] # fdivs f30,f30,f10 (was fmuls f30,f30,f10): fov / Scale
+      - [ be32, 0x000ea67c, 0xc0229120 ] # lfs f1,-0x6ee0(r2) (was lfs f1,pi/180): pi/360, the 0.5 moved here
 
 SPU-2801f277cbe95085325a1451cc64731b8f47c18b: # Shadow of the Colossus SPU mesh job (loaded by Shadow.self; same program as BCES01097 1.01)
   "Disable Mesh Trimming":
