@@ -932,6 +932,7 @@ VKGSRender::~VKGSRender()
 
 	m_overlay_recording_img.reset();
 	m_xr_overlay_img.reset();
+	m_vr_warp_scratch.clear();
 	m_stencil_mirror_sampler.reset();
 
 	// Queries

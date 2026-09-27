@@ -251,6 +251,24 @@ namespace vk
 			bool stereo_enabled, VkRenderPass render_pass, bool force_side_by_side = false);
 	};
 
+	// VR fork: re-aims an image drawn with an older head pose at the current one. Each
+	// output pixel (uv, v down) reads the source at H * (u, v, 1), H from
+	// vk::xr::render_pose_homography; exact across the view, unlike a pixel shift.
+	struct vr_homography_warp_pass : public overlay_pass
+	{
+		f32 homography[12] = {}; // rows of H, each padded to a vec4
+
+		static constexpr u32 fragment_push_constants_size = sizeof(homography);
+
+		vr_homography_warp_pass();
+
+		std::vector<vk::glsl::program_input> get_fragment_inputs() override;
+
+		void update_uniforms(vk::command_buffer& cmd, vk::glsl::program* program) override;
+
+		void run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9]);
+	};
+
 	// TODO: Replace with a proper manager
 	extern std::unordered_map<u32, std::unique_ptr<vk::overlay_pass>> g_overlay_passes;
 

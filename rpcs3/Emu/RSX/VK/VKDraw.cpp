@@ -2152,8 +2152,15 @@ void VKGSRender::vr_realign_blend_targets()
 			continue;
 		}
 
+		// The rotation since the surface's pose, as a homography: exact across the view.
+		// A pixel shift (the fallback) is exact only at the centre; towards the edges of
+		// a ~90 degree view a rotation moves the image up to twice as far, so shifted
+		// content swam against head turns and settled when the head stopped.
+		f32 homography[9];
+		const bool exact = vk::xr::render_pose_homography(surface->vr_pose, m_vr_applied_pose, homography);
+
 		// new(x) = old(x + dx): the content moves against the head rotation.
-		const auto shift = [&](vk::image* image)
+		const auto shift = [&](vk::render_target* image)
 		{
 			const int w = static_cast<int>(image->width());
 			const int h = static_cast<int>(image->height());
@@ -2166,6 +2173,25 @@ void VKGSRender::vr_realign_blend_targets()
 			if (image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
 			{
 				// Never written (a right-eye surface): nothing to move.
+				return std::pair<int, int>{ dx, dy };
+			}
+			if (exact)
+			{
+				auto& target = m_vr_warp_scratch[(static_cast<u64>(image->format()) << 40) | (static_cast<u64>(w) << 20) | static_cast<u64>(h)];
+				if (!target)
+				{
+					target = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+						VK_IMAGE_TYPE_2D, image->format(), w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+						VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+						VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+						0, VMM_ALLOCATION_POOL_SYSTEM);
+				}
+				if (vk::is_renderpass_open(*m_current_command_buffer))
+				{
+					vk::end_renderpass(*m_current_command_buffer);
+				}
+				vk::get_overlay_pass<vk::vr_homography_warp_pass>()->run(*m_current_command_buffer, image, target.get(), homography);
+				vk::copy_image(*m_current_command_buffer, target.get(), image, areai{ 0, 0, w, h }, areai{ 0, 0, w, h });
 				return std::pair<int, int>{ dx, dy };
 			}
 			auto* scratch = vk::get_typeless_helper(image->format(), image->format_class(), w, h);
@@ -2199,7 +2225,7 @@ void VKGSRender::vr_realign_blend_targets()
 		if (vr_tracing())
 		{
 			vr_trace_flush_cam();
-			m_vr_trace += fmt::format(" A{%x:%dpx,%dpx}", surface->base_addr, dx, dy);
+			m_vr_trace += fmt::format(" A{%x:%dpx,%dpx%s}", surface->base_addr, dx, dy, exact ? " h" : "");
 		}
 	}
 }

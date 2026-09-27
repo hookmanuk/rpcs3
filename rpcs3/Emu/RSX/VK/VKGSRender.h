@@ -373,6 +373,7 @@ private:
 
 	std::unique_ptr<vk::image> m_overlay_recording_img;
 	std::unique_ptr<vk::image> m_xr_overlay_img; // RPCS3 overlays for the OpenXR quad layer
+	std::unordered_map<u64, std::unique_ptr<vk::viewable_image>> m_vr_warp_scratch; // realign warp targets, by format and size
 
 	//Vertex layout
 	rsx::vertex_input_layout m_vertex_layout;
