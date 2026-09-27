@@ -455,6 +455,46 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// Gate 6: the right eye's last batched draws must land before it is presented.
 	vr_batch_flush();
 
+	// VR fork dev hook: RPCS3_VR_RTDUMP=<file>. When the file appears (consumed), both eyes' surfaces at
+	// the display buffer are written raw to <file>.<n>.left / .right (+ .txt: width height format). It runs
+	// before the swapchain checks, so it works with a locked desktop, where the flip skips present and
+	// screenshots.
+	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
+	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump) && fs::remove_file(s_rtdump))
+	{
+		static u32 s_dump_index = 0;
+		const u32 address = rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL);
+		const auto dump = [&](vk::render_target* rt, const char* eye)
+		{
+			if (!rt || vk::get_format_texel_width(rt->format()) != 4)
+			{
+				return;
+			}
+			const u32 w = rt->width(), h = rt->height();
+			const usz size = usz{ w } * h * 4;
+			vk::buffer buffer(*m_device, utils::align(size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
+			VkBufferImageCopy region{};
+			region.bufferRowLength = w;
+			region.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			region.imageExtent = { w, h, 1 };
+			rt->read_barrier(*m_current_command_buffer);
+			auto* image = rt->get_surface(rsx::surface_access::transfer_read);
+			image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+			vk::copy_image_to_buffer(*m_current_command_buffer, image, &buffer, region);
+			image->pop_layout(*m_current_command_buffer);
+			flush_command_queue(true);
+			const auto src = buffer.map(0, size);
+			fs::write_file(fmt::format("%s.%u.%s", s_rtdump, s_dump_index, eye), fs::rewrite, src, size);
+			buffer.unmap();
+			fs::write_file(fmt::format("%s.%u.%s.txt", s_rtdump, s_dump_index, eye), fs::rewrite, fmt::format("%u %u %d", w, h, static_cast<int>(image->format())));
+		};
+		dump(m_rtts.get_surface_at(address), "left");
+		dump(m_vr_right_rtts.get_surface_at(address), "right");
+		rsx_log.success("VR surface dump %u written (display buffer 0x%x)", s_dump_index, address);
+		s_dump_index++;
+	}
+
 	if (gpuprof_enabled())
 	{
 		gpuprof_flip(info.stats);

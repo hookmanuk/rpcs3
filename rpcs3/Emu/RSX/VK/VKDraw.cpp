@@ -692,16 +692,18 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 				left_rtt = dynamic_cast<vk::render_target*>(sampler_state->image_handle->image());
 			}
 
-			// A copy whose sources are all off-aspect targets (cube-map faces, shadow maps) is the
-			// same image in both eyes: draws into them are never moved per eye. The right eye
-			// then samples the left eye's copy, which the texture cache keeps, instead of
-			// rebuilding it on every draw (Ridge Racer 7: 36 cube-map rebuilds a frame on the
-			// start grid, one per car part reflecting the environment).
+			// A cube map gathered from off-aspect targets (its faces: square 90-degree cameras, which
+			// keep the game camera in both eyes) is the same image in both eyes. The right eye then
+			// samples the left eye's copy, which the texture cache keeps, instead of rebuilding it on
+			// every draw (Ridge Racer 7: 36 cube-map rebuilds a frame on the start grid, one per car
+			// part reflecting the environment). Other off-aspect targets can hold per-eye views
+			// (Ridge Racer 7's road reflection tiles, drawn with the player's camera).
 			bool shared_copy = false;
 			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && !sampler_state->image_handle)
 			{
 				const auto& desc = sampler_state->external_subresource_desc;
-				if (const auto* profile = rsx::vr::camera_probe::get().profile())
+				const bool cubemap = desc.op == rsx::deferred_request_command::cubemap_gather || desc.op == rsx::deferred_request_command::cubemap_unwrap;
+				if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && cubemap)
 				{
 					const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
 					const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
@@ -1435,6 +1437,22 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 
 		inspector.record_draw(capture_in);
+
+		// The captured frame's shader sources, once per program, next to the capture: the
+		// decompiled GLSL without turning on "Log shader programs" for the whole session.
+		if (static const std::string dir = []() -> std::string { const char* v = std::getenv("RPCS3_STEREO_INSPECT"); return v ? v : ""; }();
+			!dir.empty() && m_vertex_prog && m_fragment_prog)
+		{
+			const u64 vp_hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+			if (const std::string vp_file = dir + fmt::format("vp_%016llx.glsl", vp_hash); !fs::is_file(vp_file))
+			{
+				fs::write_file(vp_file, fs::rewrite, m_vertex_prog->shader.get_source());
+			}
+			if (const std::string fp_file = dir + fmt::format("fp_%016llx_%u.glsl", vp_hash, m_fragment_prog->id); !fs::is_file(fp_file))
+			{
+				fs::write_file(fp_file, fs::rewrite, m_fragment_prog->shader.get_source());
+			}
+		}
 	}
 
 	// VR profile generation (home menu): sample this draw's vertex constants.
@@ -1715,6 +1733,19 @@ void VKGSRender::end()
 
 	load_texture_env();
 	m_frame_stats.textures_upload_time += m_profiler.duration();
+
+	// Probe hide=<hash>[@<target>]: skip this vertex program's draws (development: finding which program draws an artefact).
+	if (const auto& hidden = rsx::vr::camera_probe::get().hidden_programs(); !hidden.empty())
+	{
+		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		const u32 target = m_framebuffer_layout.color_addresses[0];
+		if (std::any_of(hidden.begin(), hidden.end(), [&](const auto& h) { return h.first == hash && (!h.second || h.second == target); }))
+		{
+			execute_nop_draw();
+			rsx::thread::end();
+			return;
+		}
+	}
 
 	if (!load_program())
 	{

@@ -654,6 +654,10 @@ namespace rsx::vr
 		{
 			profile->current_frame_copies = current == "true";
 		}
+		if (std::string offaspect; read(root, "offaspect_player_views", offaspect, false))
+		{
+			profile->offaspect_player_views = offaspect == "true";
+		}
 		if (const YAML::Node ranges = child(root, "occlusion_depth_readback"); ranges && ranges.IsSequence())
 		{
 			for (const auto& node : ranges)
@@ -674,7 +678,7 @@ namespace rsx::vr
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
-			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "resolution_scaled_constants" });
+			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "hud_skips_passes", "frames_without_3d_as_screen" });
@@ -1179,6 +1183,7 @@ namespace rsx::vr
 		m_stereo_conv = 0.f;
 		m_have_stereo = false;
 		m_render_enabled = false;
+		m_hidden_programs.clear();
 		m_render_camera_right = {};
 		m_render_camera_right_valid = false;
 		m_have_raw = false;
@@ -1285,6 +1290,18 @@ namespace rsx::vr
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
 			else if (k == "render") { m_render_enabled = (as_u() != 0); }
 			else if (k == "scene")  { m_scene_override = as_u() != 0; }
+			else if (k == "hide")
+			{
+				for (usz start = 0; start < v.size();)
+				{
+					const usz plus = v.find('+', start);
+					const std::string item = v.substr(start, plus == umax ? umax : plus - start);
+					const usz at = item.find('@');
+					m_hidden_programs.emplace_back(std::strtoull(item.substr(0, at).c_str(), nullptr, 16),
+						at == umax ? 0u : static_cast<u32>(std::strtoul(item.substr(at + 1).c_str(), nullptr, 16)));
+					start = plus == umax ? v.size() : plus + 1;
+				}
+			}
 			else if (k == "title") m_title = v;
 		}
 
@@ -1372,13 +1389,22 @@ namespace rsx::vr
 		const f32 output_aspect = static_cast<f32>(eye.width) / eye.height;
 		const bool output_aspect_match = profile.is_view_target(surface_w, surface_h, output_aspect);
 		static_cast<void>(target_aspect);
+		// Profile offaspect_player_views: a draw into an off-aspect target with the player's camera (its projection has the output
+		// aspect) is part of the player's view sampled at screen position: Ridge Racer 7 renders its
+		// road reflections with the game camera into 128x128 tiles of a 512x128 target and the road
+		// looks them up at its own clip position. It takes the same rotation, eye offset and headset
+		// FOV as the scene, but keeps its viewport (no undo_viewport), and it does not refresh the
+		// camera-right axis or the stored eye block, which stay those of real camera views. Other
+		// off-aspect cameras (cube-map faces, shadow maps) keep the game camera in both eyes.
+		const bool screen_sampled_view = profile.offaspect_player_views && !output_aspect_match && has_camera_aspect(rows, output_aspect);
+		const bool view_draw = output_aspect_match || screen_sampled_view;
 
 		// Rotation-invariance audit (see m_audit_yaw_deg): the same classifier and
 		// clip-space rotation as the headset path, with the left eye unrotated and
 		// no eye offsets, so the only difference between the eyes is a known yaw.
 		if (m_audit_yaw_deg != 0.f && !m_vr_view)
 		{
-			if (!output_aspect_match)
+			if (!view_draw)
 			{
 				return false;
 			}
@@ -1390,9 +1416,12 @@ namespace rsx::vr
 			if (m_audit_fov_tan > 0.f && m_vr_proj_valid)
 			{
 				const f32 t[4] = { -m_audit_fov_tan, m_audit_fov_tan, m_audit_fov_tan, -m_audit_fov_tan };
-				remap_to_eye_fov(rows, t, m_vr_proj_x, m_vr_proj_y);
+				remap_to_eye_fov(rows, t, m_vr_proj_x, m_vr_proj_y, screen_sampled_view);
 			}
-			store_eye_block(eye_sign, game_block, rows);
+			if (output_aspect_match)
+			{
+				store_eye_block(eye_sign, game_block, rows);
+			}
 			if (m_vr_proj_valid && !m_audit_logged)
 			{
 				m_audit_logged = true;
@@ -1404,7 +1433,7 @@ namespace rsx::vr
 
 		if (rotation_only_pass)
 		{
-			if (!output_aspect_match || !m_vr_view)
+			if (!view_draw || !m_vr_view)
 			{
 				block.release();
 				return false;
@@ -1412,7 +1441,7 @@ namespace rsx::vr
 			apply_vr_rotation(rows, m_vr_rot, {});
 			if (m_vr_hmd_fov && m_vr_proj_valid)
 			{
-				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y);
+				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y, screen_sampled_view);
 			}
 			return true;
 		}
@@ -1463,7 +1492,7 @@ namespace rsx::vr
 		// translation or eye offset (a finite eye offset gives it the parallax of the dome's
 		// real size, contradicting its far-plane depth).
 		const bool at_infinity = block.far_plane() && m_vr_view;
-		if (output_aspect_match && m_vr_view)
+		if (view_draw && m_vr_view)
 		{
 			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units);
 		}
@@ -1490,7 +1519,7 @@ namespace rsx::vr
 			cam[2] += eye_sign * half_eye_baseline * m_render_camera_right[2];
 		}
 
-		if (!output_aspect_match)
+		if (!view_draw)
 		{
 			return false;
 		}
@@ -1528,7 +1557,7 @@ namespace rsx::vr
 
 			if (m_vr_hmd_fov && m_vr_proj_valid)
 			{
-				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y);
+				remap_to_eye_fov(rows, m_vr_eye_fov[eye_sign < 0.f ? 0 : 1], m_vr_proj_x, m_vr_proj_y, screen_sampled_view);
 			}
 			else if (m_vr_fov_scale != 1.f)
 			{
@@ -1539,7 +1568,10 @@ namespace rsx::vr
 					rows[r][1] *= zoom;
 				}
 			}
-			store_eye_block(eye_sign, game_block, rows);
+			if (output_aspect_match)
+			{
+				store_eye_block(eye_sign, game_block, rows);
+			}
 			return true;
 		}
 
@@ -1548,7 +1580,10 @@ namespace rsx::vr
 			rows[r][0] += sep * rows[r][3];
 		}
 		rows[3][0] -= sep * convergence;
-		store_eye_block(eye_sign, game_block, rows);
+		if (output_aspect_match)
+		{
+			store_eye_block(eye_sign, game_block, rows);
+		}
 		return true;
 	}
 
@@ -1773,7 +1808,7 @@ namespace rsx::vr
 		undo_viewport(rows);
 	}
 
-	void camera_probe::remap_to_eye_fov(f32* const rows[4], const f32* t, f32 A, f32 B) const
+	void camera_probe::remap_to_eye_fov(f32* const rows[4], const f32* t, f32 A, f32 B, bool keep_viewport) const
 	{
 		// Re-project from the game frustum onto this eye's headset frustum.
 		// Game NDC x = A * (x/f); headset NDC x = (2*(x/f) - (r+l)) / (r-l).
@@ -1787,7 +1822,10 @@ namespace rsx::vr
 			rows[r][0] = rows[r][0] * sx + rows[r][3] * ox;
 			rows[r][1] = rows[r][1] * sy + rows[r][3] * oy;
 		}
-		undo_viewport(rows);
+		if (!keep_viewport)
+		{
+			undo_viewport(rows);
+		}
 	}
 
 	bool camera_probe::map_vr_passthrough_hud(f32 m[4][4], f32 eye_sign, f32 aspect) const

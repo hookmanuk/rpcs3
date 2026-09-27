@@ -261,6 +261,12 @@ namespace rsx::vr
 		// target drawn in this frame instead.
 		bool current_frame_copies = false;
 
+		// Camera draws into off-aspect targets with the player's projection (output aspect) follow
+		// the head like the scene, keeping their viewport: views the scene samples at its own screen
+		// position (Ridge Racer 7's road reflection tiles, 128x128 in a 512x128 target). Off by
+		// default: other off-aspect targets keep the game camera in both eyes.
+		bool offaspect_player_views = false;
+
 		// Depth-tested draws into the scene that no camera block covers (the matrix folded
 		// with an object's so it is not rigid, in another slot or layout, or skinned from the
 		// whole constant bank) take the latest camera draw's eye transform, B^-1 * B_eye,
@@ -352,6 +358,9 @@ namespace rsx::vr
 		// Hot-path gate. False unless a perturbation is currently configured.
 		bool enabled() const { return m_active.load(); }
 		bool render_enabled() const;
+		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
+		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
+		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		// The draw about to be bound has depth test enabled.
@@ -462,6 +471,7 @@ namespace rsx::vr
 		f32 m_stereo_conv = 0.f;
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
+		std::vector<std::pair<u64, u32>> m_hidden_programs;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_depth_test = true;
@@ -519,7 +529,8 @@ namespace rsx::vr
 		// frustum of that half-angle tangent, exercising the headset FOV remap.
 		f32 m_audit_fov_tan = 0.f;
 
-		void remap_to_eye_fov(f32* const rows[4], const f32* tangents, f32 A, f32 B) const;
+		// keep_viewport: the draw keeps its viewport (an off-aspect target sampled at screen position).
+		void remap_to_eye_fov(f32* const rows[4], const f32* tangents, f32 A, f32 B, bool keep_viewport = false) const;
 		// Undo the draw's viewport scale/offset where they differ from the render
 		// target's (ICO sets a 1360x768 viewport on a 1216x688 target), so clip space
 		// lands on the target exactly as the headset frustum mapping assumes.
