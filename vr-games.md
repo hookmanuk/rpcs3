@@ -45,6 +45,7 @@ VR): get new VR builds from the same place as this one.
 | Pure | BLUS30182 | Headset refresh rate |
 | ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
 | Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
+| Ridge Racer 7 | BCAS20001 | Headset refresh rate |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -106,6 +107,17 @@ VR): get new VR builds from the same place as this one.
 - **Known issues:** at the wider view's edge, big head turns can show fog beyond the drawn area. If frames
   run late (resolution scale too high for the GPU), the game drops objects for a frame: flashing holes. Lower
   the resolution scale.
+
+### 5. Ridge Racer 7 (BCAS20001, Asian release, English/Japanese): headset refresh rate
+
+- **Frame rate:** the headset's refresh rate by default; a slower PC can choose a lower rate with the VR
+  **Frame Rate** setting. The game counts time in frames (at 90 Hz it ran 1.5x fast), so the patch *Frame rate
+  follows VR* is on by default: the VR profile gives it the current frame rate, and races, physics and lap
+  times run at real speed at any rate.
+- **Recommended settings:** `Resolution Scale` 300-400% (on an RTX 5090, 400% holds 90 FPS on the starting
+  grid).
+- **Known issues:** emulation can occasionally stop when the main-menu video starts; restart the game if it
+  does. Don't turn on `Log shader programs` for this game: it makes this happen every time.
 
 ---
 
