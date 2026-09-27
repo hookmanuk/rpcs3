@@ -17,6 +17,7 @@
 #include <dlfcn.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -283,8 +284,12 @@ namespace vk::xr
 			return true;
 		}
 
-		std::vector<std::string> split_extensions(const std::string& list)
+		// Reads the whole buffer, treating NULs as separators. SteamVR reports a count two bytes
+		// past the text, and an API layer that appends after the first terminator (OFXR Bridge)
+		// leaves its extensions hidden behind an embedded NUL.
+		std::vector<std::string> split_extensions(std::string list)
 		{
+			std::replace(list.begin(), list.end(), '\0', ' ');
 			std::vector<std::string> out;
 			std::istringstream stream(list);
 			for (std::string name; stream >> name;)
@@ -405,7 +410,8 @@ namespace vk::xr
 		bool create_chain(eye_swapchain& chain, u32 width, u32 height, VkFormat format)
 		{
 			XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
-			info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+			// TRANSFER_SRC lets API layers read the images back (OFXR Bridge copies each eye out for frame generation).
+			info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 			info.format = static_cast<s64>(format);
 			info.sampleCount = 1;
 			info.width = width;
@@ -696,13 +702,15 @@ namespace vk::xr
 		g_xr.xrGetVulkanInstanceExtensionsKHR(g_xr.instance, g_xr.system, 0, &size, nullptr);
 		std::string list(size, '\0');
 		g_xr.xrGetVulkanInstanceExtensionsKHR(g_xr.instance, g_xr.system, size, &size, list.data());
-		g_xr.instance_exts = split_extensions(list.c_str());
+		list.resize(std::min<usz>(size, list.size()));
+		g_xr.instance_exts = split_extensions(list);
 
 		size = 0;
 		g_xr.xrGetVulkanDeviceExtensionsKHR(g_xr.instance, g_xr.system, 0, &size, nullptr);
 		list.assign(size, '\0');
 		g_xr.xrGetVulkanDeviceExtensionsKHR(g_xr.instance, g_xr.system, size, &size, list.data());
-		g_xr.device_exts = split_extensions(list.c_str());
+		list.resize(std::min<usz>(size, list.size()));
+		g_xr.device_exts = split_extensions(list);
 
 		// Mandatory before xrCreateSession.
 		XrGraphicsRequirementsVulkanKHR requirements{ XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR };
