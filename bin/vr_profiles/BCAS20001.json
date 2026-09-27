@@ -55,6 +55,6 @@
   "screen_space": {
     "passthrough_hud": true,
     "hud_programs": ["f78118c010d9eba2"],
-    "bare_projection": true
+    "bare_projection": false
   }
 }

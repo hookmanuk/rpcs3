@@ -640,7 +640,14 @@ namespace rsx::vr
 
 			if (is_bare_projection(cam->m))
 			{
-				bare_projection = true;
+				// Geometry already in view space. Only without depth test is it screen furniture
+				// (WipEout's menu particle cloud) for the fixed box; depth-tested it is part of the
+				// scene and must follow the head like it (Ridge Racer 7's light glows and streaks,
+				// which floated in the HUD box with bare_projection on).
+				if (!s->depth_test)
+				{
+					bare_projection = true;
+				}
 				const f64 a = projection(cam->m).first;
 				bare_scale_a_by_width[s->width].push_back(a);
 				if (const auto n = near_plane(cam->m)) bare_near_planes.push_back(*n);
