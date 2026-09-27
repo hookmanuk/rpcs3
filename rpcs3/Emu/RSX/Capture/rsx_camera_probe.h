@@ -93,6 +93,14 @@
 
 namespace rsx::vr
 {
+	// A profile fragment_constant_overrides entry (see title_profile).
+	struct fragment_constant_override
+	{
+		u64 program = 0; // vertex program ucode hash
+		u32 constant = 0; // index into the fragment program's constants (_fetch_constant(n))
+		std::array<f32, 4> value{};
+	};
+
 	// A title's VR profile, bin/vr_profiles/<TITLE_ID>.json (schema 1). Every
 	// game-specific value the stereo renderer uses comes from here.
 	struct title_profile
@@ -204,6 +212,11 @@ namespace rsx::vr
 			std::vector<u16> constant_slots; // ("slots" in the file; a Qt macro in C++)
 		};
 		std::vector<scaled_constants> resolution_scaled_constants;
+		// Fragment constants replaced in the draws of one vertex program: turns off a post
+		// effect by its strength constant. Demon's Souls' depth-of-field composite blends in its
+		// blurred copy by fc[0]; the CoC it scales includes a blur growing from the screen centre,
+		// which in the headset's wider view covered the floor and the top of the view.
+		std::vector<fragment_constant_override> fragment_constant_overrides;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box
 		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
 		// menu layers. Off by default: it broke ICO's HUD box.

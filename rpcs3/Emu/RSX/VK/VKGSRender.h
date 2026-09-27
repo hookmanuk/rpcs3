@@ -24,6 +24,8 @@
 #include <functional>
 #include <initializer_list>
 
+namespace rsx::vr { struct fragment_constant_override; }
+
 using namespace vk::vmm_allocation_pool_; // clang workaround.
 using namespace vk::upscaling_flags_;     // ditto
 
@@ -431,6 +433,12 @@ private:
 	const void* m_scaled_constants_program = nullptr;
 	const void* m_scaled_constants_profile = nullptr;
 	const std::vector<u16>* m_scaled_constants_slots = nullptr;
+	// Profile fragment_constant_overrides for the current vertex program, or null.
+	const std::vector<const rsx::vr::fragment_constant_override*>* find_fragment_constant_overrides();
+	const void* m_fc_overrides_program = nullptr;
+	const void* m_fc_overrides_profile = nullptr;
+	std::vector<const rsx::vr::fragment_constant_override*> m_fc_overrides;
+	bool m_fragment_constants_overridden = false;
 
 	void load_texture_env();
 	bool bind_texture_env(bool vr_right_eye = false);

@@ -650,6 +650,31 @@ namespace rsx::vr
 				profile->resolution_scaled_constants.push_back(std::move(rule));
 			}
 		}
+		if (const YAML::Node rules = child(root, "fragment_constant_overrides"); rules && rules.IsSequence())
+		{
+			// [{ "program": "<vertex ucode hash>", "constant": 0, "value": [0, 0, 0, 0] }]
+			for (const auto& node : rules)
+			{
+				check_keys(node, " in fragment_constant_overrides", { "program", "constant", "value" });
+				fragment_constant_override rule;
+				const std::string text = node["program"] ? node["program"].as<std::string>() : std::string();
+				char* end = nullptr;
+				rule.program = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("fragment_constant_overrides: '" + text + "' is not a hex program hash");
+				rule.constant = node["constant"] ? node["constant"].as<u32>() : 0;
+				const YAML::Node value = node["value"];
+				if (!value || !value.IsSequence() || value.size() != 4)
+				{
+					fail("fragment_constant_overrides: value must be 4 numbers");
+					continue;
+				}
+				for (u32 i = 0; i < 4; ++i)
+				{
+					rule.value[i] = value[i].as<f32>();
+				}
+				profile->fragment_constant_overrides.push_back(rule);
+			}
+		}
 		if (std::string current; read(root, "current_frame_copies", current, false))
 		{
 			profile->current_frame_copies = current == "true";
@@ -678,7 +703,7 @@ namespace rsx::vr
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
 			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
-			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants" });
+			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
 		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "hud_skips_passes", "frames_without_3d_as_screen" });

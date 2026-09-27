@@ -2280,7 +2280,11 @@ void VKGSRender::load_program_env()
 	const bool is_interpreter = m_shader_interpreter.is_interpreter(m_program);
 
 	const bool update_transform_constants = !!(m_graphics_state & rsx::pipeline_state::transform_constants_dirty);
-	const bool update_fragment_constants = !!(m_graphics_state & rsx::pipeline_state::fragment_constants_dirty);
+	// Profile fragment_constant_overrides: the fill is redone for an overridden program's draws
+	// and for the first draw after them, so the replaced values never reach another program.
+	const auto* vr_fc_overrides = find_fragment_constant_overrides();
+	const bool update_fragment_constants = !!(m_graphics_state & rsx::pipeline_state::fragment_constants_dirty) ||
+		vr_fc_overrides || std::exchange(m_fragment_constants_overridden, false);
 	const bool update_vertex_env = !!(m_graphics_state & rsx::pipeline_state::vertex_state_dirty);
 	const bool update_fragment_env = !!(m_graphics_state & rsx::pipeline_state::fragment_state_dirty);
 	rsx::fragment_program_texture_config vr_texture_params;
@@ -2372,6 +2376,18 @@ void VKGSRender::load_program_env()
 
 			m_prog_buffer->fill_fragment_constants_buffer({ reinterpret_cast<float*>(buf), fragment_constants_size },
 				*ensure(m_fragment_prog), current_fragment_program, true);
+
+			if (vr_fc_overrides)
+			{
+				for (const auto* rule : *vr_fc_overrides)
+				{
+					if ((rule->constant + 1) * 16 <= fragment_constants_size)
+					{
+						std::memcpy(static_cast<u8*>(buf) + rule->constant * 16, rule->value.data(), 16);
+					}
+				}
+				m_fragment_constants_overridden = true;
+			}
 
 			m_fragment_constants_ring_info.unmap();
 
@@ -2554,6 +2570,33 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 	{
 		m_xform_constants_data_size = 0;
 	}
+}
+
+const std::vector<const rsx::vr::fragment_constant_override*>* VKGSRender::find_fragment_constant_overrides()
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->fragment_constant_overrides.empty() || !m_vertex_prog)
+	{
+		return nullptr;
+	}
+
+	// Looked up once per vertex program (the hash walks the ucode).
+	if (m_fc_overrides_program != m_vertex_prog || m_fc_overrides_profile != profile)
+	{
+		m_fc_overrides_program = m_vertex_prog;
+		m_fc_overrides_profile = profile;
+		m_fc_overrides.clear();
+		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		for (const auto& rule : profile->fragment_constant_overrides)
+		{
+			if (rule.program == hash)
+			{
+				m_fc_overrides.push_back(&rule);
+			}
+		}
+	}
+
+	return m_fc_overrides.empty() ? nullptr : &m_fc_overrides;
 }
 
 void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> constant_ids)

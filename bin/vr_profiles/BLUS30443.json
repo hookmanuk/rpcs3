@@ -26,5 +26,9 @@
   "screen_space": {
     "orthographic_block": 0,
     "hud_skips_passes": true
-  }
+  },
+
+  "fragment_constant_overrides": [
+    { "program": "73cbac9f66724a26", "constant": 0, "value": [0, 0, 0, 0] }
+  ]
 }
