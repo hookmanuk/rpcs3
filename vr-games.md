@@ -35,13 +35,6 @@ VR): get new VR builds from the same place as this one.
    (`Configuration > Video > VR > Enabled`, on by default). Games without a profile play normally.
 3. In-game, the home menu (PS button or Start+Select) has a **VR** tab: HUD size and position, world scale.
 
-### Frame generation (OFXR Bridge)
-
-[OFXR Bridge](https://github.com/djules75/OFXR-Bridge) 0.2.7 or later works with this build: turn on its
-**Vulkan support** option. It adds one generated frame after every game frame, so the game must run at exactly
-half the headset's refresh rate or frames are dropped unevenly and turns judder. Set the VR **Frame Rate** to
-half the refresh: **45 FPS** on a 90 Hz headset, 60 FPS on 120 Hz.
-
 ---
 
 ## Playable
@@ -131,10 +124,19 @@ Defaults, all changeable per game:
 
 | Setting | Default | What it does |
 |---|---|---|
-| Frame Rate | the game's own (table above) | The game's frame rate in the headset: 30, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Until you choose one, each game runs its own default (ICO and Shadow of the Colossus share a configuration but keep their own). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
+| Frame Rate | the game's own (table above) | The game's frame rate in the headset: 30, 45, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Until you choose one, each game runs its own default (ICO and Shadow of the Colossus share a configuration but keep their own). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees when the game runs below the headset's refresh rate, 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
+
+---
+
+## Frame generation (OFXR Bridge)
+
+[OFXR Bridge](https://github.com/djules75/OFXR-Bridge) 0.2.7 or later works with this build: turn on its
+**Vulkan support** option. It adds one generated frame after every game frame, so the game must run at exactly
+half the headset's refresh rate or frames are dropped unevenly and turns judder. Set the VR **Frame Rate** to
+half the refresh: **45 FPS** on a 90 Hz headset, 60 FPS on 120 Hz.
 
 ---
 
