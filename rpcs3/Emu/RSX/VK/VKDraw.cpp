@@ -1333,8 +1333,11 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	}
 	const bool vr_hud_env = (vr_hud || vr_preprojected) && vr_hud_vertex_env(-1.f, vr_preprojected);
 
-	// Update vertex fetch parameters
-	update_vertex_env(vr_render ? sub_index * 2 : sub_index, upload_info);
+	if (!vr_render)
+	{
+		// Update vertex fetch parameters
+		update_vertex_env(sub_index, upload_info);
+	}
 
 	if (update_descriptors)
 	{
@@ -1387,6 +1390,16 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// Bind both pipe and descriptors in one go
 	// FIXME: We only need to rebind the pipeline when reload state is set. Flags?
 	m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	if (vr_render)
+	{
+		// VR: the left eye's vertex env (a push constant) goes after the render pass change
+		// above. Ending the left pass runs the right-eye batch (vkCmdExecuteCommands), which
+		// leaves push constants undefined; pushed earlier, the left draw read another draw's
+		// layout entry. Demon's Souls' soft particles (they sample the bound depth buffer, so
+		// the render pass changes) drew with other draws' sprites or stretched in the left eye.
+		update_vertex_env(sub_index * 2, upload_info);
+	}
 
 	if (reload_state)
 	{
