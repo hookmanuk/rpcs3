@@ -238,6 +238,7 @@ void fmt_class_string<vr_frame_rate>::format(std::string& out, u64 arg)
 		{
 		case vr_frame_rate::profile_default: return "Default";
 		case vr_frame_rate::fps_30: return "30";
+		case vr_frame_rate::fps_45: return "45";
 		case vr_frame_rate::fps_60: return "60";
 		case vr_frame_rate::fps_72: return "72";
 		case vr_frame_rate::fps_75: return "75";

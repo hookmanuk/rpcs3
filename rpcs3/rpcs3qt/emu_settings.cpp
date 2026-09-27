@@ -1261,6 +1261,7 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		{
 		case vr_frame_rate::profile_default: return tr("Default", "VR frame rate");
 		case vr_frame_rate::fps_30: return tr("30 FPS", "VR frame rate");
+		case vr_frame_rate::fps_45: return tr("45 FPS", "VR frame rate");
 		case vr_frame_rate::fps_60: return tr("60 FPS", "VR frame rate");
 		case vr_frame_rate::fps_72: return tr("72 FPS", "VR frame rate");
 		case vr_frame_rate::fps_75: return tr("75 FPS", "VR frame rate");

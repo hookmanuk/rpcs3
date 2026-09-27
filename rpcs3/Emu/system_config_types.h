@@ -26,6 +26,7 @@ enum class vr_frame_rate
 {
 	profile_default,
 	fps_30,
+	fps_45, // half of 90 Hz: one game frame per frame-generation pair (OFXR Bridge)
 	fps_60,
 	fps_72,
 	fps_75,
