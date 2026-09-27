@@ -56,8 +56,6 @@ half the refresh: **45 FPS** on a 90 Hz headset, 60 FPS on 120 Hz.
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
-- **Requires the 2.51 update.** The disc version (2.00) has no stereoscopic code. Install the updates
-  2.10, 2.30, 2.50 and 2.51 in order (`File > Install Packages/Raps/Edats`).
 - **Frame rate:** the headset's refresh rate by default (90 Hz = 90 FPS), at real-time speed at any rate. No
   patch needed. A slower PC can choose a lower rate with the VR **Frame Rate** setting.
 - **Recommended settings** (for 90 FPS): Video > `Relaxed ZCULL Sync` on, `Accurate ZCULL stats` off,
