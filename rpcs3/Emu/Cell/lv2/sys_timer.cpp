@@ -522,6 +522,13 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		sys_timer.success("Sleep at 0x%x (LR 0x%x): %s", ppu.cia, ppu.lr, ppu.dump_callstack());
 	}
 
+	// Report period for the two hooks below: RPCS3_STATS_PERIOD_MS (default 5000).
+	static const auto vr_stats_period_us = []() -> u64
+	{
+		static const u64 period = [] { const char* v = std::getenv("RPCS3_STATS_PERIOD_MS"); return v ? std::max<u64>(100, std::strtoull(v, nullptr, 10)) * 1000 : 5'000'000ull; }();
+		return period;
+	};
+
 	// RPCS3_USLEEP_STATS=1 logs, every 5 s, the sleep sites (address, caller) with their
 	// call count and total requested sleep: a game's frame limiter shows up as ~30 or ~60
 	// calls per second sleeping a few ms each.
@@ -546,7 +553,7 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 						const auto name = ppu.ppu_tname.load();
 						hist[name ? *name : std::string("?")][{ppu.cia, static_cast<u32>(ppu.lr)}]++;
 					});
-					if (const u64 now = get_system_time(); now - last_report > 5'000'000)
+					if (const u64 now = get_system_time(); now - last_report > vr_stats_period_us())
 					{
 						std::string text;
 						for (const auto& [name, sites] : hist)
@@ -579,7 +586,7 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 		auto& site = s_sites[{ppu.cia, static_cast<u32>(ppu.lr)}];
 		site.first++;
 		site.second += sleep_time;
-		if (const u64 now = get_system_time(); now - s_last_report > 5'000'000)
+		if (const u64 now = get_system_time(); now - s_last_report > vr_stats_period_us())
 		{
 			std::vector<std::pair<std::pair<u32, u32>, std::pair<u64, u64>>> sorted(s_sites.begin(), s_sites.end());
 			std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second.first > b.second.first; });
