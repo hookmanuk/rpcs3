@@ -442,6 +442,7 @@ private:
 	std::vector<const rsx::vr::fragment_constant_override*> m_fc_overrides;
 	bool m_fragment_constants_overridden = false;
 	u64 m_vr_last_emu_flip_us = 0; // last game flip (not an overlay/UI refresh)
+	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
 
 	void load_texture_env();
 	bool bind_texture_env(bool vr_right_eye = false);

@@ -3462,6 +3462,12 @@ namespace rsx
 			if (s_frame++ % s_every == 0)
 			{
 				std::string line = fmt::format("VR peek %u t=%.3f buf %u draws %u:", s_frame, get_system_time() / 1e6, buffer, m_frame_stats.draw_calls);
+				// RPCS3_VR_PEEK_CONST=<slot>: also the vertex constant register (e.g. a camera position).
+				if (static const s32 s_const = [] { const char* v = std::getenv("RPCS3_VR_PEEK_CONST"); return v ? static_cast<s32>(std::strtol(v, nullptr, 10)) : -1; }(); s_const >= 0 && s_const < 512)
+				{
+					const auto& c = rsx::method_registers.transform_constants[s_const];
+					fmt::append(line, " c%d=(%.3f %.3f %.3f)", s_const, std::bit_cast<f32>(c[0]), std::bit_cast<f32>(c[1]), std::bit_cast<f32>(c[2]));
+				}
 				for (const u32 addr : s_peek)
 				{
 					fmt::append(line, " %x=%08x", addr, vm::check_addr(addr) ? static_cast<u32>(vm::read32(addr)) : 0u);

@@ -1,6 +1,67 @@
 Version: 1.2
 
 PPU-83681f6110d33442329073b72b8dc88a2f677172:
+  "Smooth cutscenes (interpolated cutscene tracks)":
+    Games:
+      "Demon's Souls":
+        BLUS30443: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "In-engine cutscenes move the camera and cutscene-driven objects along keyframe tracks sampled at 30 per second without interpolation (the sampler at 0x5f71d0 takes the nearest key), so at 60 or 90 FPS the camera holds still for every second or third frame. This samples the keys either side of the cutscene time and blends the two transforms. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ calloc, 0x00614e30, 51 ]
+      - [ be32, 0x0, 0xf821ff01 ] # stdu r1, -0x100(r1)
+      - [ be32, 0x0, 0xf8610070 ] # std r3, 0x70(r1)
+      - [ be32, 0x0, 0xf8810078 ] # std r4, 0x78(r1)
+      - [ be32, 0x0, 0xf8a10080 ] # std r5, 0x80(r1)
+      - [ be32, 0x0, 0x3d8041f0 ] # lis r12, 0x41f0
+      - [ be32, 0x0, 0x91810088 ] # stw r12, 0x88(r1)
+      - [ be32, 0x0, 0xc1a10088 ] # lfs f13, 0x88(r1)
+      - [ be32, 0x0, 0xec010372 ] # fmuls f0, f1, f13
+      - [ be32, 0x0, 0xfd80001e ] # fctiwz f12, f0
+      - [ be32, 0x0, 0xd9810090 ] # stfd f12, 0x90(r1)
+      - [ be32, 0x0, 0x81810094 ] # lwz r12, 0x94(r1)
+      - [ be32, 0x0, 0x7d8c07b4 ] # extsw r12, r12
+      - [ be32, 0x0, 0xf9810098 ] # std r12, 0x98(r1)
+      - [ be32, 0x0, 0xc9810098 ] # lfd f12, 0x98(r1)
+      - [ be32, 0x0, 0xfd80669c ] # fcfid f12, f12
+      - [ be32, 0x0, 0xfd806018 ] # frsp f12, f12
+      - [ be32, 0x0, 0xed606028 ] # fsubs f11, f0, f12
+      - [ be32, 0x0, 0xd16100a0 ] # stfs f11, 0xa0(r1)
+      - [ be32, 0x0, 0x3d803f80 ] # lis r12, 0x3f80
+      - [ be32, 0x0, 0x91810088 ] # stw r12, 0x88(r1)
+      - [ be32, 0x0, 0xc1410088 ] # lfs f10, 0x88(r1)
+      - [ be32, 0x0, 0xed4c502a ] # fadds f10, f12, f10
+      - [ be32, 0x0, 0xed4a6824 ] # fdivs f10, f10, f13
+      - [ be32, 0x0, 0xd14100a4 ] # stfs f10, 0xa4(r1)
+      - [ be32, 0x0, 0xec2c6824 ] # fdivs f1, f12, f13
+      - [ be32, 0x0, 0x3d80005f ] # lis r12, 0x5f
+      - [ be32, 0x0, 0x618c71d0 ] # ori r12, r12, 0x71d0
+      - [ be32, 0x0, 0x7d8903a6 ] # mtctr r12
+      - [ be32, 0x0, 0x4e800421 ] # bctrl 
+      - [ be32, 0x0, 0x386100b0 ] # addi r3, r1, 0xb0
+      - [ be32, 0x0, 0xe8810078 ] # ld r4, 0x78(r1)
+      - [ be32, 0x0, 0xe8a10080 ] # ld r5, 0x80(r1)
+      - [ be32, 0x0, 0xc02100a4 ] # lfs f1, 0xa4(r1)
+      - [ be32, 0x0, 0x3d80005f ] # lis r12, 0x5f
+      - [ be32, 0x0, 0x618c71d0 ] # ori r12, r12, 0x71d0
+      - [ be32, 0x0, 0x7d8903a6 ] # mtctr r12
+      - [ be32, 0x0, 0x4e800421 ] # bctrl 
+      - [ be32, 0x0, 0xe9210070 ] # ld r9, 0x70(r1)
+      - [ be32, 0x0, 0x394100b0 ] # addi r10, r1, 0xb0
+      - [ be32, 0x0, 0xc1a100a0 ] # lfs f13, 0xa0(r1)
+      - [ be32, 0x0, 0x39600010 ] # li r11, 0x10
+      - [ be32, 0x0, 0x7d6903a6 ] # mtctr r11
+      - [ be32, 0x0, 0xc0090000 ] # lfs f0, 0(r9)
+      - [ be32, 0x0, 0xc18a0000 ] # lfs f12, 0(r10)
+      - [ be32, 0x0, 0xed8c0028 ] # fsubs f12, f12, f0
+      - [ be32, 0x0, 0xec0c037a ] # fmadds f0, f12, f13, f0
+      - [ be32, 0x0, 0xd0090000 ] # stfs f0, 0(r9)
+      - [ be32, 0x0, 0x39290004 ] # addi r9, r9, 4
+      - [ be32, 0x0, 0x394a0004 ] # addi r10, r10, 4
+      - [ be32, 0x0, 0x4200ffe4 ] # bdnz 0x100000a8
+      - [ be32, 0x0, 0x38210100 ] # addi r1, r1, 0x100
   "Unlocked frame rate (follows Vblank Rate)":
     Games:
       "Demon's Souls":

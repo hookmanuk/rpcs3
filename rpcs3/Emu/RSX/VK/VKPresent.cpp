@@ -720,11 +720,21 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// submits, and tags the pair with the pose its draws were rotated by.
 	if (vk::xr::is_running())
 	{
+		// Videos some games show without flipping (Demon's Souls: decoded into the display
+		// buffer, shown only by RPCS3's UI refresh) count as frames without camera draws, so
+		// frames_without_3d_as_screen shows them on the fixed screen instead of head-locked.
+		if (info.emu_flip)
+		{
+			m_vr_last_emu_flip_us = get_system_time();
+		}
+		const bool vr_video_refresh = !info.emu_flip && !Emu.IsPaused() && get_system_time() - m_vr_last_emu_flip_us > 200'000;
 		// Only game flips carry a new eye pair. Flips requested by RPCS3's overlays
 		// (e.g. while the home menu pauses emulation) would re-publish the old frame
-		// tagged with a newer head pose, dragging the world along with the head.
-		const bool xr_eyes = info.emu_flip && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
-			generated_stereo ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
+		// tagged with a newer head pose, dragging the world along with the head. A video
+		// frame on the fixed screen has no world to drag: it is published too.
+		const bool vr_video_screen = vr_video_refresh && m_vr_video_on_screen;
+		const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
+			generated_stereo && image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
 
 		// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
 		// the desktop swapchain below; the headset gets them as a quad layer.
@@ -816,14 +826,6 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		// nothing, so the pose waits for the next game flip. Games whose frames end in
 		// a display buffer take it at the frame boundary instead (prepare_rtts); the
 		// flip falls back to it if no boundary has been seen for two flips.
-		// Videos some games show without flipping (Demon's Souls: decoded into the display
-		// buffer, shown only by RPCS3's UI refresh) count as frames without camera draws, so
-		// frames_without_3d_as_screen shows them on the fixed screen instead of head-locked.
-		if (info.emu_flip)
-		{
-			m_vr_last_emu_flip_us = get_system_time();
-		}
-		const bool vr_video_refresh = !info.emu_flip && !Emu.IsPaused() && get_system_time() - m_vr_last_emu_flip_us > 200'000;
 		if (vr_video_refresh || (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2)))
 		{
 			vr_update_view();
@@ -1317,6 +1319,7 @@ void VKGSRender::vr_update_view()
 		s_no_3d = no_3d;
 		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
 	}
+	m_vr_video_on_screen = no_3d;
 	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
 	// HUD stereo distance, and the fixed screen's distance (metres).
 	constexpr f32 vr_hud_distance = 2.f;
