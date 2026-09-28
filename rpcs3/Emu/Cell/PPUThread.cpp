@@ -1305,7 +1305,7 @@ static void ppu_watch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, p
 		static std::map<u32, u64> s_hits;
 		std::lock_guard lock(s_mutex);
 		const u64 hits = ++s_hits[addr];
-		if (hits == 1 || hits % 1000 == 0)
+		if (static const u64 s_every = [] { const char* v = std::getenv("RPCS3_PPU_WATCH_EVERY"); return v ? std::max<u64>(1, std::strtoull(v, nullptr, 10)) : 1000ull; }(); hits == 1 || hits % s_every == 0)
 		{
 			std::string key = fmt::format("0x%x LR 0x%x", addr, static_cast<u32>(ppu.lr));
 			const auto list = ppu.dump_callstack_list();
@@ -1380,7 +1380,7 @@ static void ppu_rwatch_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, 
 		static std::map<u32, u64> s_hits;
 		std::lock_guard lock(s_mutex);
 		const u64 hits = ++s_hits[addr];
-		if (hits == 1 || hits % 1000 == 0)
+		if (static const u64 s_every = [] { const char* v = std::getenv("RPCS3_PPU_WATCH_EVERY"); return v ? std::max<u64>(1, std::strtoull(v, nullptr, 10)) : 1000ull; }(); hits == 1 || hits % s_every == 0)
 		{
 			std::string key = fmt::format("0x%x LR 0x%x", addr, static_cast<u32>(ppu.lr));
 			const auto list = ppu.dump_callstack_list();

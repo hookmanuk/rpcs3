@@ -3437,6 +3437,39 @@ namespace rsx
 			rsx_log.success("VR memory dump written to '%s.bin' (wall %u us)", base, wall_us);
 		}
 
+		// VR fork dev hook: RPCS3_VR_PEEK=<file> (read once at the first frame): lines "<addr hex>";
+		// every RPCS3_VR_PEEK_EVERY frames (default 1) the u32 at each address is logged with the
+		// wall time, e.g. to follow a game's frame pacing variables through a scene change.
+		static const std::vector<u32> s_peek = []()
+		{
+			std::vector<u32> list;
+			if (const char* v = std::getenv("RPCS3_VR_PEEK"))
+			{
+				if (fs::file f{v}; f)
+				{
+					for (const auto& line : fmt::split(f.to_string(), {"\n", "\r", " ", ","}))
+					{
+						if (!line.empty()) list.push_back(static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16)));
+					}
+				}
+			}
+			return list;
+		}();
+		if (!s_peek.empty())
+		{
+			static const u32 s_every = [] { const char* v = std::getenv("RPCS3_VR_PEEK_EVERY"); return v ? std::max(1u, static_cast<u32>(std::strtoul(v, nullptr, 10))) : 1u; }();
+			static u32 s_frame = 0;
+			if (s_frame++ % s_every == 0)
+			{
+				std::string line = fmt::format("VR peek %u t=%.3f buf %u draws %u:", s_frame, get_system_time() / 1e6, buffer, m_frame_stats.draw_calls);
+				for (const u32 addr : s_peek)
+				{
+					fmt::append(line, " %x=%08x", addr, vm::check_addr(addr) ? static_cast<u32>(vm::read32(addr)) : 0u);
+				}
+				rsx_log.notice("%s", line);
+			}
+		}
+
 		// VR fork dev hook: RPCS3_VR_POKE=<file>; creating the file writes each of its lines
 		// "<addr hex> f32|u32 <value>" to guest memory (big-endian), e.g. to try a patch's
 		// data change on a running game or a savestate, whose memory already holds the old value.

@@ -544,6 +544,9 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 			std::thread([]()
 			{
 				std::map<std::string, std::map<std::pair<u32, u32>, u32>> hist;
+				// RPCS3_PPU_SAMPLE_STACK=<thread name part>: that thread's samples also by guest call stack.
+				static const std::string s_stack_thread = [] { const char* v = std::getenv("RPCS3_PPU_SAMPLE_STACK"); return v ? std::string(v) : std::string(); }();
+				std::map<std::string, u32> stacks;
 				u64 last_report = get_system_time();
 				while (!Emu.IsStopped())
 				{
@@ -552,6 +555,16 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 					{
 						const auto name = ppu.ppu_tname.load();
 						hist[name ? *name : std::string("?")][{ppu.cia, static_cast<u32>(ppu.lr)}]++;
+						if (!s_stack_thread.empty() && name && name->find(s_stack_thread) != umax)
+						{
+							std::string key = fmt::format("0x%x", ppu.cia);
+							const auto list = ppu.dump_callstack_list();
+							for (usz i = 0; i < std::min<usz>(list.size(), 12); i++)
+							{
+								fmt::append(key, " <- 0x%x", list[i].first);
+							}
+							stacks[key]++;
+						}
 					});
 					if (const u64 now = get_system_time(); now - last_report > vr_stats_period_us())
 					{
@@ -567,6 +580,17 @@ error_code sys_timer_usleep(ppu_thread& ppu, u64 sleep_time)
 							{
 								text += fmt::format(" 0x%x<-0x%x %u%%;", sorted[i].first.first, sorted[i].first.second, sorted[i].second * 100 / std::max(total, 1u));
 							}
+						}
+						if (!stacks.empty())
+						{
+							std::vector<std::pair<std::string, u32>> sorted(stacks.begin(), stacks.end());
+							std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+							text += fmt::format("\n stacks of '%s':", s_stack_thread);
+							for (usz i = 0; i < std::min<usz>(sorted.size(), 5); ++i)
+							{
+								text += fmt::format("\n   %u: %s", sorted[i].second, sorted[i].first);
+							}
+							stacks.clear();
 						}
 						sys_timer.success("PPU samples over %.1f s:%s", (now - last_report) / 1e6, text);
 						hist.clear();
