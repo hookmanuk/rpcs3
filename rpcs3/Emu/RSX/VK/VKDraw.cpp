@@ -1564,7 +1564,13 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 	};
 
+	// HUD-box draws: the game's scissor follows the HUD into the box (per eye).
+	const bool vr_box_scissor = vr_render && vr_apply_box_scissor();
 	emit_vulkan_draw();
+	if (vr_box_scissor)
+	{
+		vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
+	}
 
 	if (vr_render && vr_batch)
 	{
@@ -1589,6 +1595,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			update_vertex_env(sub_index * 2 + 1, upload_info);
 			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			update_draw_state();
+			vr_apply_box_scissor(); // the next batched draw reloads the scissor
 			emit_vulkan_draw();
 			m_current_command_buffer = primary;
 			m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
@@ -1636,7 +1643,15 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
-		emit_vulkan_draw();
+		if (vr_apply_box_scissor())
+		{
+			emit_vulkan_draw();
+			vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
+		}
+		else
+		{
+			emit_vulkan_draw();
+		}
 		m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
 		vk::end_renderpass(*m_current_command_buffer);
 

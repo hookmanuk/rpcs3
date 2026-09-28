@@ -2653,8 +2653,37 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 	}
 }
 
+bool VKGSRender::vr_apply_box_scissor()
+{
+	const f32 clip_w = rsx::method_registers.surface_clip_width();
+	const f32 clip_h = rsx::method_registers.surface_clip_height();
+	if (clip_w <= 0.f || clip_h <= 0.f)
+	{
+		return false;
+	}
+
+	f32 rect[4] =
+	{
+		static_cast<f32>(m_scissor.offset.x), static_cast<f32>(m_scissor.offset.y),
+		static_cast<f32>(m_scissor.offset.x + m_scissor.extent.width), static_cast<f32>(m_scissor.offset.y + m_scissor.extent.height)
+	};
+	if (!rsx::vr::camera_probe::get().map_box_scissor(m_viewport.width / clip_w, m_viewport.height / clip_h, m_viewport.width, m_viewport.height, rect))
+	{
+		return false;
+	}
+
+	VkRect2D scissor;
+	scissor.offset.x = static_cast<s32>(std::floor(rect[0]));
+	scissor.offset.y = static_cast<s32>(std::floor(rect[1]));
+	scissor.extent.width = static_cast<u32>(std::ceil(rect[2]) - scissor.offset.x);
+	scissor.extent.height = static_cast<u32>(std::ceil(rect[3]) - scissor.offset.y);
+	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &scissor);
+	return true;
+}
+
 bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size)
 {
+	rsx::vr::camera_probe::get().clear_box_mapped();
 	if (!source_size || !m_program || m_vs_binding_table->cbuf_location == umax)
 	{
 		return false;
@@ -2675,6 +2704,15 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	if (!size || size != source_size)
 	{
 		// The last upload does not describe this program; leave the guest allocation bound.
+		{
+			// Diagnostic: each program left on the game's constants this way (first 32).
+			static std::set<u64> s_seen;
+			const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+			if (s_seen.size() < 32 && s_seen.insert(hash).second)
+			{
+				rsx_log.warning("VR: eye constants not applied to program %016llx (constants %u bytes, last upload %u)", hash, size, source_size);
+			}
+		}
 		return false;
 	}
 

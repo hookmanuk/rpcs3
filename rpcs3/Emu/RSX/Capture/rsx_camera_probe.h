@@ -378,6 +378,11 @@ namespace rsx::vr
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		// The draw about to be bound has depth test enabled.
 		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }
+		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
+		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
+		// anything the game parked outside its screen stays clipped. Call clear before each eye.
+		void clear_box_mapped() const { m_box_mapped = false; }
+		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
 		bool scene_draws_by_clip_space() const;
 
@@ -488,6 +493,9 @@ namespace rsx::vr
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_depth_test = true;
+		mutable bool m_box_mapped = false;
+		mutable bool m_box_identity_pass = false;
+		mutable f32 m_box_map[4][4] = {};
 
 		// c[465] is global camera state. Shadow cascades carry a perspective
 		// c[260] block whose clip-X axis is *not* camera right, so retain the

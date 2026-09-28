@@ -1741,8 +1741,65 @@ namespace rsx::vr
 		map_vr_screen_box(block.rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
 	}
 
+	bool camera_probe::map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const
+	{
+		// rect: x1, y1, x2, y2 in host pixels, replaced by the bounds of its image in the box.
+		const f32 vsx = rsx::method_registers.viewport_scale_x(), vsy = rsx::method_registers.viewport_scale_y();
+		const f32 vox = rsx::method_registers.viewport_offset_x(), voy = rsx::method_registers.viewport_offset_y();
+		if (!m_box_mapped || std::fabs(vsx) < 1e-6f || std::fabs(vsy) < 1e-6f || host_scale_x <= 0.f || host_scale_y <= 0.f)
+		{
+			return false;
+		}
+
+		f32 out[4] = { host_width, host_height, 0.f, 0.f };
+		for (u32 corner = 0; corner < 4; ++corner)
+		{
+			// Host pixel -> guest window -> game NDC (inverse viewport), through the box, and back.
+			const f32 gx = rect[(corner & 1) ? 2 : 0] / host_scale_x;
+			const f32 gy = rect[(corner & 2) ? 3 : 1] / host_scale_y;
+			const f32 p[4] = { (gx - vox) / vsx, (gy - voy) / vsy, 0.f, 1.f };
+			f32 o[4] = {};
+			for (u32 c = 0; c < 4; ++c)
+			{
+				for (u32 r = 0; r < 4; ++r)
+				{
+					o[c] += p[r] * m_box_map[r][c];
+				}
+			}
+			if (o[3] <= 1e-4f)
+			{
+				// Part of the box is behind the viewer: leave the game's scissor.
+				return false;
+			}
+			const f32 x = (o[0] / o[3] * vsx + vox) * host_scale_x;
+			const f32 y = (o[1] / o[3] * vsy + voy) * host_scale_y;
+			out[0] = std::min(out[0], x);
+			out[1] = std::min(out[1], y);
+			out[2] = std::max(out[2], x);
+			out[3] = std::max(out[3], y);
+		}
+		rect[0] = std::clamp(out[0], 0.f, host_width);
+		rect[1] = std::clamp(out[1], 0.f, host_height);
+		rect[2] = std::clamp(out[2], rect[0], host_width);
+		rect[3] = std::clamp(out[3], rect[1], host_height);
+		return true;
+	}
+
 	void camera_probe::map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const
 	{
+		if (!m_box_identity_pass)
+		{
+			// The mapping is the same linear map on every row: record it (from identity rows)
+			// for map_box_scissor.
+			f32 id[4][4] = { { 1.f, 0.f, 0.f, 0.f }, { 0.f, 1.f, 0.f, 0.f }, { 0.f, 0.f, 1.f, 0.f }, { 0.f, 0.f, 0.f, 1.f } };
+			f32* const id_rows[4] = { id[0], id[1], id[2], id[3] };
+			m_box_identity_pass = true;
+			map_vr_screen_box(id_rows, eye_sign, aspect);
+			m_box_identity_pass = false;
+			std::memcpy(m_box_map, id, sizeof(id));
+			m_box_mapped = true;
+		}
+
 		// The game camera's FOV changes with speed and camera mode (and can exceed
 		// the headset's), so the HUD is not tied to it. It becomes a fixed box with
 		// the output aspect, fitted inside the central symmetric part of this
