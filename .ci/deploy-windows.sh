@@ -38,8 +38,9 @@ fi
 # Download SSL certificate (not needed with CURLSSLOPT_NATIVE_CA)
 #curl -fsSL 'https://curl.haxx.se/ca/cacert.pem' 1> ./bin/cacert.pem
 
-# VR fork: the list of VR games goes next to rpcs3.exe
-cp vr-games.md ./bin/
+# VR fork: the list of VR games and the settings guide go next to rpcs3.exe
+cp vr-games.md vr-settings.md ./bin/
+mkdir -p ./bin/docs && cp -r docs/vr-settings ./bin/docs/
 
 # Package artifacts
 7z a -m0=LZMA2 -mx9 "$BUILD" ./bin/*

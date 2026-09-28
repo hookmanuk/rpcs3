@@ -32,8 +32,11 @@ VR): get new VR builds from the same place as this one.
 
 1. Start your OpenXR runtime before launching a game.
 2. Launch a game from the list below as normal. VR switches on by itself for a game with a VR profile
-   (`Configuration > Video > VR > Enabled`, on by default). Games without a profile play normally.
+   (**Enable VR Support** in the game's custom configuration, on by default). Games without a profile play
+   normally.
 3. In-game, the home menu (PS button or Start+Select) has a **VR** tab: HUD size and position, world scale.
+
+To raise the resolution or change the VR settings for a game, see [vr-settings.md](vr-settings.md).
 
 ---
 
