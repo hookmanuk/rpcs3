@@ -25,7 +25,8 @@
 
   "screen_space": {
     "orthographic_block": 0,
-    "hud_skips_passes": true
+    "hud_skips_passes": true,
+    "frames_without_3d_as_screen": true
   },
 
   "fragment_constant_overrides": [

@@ -816,7 +816,15 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		// nothing, so the pose waits for the next game flip. Games whose frames end in
 		// a display buffer take it at the frame boundary instead (prepare_rtts); the
 		// flip falls back to it if no boundary has been seen for two flips.
-		if (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2))
+		// Videos some games show without flipping (Demon's Souls: decoded into the display
+		// buffer, shown only by RPCS3's UI refresh) count as frames without camera draws, so
+		// frames_without_3d_as_screen shows them on the fixed screen instead of head-locked.
+		if (info.emu_flip)
+		{
+			m_vr_last_emu_flip_us = get_system_time();
+		}
+		const bool vr_video_refresh = !info.emu_flip && !Emu.IsPaused() && get_system_time() - m_vr_last_emu_flip_us > 200'000;
+		if (vr_video_refresh || (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2)))
 		{
 			vr_update_view();
 			if (vr_tracing())
