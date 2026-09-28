@@ -9,6 +9,7 @@
   "matrix_layout": "row_vectors",
   "camera_blocks": [0, 8, 4],
   "require_rigid_camera": true,
+  "nonrigid_camera_blocks": [4],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {

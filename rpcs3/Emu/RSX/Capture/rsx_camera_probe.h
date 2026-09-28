@@ -126,6 +126,10 @@ namespace rsx::vr
 		// A camera block must be rigid: its clip x, y and w directions mutually
 		// orthogonal. Rejects unrelated data that happens to sit in a listed block.
 		bool require_rigid_camera = false;
+		// Camera blocks accepted without the rigid test: a program whose block folds in an
+		// object's non-uniform scale (Demon's Souls' fog gate distortion layer, c[4..7]:
+		// clip y and w nearly parallel). The eye transform handles non-rigid blocks.
+		std::vector<u32> nonrigid_camera_blocks;
 		// A camera block must also project square pixels at the output aspect
 		// (|clip y| / |clip x| within 10% of it). For engines whose camera sits at a
 		// varying base after a varying number of object-matrix slots (inFamous 1/2),

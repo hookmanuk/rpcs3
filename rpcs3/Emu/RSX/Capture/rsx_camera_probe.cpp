@@ -250,14 +250,15 @@ namespace rsx::vr
 		// Bind the first perspective (and, if required, rigid and output-aspect) block of the candidates.
 		bool bind_camera_block(matrix_block& block, void* buffer, const u16* reloc, usz reloc_size,
 			std::span<const u32> candidates, bool column_vectors, bool require_rigid, bool xyw = false, f32 require_aspect = 0.f,
-			std::span<const std::array<u32, 4>> explicit_slots = {})
+			std::span<const std::array<u32, 4>> explicit_slots = {}, std::span<const u32> nonrigid = {})
 		{
 			for (usz i = 0; i < candidates.size(); ++i)
 			{
 				const u32 candidate = candidates[i];
 				const std::array<u32, 4>* slots = i < explicit_slots.size() ? &explicit_slots[i] : nullptr;
 				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors, xyw, slots) && is_perspective(block.rows) &&
-					(!require_rigid || is_rigid(block.rows)) && (require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
+					(!require_rigid || std::find(nonrigid.begin(), nonrigid.end(), candidate) != nonrigid.end() || is_rigid(block.rows)) &&
+					(require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
 				{
 					return true;
 				}
@@ -549,6 +550,13 @@ namespace rsx::vr
 		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
+		if (const YAML::Node blocks = child(root, "nonrigid_camera_blocks"); blocks && blocks.IsSequence())
+		{
+			for (const auto& node : blocks)
+			{
+				profile->nonrigid_camera_blocks.push_back(node.as<u32>());
+			}
+		}
 		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
 		{
 			profile->require_rigid_camera = rigid == "true";
@@ -702,7 +710,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1378,7 +1386,8 @@ namespace rsx::vr
 		const size2u output_eye = g_fxo->get<rsx::avconf>().video_frame_size();
 		const f32 camera_aspect = profile.require_camera_aspect && output_eye.height ? static_cast<f32>(output_eye.width) / output_eye.height : 0.f;
 		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera, profile.xyw_rows, camera_aspect,
-			m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots)))
+			m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots),
+			m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.nonrigid_camera_blocks)))
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
@@ -2207,7 +2216,8 @@ namespace rsx::vr
 		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, column_vectors, profile && profile->require_rigid_camera,
 			m_base == umax && profile && profile->xyw_rows,
 			profile && profile->require_camera_aspect ? static_cast<f32>(g_fxo->get<rsx::avconf>().video_frame_size().width) / g_fxo->get<rsx::avconf>().video_frame_size().height : 0.f,
-			m_base == umax && profile ? std::span<const std::array<u32, 4>>(profile->camera_block_slots) : std::span<const std::array<u32, 4>>()))
+			m_base == umax && profile ? std::span<const std::array<u32, 4>>(profile->camera_block_slots) : std::span<const std::array<u32, 4>>(),
+			m_base == umax && profile ? std::span<const u32>(profile->nonrigid_camera_blocks) : std::span<const u32>()))
 		{
 			if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 			{
