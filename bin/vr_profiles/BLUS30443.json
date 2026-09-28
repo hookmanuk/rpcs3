@@ -7,7 +7,7 @@
   "default_fps": 0,
 
   "matrix_layout": "row_vectors",
-  "camera_blocks": [0, 8],
+  "camera_blocks": [0, 8, 4],
   "require_rigid_camera": true,
   "output_aspect_tolerance": 0.02,
 
