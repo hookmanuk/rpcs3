@@ -128,7 +128,7 @@ VR): get new VR builds from the same place as this one.
   view (VR culling)*, which draws more of the world around you (130 degrees by default; lower it if frame
   rate suffers, or set 43 to play without VR). The VR profile also turns off the game's depth of field, which
   blurred the floor and the edges of the view.
-- **Cutscenes:** the story cutscenes are pre-rendered 30 FPS videos (they look like the game, but no 3D is drawn). They play on a fixed screen in front of you, sized and placed by the HUD settings, so your head moves freely around them.
+- **Cutscenes:** in-engine cutscenes play at the full frame rate: the patch *Smooth cutscenes* (on by default) interpolates their camera and object tracks, which the game steps at 30 per second. Pre-rendered videos (30 FPS) play on a fixed screen in front of you, placed by the HUD settings. Patches apply when the game boots, not when a savestate is loaded.
 
 ---
 
