@@ -96,6 +96,7 @@ namespace rsx
 
 			fs::file m_file;
 			u64 m_frame_counter = 0;
+			u32 m_frames_left = 0; // consecutive frames still to capture (ARM file content, default 1)
 			u64 m_capture_frame = 0;
 			u32 m_draw_ordinal = 0;
 			u32 m_vk_draw_commands = 0;

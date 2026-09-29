@@ -1074,6 +1074,9 @@ namespace rsx
 		rsx::overlays::reset_performance_overlay();
 		rsx::overlays::reset_debug_overlay();
 
+		// VR fork: a new boot; drop the previous game's per-frame profile cache.
+		rsx::vr::camera_probe::get().reload_profile();
+
 		if (!is_initialized)
 		{
 			g_fxo->get<rsx::dma_manager>().init();

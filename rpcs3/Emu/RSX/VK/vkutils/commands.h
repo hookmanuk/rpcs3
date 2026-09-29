@@ -18,7 +18,8 @@ namespace vk
 		command_pool()  = default;
 		~command_pool() = default;
 
-		void create(vk::render_device& dev, u32 queue_family);
+		void create(vk::render_device& dev, u32 queue_family,
+			VkCommandPoolCreateFlags flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 		void destroy();
 
 		vk::render_device& get_owner() const;

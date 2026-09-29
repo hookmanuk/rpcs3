@@ -1487,6 +1487,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		update_vertex_env(sub_index * 2, upload_info);
 	}
 
+	// The right-eye secondary needs the dynamic state set again only when this draw changed it.
+	const bool vr_dynamic_state_changed = (m_current_command_buffer->flags & vk::command_buffer::cb_reload_dynamic_state) != 0;
+
 	if (reload_state)
 	{
 		update_draw_state();
@@ -1677,7 +1680,13 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		{
 			auto* const primary = m_current_command_buffer;
 			m_current_command_buffer = &m_vr_batch_cb;
-			m_vr_batch_cb.flags |= vk::command_buffer::cb_reload_dynamic_state;
+			// A new secondary starts with its dynamic state reloaded (attach); within a batch only
+			// a state change or the previous draw's HUD-box scissor needs it again. Reloading for
+			// every draw cost ~2% of the RSX thread in Bayonetta.
+			if (vr_dynamic_state_changed || m_vr_batch_scissor_dirty)
+			{
+				m_vr_batch_cb.flags |= vk::command_buffer::cb_reload_dynamic_state;
+			}
 			if (vr_hud_env)
 			{
 				vr_hud_vertex_env(1.f, vr_preprojected);
@@ -1685,7 +1694,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			update_vertex_env(sub_index * 2 + 1, upload_info);
 			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			update_draw_state();
-			vr_apply_box_scissor(); // the next batched draw reloads the scissor
+			m_vr_batch_scissor_dirty = vr_apply_box_scissor(); // then the next batched draw reloads the scissor
 			if (vr_clear_shown)
 			{
 				vr_clear_shown_region();

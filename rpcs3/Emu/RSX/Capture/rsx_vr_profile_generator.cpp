@@ -499,6 +499,16 @@ namespace rsx::vr
 				{
 					if (const auto b = read_block(r, base, layout); b && is_camera(b->m, output_aspect))
 					{
+						// xyw reads only 3 slots, so it also matches every full 4-slot column camera, taking its
+						// z row for w (Bayonetta's c[8..11]: the generator chose xyw and the scene tore apart).
+						// It counts only where the full column reading is no camera (NFS: c[215] holds z parameters).
+						if (layout == layout_xyw)
+						{
+							if (const auto full = read_block(r, base, layout_columns); full && !full->z_missing && is_camera(full->m, output_aspect))
+							{
+								continue;
+							}
+						}
 						candidates[{ layout, base }]++;
 					}
 				}
@@ -563,30 +573,128 @@ namespace rsx::vr
 		{
 			vr_gen_log.notice("Camera blocks overlap (the camera base varies per program): require_camera_aspect.");
 		}
+		// A second camera in the row layout under a column-layout scene (Bayonetta: sprites with a
+		// row_vectors c[24..27], the scene column_vectors c[8..11]): kept as a row_vector_blocks entry.
+		std::vector<u32> row_blocks;
+		if (columns != layout_rows)
+		{
+			for (const auto& [key, count] : ranked)
+			{
+				if (key.first != layout_rows || count < std::max(20u, ranked.front().second / 20) || blocks.size() >= 8) continue;
+				// The same base may have passed weakly as a column block too (Bayonetta c[24]: 31 draws as
+				// columns, 4630 as rows): the row reading wins when it is far more common.
+				if (const auto same = std::find(blocks.begin(), blocks.end(), key.second); same != blocks.end())
+				{
+					const auto col = candidates.find({ columns, key.second });
+					if (col != candidates.end() && col->second * 4 < count)
+					{
+						vr_gen_log.notice("c[%u] reads as a row-layout camera in %u draws, as %s in %u: row_vector_blocks.", key.second, count, layout_names[columns], col->second);
+						row_blocks.push_back(key.second);
+					}
+					continue;
+				}
+				if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b) { return key.second + 3 >= b && key.second <= b + 3; })) continue;
+				vr_gen_log.notice("Row-layout camera c[%u] (%u draws) beside the %s blocks: row_vector_blocks.", key.second, count, layout_names[columns]);
+				blocks.push_back(key.second);
+				row_blocks.push_back(key.second);
+			}
+		}
+		const auto layout_of = [&](u32 base)
+		{
+			return std::find(row_blocks.begin(), row_blocks.end(), base) != row_blocks.end() ? static_cast<u32>(layout_rows) : columns;
+		};
+
+		// Another view of the same camera read beside it: a motion-vector pass keeps the previous
+		// frame's view-projection next to the current one (Bayonetta: c[36..39] beside c[8..11], in
+		// skinned programs with indexed constants, so read by their direct slots here). Left alone,
+		// only the camera takes the head and eye transform and the velocities blur the characters.
+		std::map<u32, u32> linked_hits;
+		for (const draw_sample* s : views)
+		{
+			const slot_reader r{ s->ids, s->values, false };
+			std::optional<block_result> cam;
+			u32 cam_base = 0;
+			for (const u32 base : blocks)
+			{
+				if (auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m))
+				{
+					cam = b;
+					cam_base = base;
+					break;
+				}
+			}
+			if (!cam) continue;
+			f64 scale = 0.0;
+			for (const auto& row : cam->m) for (const f64 v : row) scale = std::max(scale, std::fabs(v));
+			for (const u16 base : s->ids)
+			{
+				if (base + 3 >= cam_base && base <= cam_base + 3) continue;
+				const auto b = read_block(r, base, layout_of(cam_base));
+				if (!b || b->z_missing || !is_perspective(b->m)) continue;
+				f64 diff = 0.0;
+				for (u32 i = 0; i < 4; ++i) for (u32 j = 0; j < 4; ++j) diff = std::max(diff, std::fabs(b->m[i][j] - cam->m[i][j]));
+				if (diff <= 0.02 * scale) linked_hits[base]++;
+			}
+		}
+		std::vector<u32> linked_blocks;
+		for (const auto& [base, hits] : linked_hits)
+		{
+			if (hits < 5) continue;
+			vr_gen_log.notice("c[%u] holds another view of the camera beside it (%u draws, a previous-frame matrix for motion vectors): linked_camera_blocks.", base, hits);
+			linked_blocks.push_back(base);
+			// It passed the camera test too (Bayonetta's c[36]); as a camera block it would keep the game's view.
+			std::erase(blocks, base);
+			std::erase(row_blocks, base);
+		}
 
 		// 2. Stray matches: data in a listed block that passes the perspective
 		// test but is no camera. If any, require rigid camera blocks. Depth-tested
 		// draws that sample no colour render target are world geometry: a strongly
 		// non-uniform object scale is not stray data (Ridge Racer 7's wheels and
 		// light glows, which rigidity left on the game camera).
+		// A full-screen pass (no depth test, sampling a colour target) is stray data whatever the
+		// aspect: Bayonetta's post passes keep a row-layout pixel matrix in c[8], which read as the
+		// scene's columns looks perspective with the screen's proportions.
 		bool require_rigid = false;
+		std::set<u32> stray_bases;
+		std::map<u32, u32> nonrigid_scene_draws;
 		for (const draw_sample* s : views)
 		{
-			if (s->depth_test && !(s->textures & 2)) continue;
+			const bool scene = s->depth_test && !(s->textures & 2);
+			const bool pass = !s->depth_test && (s->textures & 2);
 			const slot_reader r{ s->ids, s->values, s->full_bank };
 			for (const u32 base : blocks)
 			{
-				const auto b = read_block(r, base, columns);
+				const auto b = read_block(r, base, layout_of(base));
 				if (!b || !is_perspective(b->m)) continue;
-				if (rigidity(b->m) > 0.3 && !aspect_matches(b->m, output_aspect, 0.5))
+				if (scene)
+				{
+					nonrigid_scene_draws[base] += rigidity(b->m) > 0.3;
+				}
+				else if (rigidity(b->m) > 0.3 && (pass || !aspect_matches(b->m, output_aspect, 0.5)))
 				{
 					if (!require_rigid)
 					{
 						vr_gen_log.notice("Program %u holds non-camera data in c[%u]: require_rigid_camera.", s->program, base);
 					}
 					require_rigid = true;
+					stray_bases.insert(base);
 				}
 				break;
+			}
+		}
+		// With the rigid test on, blocks whose world geometry is legitimately non-rigid (sprites or
+		// objects with scale folded in: Bayonetta's c[24]) are exempt, unless stray data came from them.
+		std::vector<u32> nonrigid_blocks;
+		if (require_rigid)
+		{
+			for (const u32 base : blocks)
+			{
+				if (!stray_bases.contains(base) && nonrigid_scene_draws[base] >= 5)
+				{
+					vr_gen_log.notice("c[%u]: %u depth-tested scene draws with a non-rigid matrix: nonrigid_camera_blocks.", base, nonrigid_scene_draws[base]);
+					nonrigid_blocks.push_back(base);
+				}
 			}
 		}
 
@@ -600,7 +708,9 @@ namespace rsx::vr
 		u32 depth_offset_draws = 0;
 		f64 camera_target_aspect_error = 0.0; // the renderer's output_aspect_tolerance must cover it
 		std::map<u32, u32> position_hits;
+		std::map<u32, u32> static_position_hits; // from programs without indexed constants
 		u32 eye_points = 0;
+		u32 static_eye_points = 0;
 		u32 covered_draws = 0;
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		for (const draw_sample* s : views)
@@ -610,7 +720,7 @@ namespace rsx::vr
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
 			{
-				if (auto b = read_block(r, base, columns); b && is_perspective(b->m) && (!require_rigid || rigidity(b->m) <= rigid_tolerance) &&
+				if (auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
 					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					cam = b;
@@ -674,17 +784,29 @@ namespace rsx::vr
 			if (e)
 			{
 				eye_points++;
-				const f64 tolerance = 0.05 * std::max(1.0, std::sqrt((*e)[0] * (*e)[0] + (*e)[1] * (*e)[1] + (*e)[2] * (*e)[2]));
+				static_eye_points += !s->full_bank;
+				// A camera position slot holds the solved eye point to float precision. 5% of its distance from the
+				// world origin let a character's root bone next to the camera win (Bayonetta c[43] over c[15]).
+				const f64 tolerance = 0.002 * std::max(1.0, std::sqrt((*e)[0] * (*e)[0] + (*e)[1] * (*e)[1] + (*e)[2] * (*e)[2]));
 				const auto check = [&](u32 slot, const std::array<f32, 4>& v)
 				{
 					if (slot >= cam_base && slot < cam_base + 4) return;
 					if (std::fabs(v[3] - 1.0) > 1e-4) return;
 					const f64 d = std::sqrt((v[0] - (*e)[0]) * (v[0] - (*e)[0]) + (v[1] - (*e)[1]) * (v[1] - (*e)[1]) + (v[2] - (*e)[2]) * (v[2] - (*e)[2]));
-					if (d < tolerance) position_hits[slot]++;
+					if (d < tolerance)
+					{
+						position_hits[slot]++;
+						if (!s->full_bank) static_position_hits[slot]++;
+					}
 				};
 				if (s->full_bank)
 				{
-					for (u32 i = 0; i < s->values.size(); ++i) check(i, s->values[i]);
+					// Only the slots the program reads directly: an indexed program's whole bank holds bone
+					// matrices, whose rows can match the eye point (Bayonetta: c[43] beat the real c[15]).
+					for (const u16 id : s->ids)
+					{
+						if (id < s->values.size()) check(id, s->values[id]);
+					}
 				}
 				else
 				{
@@ -748,9 +870,16 @@ namespace rsx::vr
 		vr_gen_log.notice("Camera blocks cover %u of %u depth-tested scene draws (%.0f%%)%s.", scene_covered, scene_draws, scene_coverage * 100.0,
 			clip_space_scene_draws ? ": clip_space_scene_draws" : "");
 
+		// Prefer matches from programs without indexed constants: an indexed program's direct slots
+		// include the base of its bone array, whose translation row can match the eye point
+		// (Bayonetta: c[43], bone 0, beat the real c[15]).
+		const bool use_static = static_eye_points >= 10 && std::any_of(static_position_hits.begin(), static_position_hits.end(),
+			[&](const auto& e) { return e.second >= std::max(10u, static_eye_points / 20); });
+		const auto& hits_used = use_static ? static_position_hits : position_hits;
+		if (use_static) eye_points = static_eye_points;
 		u32 position_slot = umax;
 		u32 best_hits = 0;
-		for (const auto& [slot, hits] : position_hits)
+		for (const auto& [slot, hits] : hits_used)
 		{
 			if (hits > best_hits) { best_hits = hits; position_slot = slot; }
 		}
@@ -774,9 +903,11 @@ namespace rsx::vr
 			const slot_reader r{ s->ids, s->values, false };
 			for (const u16 base : s->ids)
 			{
-				auto b = read_block(r, base, columns);
-				if (!b && columns == layout_rows) b = read_flat_rows(r, base);
-				if (!b || (b->z_missing && columns != layout_rows) || is_perspective(b->m)) continue;
+				// A row_vector_blocks camera block is read in rows here too (Bayonetta's 2D draws use c[24..27]).
+				const u32 layout = layout_of(base);
+				auto b = read_block(r, base, layout);
+				if (!b && layout == layout_rows) b = read_flat_rows(r, base);
+				if (!b || (b->z_missing && layout != layout_rows) || is_perspective(b->m)) continue;
 				const f64 sx = std::fabs(b->m[0][0]), sy = std::fabs(b->m[1][1]);
 				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01)) continue;
 				if (s->textures & texture_colour_target) pass_hits[base]++;
@@ -806,7 +937,7 @@ namespace rsx::vr
 			const slot_reader r{ s.ids, s.values, s.full_bank };
 			for (const u32 base : blocks)
 			{
-				if (const auto b = read_block(r, base, columns); b && is_perspective(b->m) && (!require_rigid || rigidity(b->m) <= rigid_tolerance) &&
+				if (const auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
 					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					return true;
@@ -928,7 +1059,25 @@ namespace rsx::vr
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
 		json += fmt::format("  \"camera_blocks\": [%s],\n", blocks_text);
+		if (!row_blocks.empty())
+		{
+			std::string rows_text;
+			for (const u32 b : row_blocks) rows_text += fmt::format("%s%u", rows_text.empty() ? "" : ", ", b);
+			json += fmt::format("  \"row_vector_blocks\": [%s],\n", rows_text);
+		}
+		if (!linked_blocks.empty())
+		{
+			std::string linked_text;
+			for (const u32 b : linked_blocks) linked_text += fmt::format("%s%u", linked_text.empty() ? "" : ", ", b);
+			json += fmt::format("  \"linked_camera_blocks\": [%s],\n", linked_text);
+		}
 		if (require_rigid) json += "  \"require_rigid_camera\": true,\n";
+		if (!nonrigid_blocks.empty())
+		{
+			std::string nonrigid_text;
+			for (const u32 b : nonrigid_blocks) nonrigid_text += fmt::format("%s%u", nonrigid_text.empty() ? "" : ", ", b);
+			json += fmt::format("  \"nonrigid_camera_blocks\": [%s],\n", nonrigid_text);
+		}
 		if (overlapping) json += "  \"require_camera_aspect\": true,\n";
 		const f64 aspect_tolerance_out = camera_target_aspect_error > 0.019 ? std::ceil((camera_target_aspect_error + 0.005) * 100.0) / 100.0 : 0.02;
 		json += fmt::format("  \"output_aspect_tolerance\": %s,\n", fmt_number(aspect_tolerance_out));

@@ -9,13 +9,13 @@ namespace vk
 	// This queue flushing method to be implemented by the backend as behavior depends on config
 	void queue_submit(const queue_submit_t& submit_info, VkBool32 flush);
 
-	void command_pool::create(vk::render_device& dev, u32 queue_family_id)
+	void command_pool::create(vk::render_device& dev, u32 queue_family_id, VkCommandPoolCreateFlags flags)
 	{
 		owner = &dev;
 		queue_family = queue_family_id;
 
 		VkCommandPoolCreateInfo infos = {};
-		infos.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		infos.flags            = flags;
 		infos.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 		infos.queueFamilyIndex = queue_family;
 

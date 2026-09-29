@@ -538,7 +538,8 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 
 		if (m_vr_batching)
 		{
-			m_vr_batch_pool.create((*m_device), m_device->get_graphics_queue_family());
+			// Not transient: the secondaries are reused every frame, and a transient pool let the driver
+			// release and reallocate their memory on each begin (GlobalAlloc in every vr_batch_begin).
 			s_vr_batch_owner = this;
 			vk::g_end_renderpass_hook = &VKGSRender::vr_on_end_renderpass;
 		}
@@ -950,8 +951,11 @@ VKGSRender::~VKGSRender()
 	{
 		vk::g_end_renderpass_hook = nullptr;
 		s_vr_batch_owner = nullptr;
-		m_vr_batch_slots.clear();
-		m_vr_batch_pool.destroy(); // frees its secondary command buffers
+		for (auto& [primary, batches] : m_vr_primary_batches)
+		{
+			batches->pool.destroy(); // frees its secondary command buffers
+		}
+		m_vr_primary_batches.clear();
 	}
 
 	// Descriptors
@@ -1751,23 +1755,27 @@ bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
 		vr_batch_flush();
 	}
 
-	// A secondary is reusable once the primary it ran in has been reset, which
-	// waits for that submission to complete.
-	usz index = m_vr_batch_slots.size();
-	for (usz i = 0; i < m_vr_batch_slots.size(); ++i)
+	// This primary's secondaries: once it has been reset (its previous submission finished),
+	// all of them are free and their pool is reset in one call.
+	auto& batches = m_vr_primary_batches[m_current_command_buffer];
+	if (!batches)
 	{
-		const auto& slot = m_vr_batch_slots[i];
-		if (!slot.owner || slot.owner->reset_id != slot.owner_reset_id)
-		{
-			index = i;
-			break;
-		}
+		batches = std::make_unique<vr_primary_batches>();
+		batches->pool.create(*m_device, m_device->get_graphics_queue_family(), 0);
 	}
-
-	if (index == m_vr_batch_slots.size())
+	if (batches->reset_id != m_current_command_buffer->reset_id)
+	{
+		if (batches->used)
+		{
+			vkResetCommandPool(*m_device, batches->pool, 0);
+		}
+		batches->used = 0;
+		batches->reset_id = m_current_command_buffer->reset_id;
+	}
+	if (batches->used == batches->cbs.size())
 	{
 		VkCommandBufferAllocateInfo alloc{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-		alloc.commandPool = m_vr_batch_pool;
+		alloc.commandPool = batches->pool;
 		alloc.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		alloc.commandBufferCount = 1;
 		VkCommandBuffer cb = VK_NULL_HANDLE;
@@ -1775,10 +1783,10 @@ bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
 		{
 			return false;
 		}
-		m_vr_batch_slots.push_back({ cb });
+		batches->cbs.push_back(cb);
 	}
+	const VkCommandBuffer secondary = batches->cbs[batches->used];
 
-	auto& slot = m_vr_batch_slots[index];
 	VkCommandBufferInheritanceInfo inherit{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
 	inherit.renderPass = pass;
 	inherit.subpass = 0;
@@ -1786,15 +1794,14 @@ bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
 	VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 	begin.pInheritanceInfo = &inherit;
-	if (vkBeginCommandBuffer(slot.cb, &begin) != VK_SUCCESS)
+	if (vkBeginCommandBuffer(secondary, &begin) != VK_SUCCESS)
 	{
 		return false;
 	}
 
-	slot.owner = m_current_command_buffer;
-	slot.owner_reset_id = m_current_command_buffer->reset_id;
-	m_vr_batch_slot = index;
-	m_vr_batch_cb.attach(m_vr_batch_pool, slot.cb);
+	batches->used++;
+	m_vr_batch_secondary = secondary;
+	m_vr_batch_cb.attach(batches->pool, secondary);
 	m_vr_batch_primary = m_current_command_buffer;
 	m_vr_batch_pass = pass;
 	m_vr_batch_fbo = fbo;
@@ -1826,7 +1833,7 @@ void VKGSRender::vr_batch_execute()
 	m_gpuprof_batches++;
 	m_vr_batch_cb.detach();
 
-	const VkCommandBuffer secondary = m_vr_batch_slots[m_vr_batch_slot].cb;
+	const VkCommandBuffer secondary = m_vr_batch_secondary;
 	vkEndCommandBuffer(secondary);
 
 	auto& primary = *m_vr_batch_primary;
@@ -3484,7 +3491,58 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	vk::render_target* dst_surface = nullptr;
 	areai src_rect, dst_rect;
 	const bool src_found = locate(src_address, src.pitch, src_surface, src_rect);
-	const bool dst_found = locate(dst_address, dst.pitch, dst_surface, dst_rect);
+	bool dst_found = locate(dst_address, dst.pitch, dst_surface, dst_rect);
+
+	// The blit made its destination a render target on the left (the texture cache promotes a
+	// copy of a surface into memory no surface holds) and draws then sample it as one: Bayonetta
+	// copies its scene (0xcf460000, 1024- and 256-column chunks) to 0xce99c000 and redraws the
+	// whole scene from that copy. Give the right eye the same surface, or every right-eye pass
+	// after the copy samples the left eye's image and both eyes end up identical.
+	if (src_found && !dst_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
+	{
+		if (auto* left = m_rtts.find_color_surface(dst_address, dst.pitch); left && left->samples() == 1 && !left->is_depth_surface() &&
+			left->get_bpp() == bpp && !m_vr_right_rtts.get_surface_at(left->base_addr))
+		{
+			const rsx::image_section_attributes_t attr
+			{
+				.address = left->base_addr,
+				.gcm_format = left->get_gcm_format(),
+				.pitch = left->get_rsx_pitch(),
+				.width = static_cast<u16>(left->template get_surface_width<rsx::surface_metrics::pixels>()),
+				.height = static_cast<u16>(left->template get_surface_height<rsx::surface_metrics::pixels>()),
+				.depth = 1,
+				.mipmaps = 1,
+				.slice_h = static_cast<u16>(left->template get_surface_height<rsx::surface_metrics::pixels>()),
+				.bpp = bpp,
+				.swizzled = false,
+				.edge_clamped = false
+			};
+			vr_batch_flush();
+			if (auto* right = m_vr_right_rtts.create_surface_from_rsx_section(*m_current_command_buffer, attr, left->get_resolution_scaling_config());
+				right && right->format() == left->format() && right->width() == left->width() && right->height() == left->height())
+			{
+				// The copies below fill it; what they do not cover starts as the left eye's pixels.
+				right->state_flags &= ~rsx::surface_state_flags::erase_bkgnd;
+				right->old_contents.clear();
+				if (vk::is_renderpass_open(*m_current_command_buffer))
+				{
+					vk::end_renderpass(*m_current_command_buffer);
+				}
+				left->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
+				right->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
+				vk::copy_image(*m_current_command_buffer, left, right, areai{ 0, 0, static_cast<int>(left->width()), static_cast<int>(left->height()) },
+					areai{ 0, 0, static_cast<int>(right->width()), static_cast<int>(right->height()) });
+				dst_found = locate(dst_address, dst.pitch, dst_surface, dst_rect);
+
+				static bool s_reported = false;
+				if (!std::exchange(s_reported, true))
+				{
+					rsx_log.notice("VR: right-eye surface created at 0x%x for a blit destination the left eye made a render target (%ux%u).",
+						left->base_addr, attr.width, attr.height);
+				}
+			}
+		}
+	}
 
 	if (src_found && dst_found)
 	{

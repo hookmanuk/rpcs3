@@ -144,17 +144,31 @@ namespace rsx::vr
 		{
 			m_capturing = false;
 			close_capture();
+
+			// ARM held a frame count: capture the following frames too, one file each.
+			if (m_frames_left > 1)
+			{
+				m_frames_left--;
+				open_capture();
+				return;
+			}
+			m_frames_left = 0;
 		}
 
-		// Arm exactly one frame when the trigger file appears.
-		if (fs::is_file(m_arm_path))
+		// Arm one frame, or as many consecutive frames as the trigger file says (max 16). Checked every
+		// 30th frame: a file-system query each frame cost ~2% of the RSX thread.
+		static u32 s_arm_poll = 0;
+		if (++s_arm_poll % 30 == 0 && fs::is_file(m_arm_path))
 		{
+			std::string count;
+			if (fs::file f{m_arm_path}) count = f.to_string();
 			if (!fs::remove_file(m_arm_path))
 			{
 				vr_log.error("Could not consume arm file '%s'; refusing to capture to avoid a runaway trace.", m_arm_path);
 				return;
 			}
 
+			m_frames_left = std::clamp<u32>(static_cast<u32>(std::strtoul(count.c_str(), nullptr, 10)), 1, 16);
 			open_capture();
 		}
 	}
@@ -167,7 +181,7 @@ namespace rsx::vr
 		m_seen_shaders.clear();
 
 		const std::string title_id = Emu.GetTitleID().empty() ? Emu.GetTitle() : Emu.GetTitleID();
-		const std::string path = m_out_dir + title_id + "_" + date_time::current_time_narrow() + "_stereo.jsonl";
+		const std::string path = m_out_dir + title_id + "_" + date_time::current_time_narrow() + fmt::format("_f%u", m_frame_counter) + "_stereo.jsonl";
 
 		m_file.open(path, fs::rewrite);
 		if (!m_file)

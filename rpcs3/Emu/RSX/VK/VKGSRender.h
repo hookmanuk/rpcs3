@@ -269,20 +269,24 @@ private:
 		}
 	};
 
-	struct vr_batch_slot
+	// The right-eye secondaries recorded into one primary. They are reusable once that primary
+	// has been reset (its submission finished); the whole pool is then reset at once. Resetting
+	// each secondary on its own made the driver allocate memory in every vkBeginCommandBuffer.
+	struct vr_primary_batches
 	{
-		VkCommandBuffer cb = VK_NULL_HANDLE;
-		vk::command_buffer_chunk* owner = nullptr; // primary it was executed in
-		u64 owner_reset_id = 0;                    // free once the owner has been reset (GPU done)
+		vk::command_pool pool;
+		std::vector<VkCommandBuffer> cbs;
+		usz used = 0;
+		u64 reset_id = umax;
 	};
 
-	vk::command_pool m_vr_batch_pool;
-	std::vector<vr_batch_slot> m_vr_batch_slots;
+	std::unordered_map<const vk::command_buffer_chunk*, std::unique_ptr<vr_primary_batches>> m_vr_primary_batches;
+	VkCommandBuffer m_vr_batch_secondary = VK_NULL_HANDLE;
+	bool m_vr_batch_scissor_dirty = false; // the last batched draw set a HUD-box scissor
 	vr_secondary_cb m_vr_batch_cb;
 	bool m_vr_batching = false;
 	bool m_vr_batch_open = false;
 	bool m_vr_batch_executing = false;
-	usz m_vr_batch_slot = 0;
 	vk::command_buffer_chunk* m_vr_batch_primary = nullptr;
 	VkRenderPass m_vr_batch_pass = VK_NULL_HANDLE;
 	vk::framebuffer_holder* m_vr_batch_fbo = nullptr;

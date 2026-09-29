@@ -458,15 +458,27 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// VR fork dev hook: RPCS3_VR_RTDUMP=<file>. When the file appears (consumed), both eyes' surfaces at
 	// the display buffer are written raw to <file>.<n>.left / .right (+ .txt: width height format). It runs
 	// before the swapchain checks, so it works with a locked desktop, where the flip skips present and
-	// screenshots.
+	// screenshots. The file may list other surface addresses (hex, one per line) to dump instead, as
+	// <file>.<n>.<address>.left / .right.
 	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
-	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump) && fs::remove_file(s_rtdump))
+	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
 	{
+		std::string request;
+		if (fs::file f{s_rtdump}) request = f.to_string();
+		fs::remove_file(s_rtdump);
+		std::vector<u32> addresses;
+		for (const std::string& line : fmt::split(request, {"\n", "\r", " ", ","}))
+		{
+			if (const u32 a = static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16))) addresses.push_back(a);
+		}
+
 		static u32 s_dump_index = 0;
 		const u32 address = rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL);
+		std::string suffix;
 		const auto dump = [&](vk::render_target* rt, const char* eye)
 		{
-			if (!rt || vk::get_format_texel_width(rt->format()) != 4)
+			// Colour only: a depth surface (D24S8 is 4 bytes per texel too) cannot be copied as colour.
+			if (!rt || vk::get_format_texel_width(rt->format()) != 4 || !(rt->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
 			{
 				return;
 			}
@@ -485,13 +497,22 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			image->pop_layout(*m_current_command_buffer);
 			flush_command_queue(true);
 			const auto src = buffer.map(0, size);
-			fs::write_file(fmt::format("%s.%u.%s", s_rtdump, s_dump_index, eye), fs::rewrite, src, size);
+			fs::write_file(fmt::format("%s.%u%s.%s", s_rtdump, s_dump_index, suffix, eye), fs::rewrite, src, size);
 			buffer.unmap();
-			fs::write_file(fmt::format("%s.%u.%s.txt", s_rtdump, s_dump_index, eye), fs::rewrite, fmt::format("%u %u %d", w, h, static_cast<int>(image->format())));
+			fs::write_file(fmt::format("%s.%u%s.%s.txt", s_rtdump, s_dump_index, suffix, eye), fs::rewrite, fmt::format("%u %u %d", w, h, static_cast<int>(image->format())));
 		};
-		dump(m_rtts.get_surface_at(address), "left");
-		dump(m_vr_right_rtts.get_surface_at(address), "right");
-		rsx_log.success("VR surface dump %u written (display buffer 0x%x)", s_dump_index, address);
+		if (addresses.empty())
+		{
+			dump(m_rtts.get_surface_at(address), "left");
+			dump(m_vr_right_rtts.get_surface_at(address), "right");
+		}
+		for (const u32 a : addresses)
+		{
+			suffix = fmt::format(".%x", a);
+			dump(m_rtts.get_surface_at(a), "left");
+			dump(m_vr_right_rtts.get_surface_at(a), "right");
+		}
+		rsx_log.success("VR surface dump %u written (display buffer 0x%x, %u requested surfaces)", s_dump_index, address, ::size32(addresses));
 		s_dump_index++;
 	}
 

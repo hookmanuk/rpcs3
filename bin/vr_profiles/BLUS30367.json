@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30367",
+  "app_version": "01.00",
+  "name": "BAYONETTA",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [8, 24],
+  "row_vector_blocks": [24],
+  "require_rigid_camera": true,
+  "nonrigid_camera_blocks": [24],
+  "linked_camera_blocks": [36],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 15,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.013507,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 8,
+    "hud_skips_passes": true
+  }
+}

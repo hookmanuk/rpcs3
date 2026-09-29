@@ -123,6 +123,14 @@ namespace rsx::vr
 		// base+1, base+2; the shader derives z from w (NFS Most Wanted: c[212..214],
 		// z parameters in c[215]). Implies column_vectors.
 		bool xyw_rows = false;
+		// Blocks (camera or HUD) stored in the row_vectors layout whatever matrix_layout says:
+		// Bayonetta's scene is column_vectors c[8..11], its sprites row_vectors c[24..27].
+		std::vector<u32> row_vector_blocks;
+		// Blocks holding another view of the same camera: Bayonetta's motion-vector pass keeps the
+		// previous frame's view-projection in c[36..39] beside the camera c[8..11]. They get the camera
+		// block's clip-space eye transform (X = M^-1 * M_eye), so velocities stay the game's instead of
+		// the head rotation, eye offset and FOV change (characters blurred in the headset).
+		std::vector<u32> linked_camera_blocks;
 		// A camera block must be rigid: its clip x, y and w directions mutually
 		// orthogonal. Rejects unrelated data that happens to sit in a listed block.
 		bool require_rigid_camera = false;
@@ -173,6 +181,9 @@ namespace rsx::vr
 		bool stereo_eye_offset_from_baseline = false;
 
 		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
+		// The HUD block is read in rows whatever matrix_layout says (orthographic_block_layout "row_vectors"),
+		// for a HUD that stores its pixel matrix in the other layout from the scene's camera.
+		bool screen_space_block_rows = false;
 		bool screen_space_bare_projection = false;
 		// A projection with no view rotation and only a translation along the view
 		// axis (W = z + d, d != 0): geometry the game draws in its camera's space at
@@ -443,6 +454,7 @@ namespace rsx::vr
 		// The running title's VR profile, loaded on first use for each title.
 		// Null when the title has none.
 		const title_profile* profile() const;
+		const title_profile* profile_slow() const;
 
 		// Gate 6 headset view. quat_xyzw is the OpenXR head orientation (LOCAL
 		// space) the next frame is rendered with. While set, output-aspect camera
@@ -494,6 +506,9 @@ namespace rsx::vr
 
 		std::string m_config_path;
 		u64 m_config_stamp = 0;
+		// Live reload: the running title's profile files (time and size), checked twice a second.
+		u64 m_profile_file_stamp = 0;
+		u64 m_profile_file_check_ms = 0;
 
 		std::string m_description;
 		std::string m_title; // probe override (title=); empty = the running title
@@ -503,6 +518,10 @@ namespace rsx::vr
 		mutable std::string m_profile_title;
 		mutable std::string m_profile_title_id; // what the cached key was built from (per-draw fast path)
 		mutable std::string m_profile_boot;
+		// Per-frame fast path: profile() revalidates at most once per frame (poll() clears the flag);
+		// it was called several times per draw, each taking the mutex and comparing strings.
+		mutable atomic_t<bool> m_profile_fast_valid{false};
+		mutable atomic_t<const title_profile*> m_profile_fast{nullptr};
 		mutable std::shared_ptr<const title_profile> m_profile;
 
 		// Probe overrides (base=, cam=); umax = the profile's.
@@ -565,6 +584,8 @@ namespace rsx::vr
 		mutable f32 m_vr_last_eye_block[2][4][4]{};
 		mutable bool m_vr_last_block_valid[2]{};
 		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
+		void apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
+			const f32 (&game)[4][4], f32* const rows[4]) const;
 
 		// Rotation-invariance audit, RPCS3_VR_AUDIT=<degrees> (desktop only, no
 		// headset): both eyes share one eye position and the right eye is yawed by
