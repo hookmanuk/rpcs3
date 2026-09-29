@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98114",
+  "app_version": "02.11",
+  "name": "Gran Turismo 5",
+  "max_fps": 0,
+  "default_fps": 0,
+  "game_frame_time_f32": ["0x1948440"],
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [0],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 467,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0163929,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  }
+}

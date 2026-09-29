@@ -1,0 +1,15 @@
+Version: 1.2
+
+PPU-d73f342bf28ee016ef3d0ccb309b1acb03d8ecce:
+  "Frame rate follows VR":
+    Games:
+      "Gran Turismo 5":
+        BCUS98114: [ 02.11 ]
+    Author: "VR fork"
+    Notes: "Gran Turismo 5 takes one fixed physics step per frame with the step length read from a constant (1/59.94 s, 0x14017f8). With Unlock FPS at 90 Hz the whole game ran 1.5x. The step length is now read from a writable word (0x1948440) that the VR profile sets to 1/fps, so physics, cars and timers run in real time at any frame rate. At 60 Hz nothing changes."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x01948440, 0x3c88ab7c ]  # seconds per frame (native 1/59.94), written by the VR profile
+      - [ be32, 0x00182a30, 0x3d200195 ]  # lis r9,0x195        (was lis r9,0x140)
+      - [ be32, 0x00182a34, 0xc0298440 ]  # lfs f1,-0x7bc0(r9) = [0x1948440] (was lfs f1,0x17f8(r9))
