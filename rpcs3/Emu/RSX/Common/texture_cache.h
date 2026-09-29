@@ -10,6 +10,7 @@
 #include "texture_cache_helpers.h"
 #include "texture_cache_blit_helpers.h"
 
+#include <span>
 #include <unordered_map>
 
 #define RSX_GCM_FORMAT_IGNORED 0
@@ -2184,6 +2185,31 @@ namespace rsx
 			}
 
 			return true;
+		}
+
+		// VR: copy the unsynchronized sections overlapping range whose section range is listed (read back
+		// before), without asking the predictor.
+		template <typename ...Args>
+		bool flush_listed_sections(commandbuffer_type& cmd, const address_range32& range, std::span<const address_range32> listed, Args&&... extras)
+		{
+			auto& block = m_storage.block_for(range);
+			if (block.empty())
+				return false;
+
+			reader_lock lock(m_cache_mutex);
+			bool result = false;
+			for (auto& region : block)
+			{
+				if (region.is_dirty() || region.is_synchronized() || !region.is_flushable() || !region.get_section_range().overlaps(range))
+					continue;
+				if (std::find(listed.begin(), listed.end(), region.get_section_range()) == listed.end())
+					continue;
+
+				lock.upgrade();
+				region.copy_texture(cmd, false, std::forward<Args>(extras)...);
+				result = true;
+			}
+			return result;
 		}
 
 		template <typename ...Args>

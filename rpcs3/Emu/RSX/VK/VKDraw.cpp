@@ -651,11 +651,14 @@ void VKGSRender::load_texture_env()
 	}
 }
 
-static bool vr_display_buffer(const rsx::thread& rsx, u32 address)
+// A display buffer's memory drawn at the display buffer's size: Gran Turismo 5 also renders its
+// shadow cascades (1024 wide) into the memory of the buffer it is not showing.
+static bool vr_display_buffer(const rsx::thread& rsx, u32 address, u32 width, u32 height)
 {
 	for (const auto& buffer : rsx.display_buffers)
 	{
-		if (buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == address)
+		if (buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == address &&
+			buffer.width == width && buffer.height == height)
 		{
 			return true;
 		}
@@ -1278,7 +1281,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		probe.set_draw_samples_colour_target(vr_sampled_textures() & vr_texture_colour_target);
 		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
 		// screen too: Gran Turismo 5 masks its track map with one.
-		bool display_target = vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0]);
+		bool display_target = vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height);
 		if (!m_framebuffer_layout.color_addresses[0] && m_framebuffer_layout.zeta_address)
 		{
 			for (const auto& buffer : display_buffers)
@@ -1370,6 +1373,41 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 	}
 	const bool vr_hud_env = (vr_hud || vr_preprojected) && vr_hud_vertex_env(-1.f, vr_preprojected);
+
+	// A 2D screen that never clears its display buffer (Gran Turismo 5's arcade menu starts with a
+	// full-screen background) leaves everything outside the HUD box stale: trails when the head
+	// turns. Before the first boxed draw into a display buffer that no pass or full clear covered
+	// this frame, clear the shown region in both eyes.
+	bool vr_clear_shown = false;
+	if (vr_render && m_framebuffer_layout.color_addresses[0] && m_framebuffer_layout.color_write_enabled[0] &&
+		vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height))
+	{
+		const u32 target = m_framebuffer_layout.color_addresses[0];
+		if (std::find(m_vr_frame_covered.begin(), m_vr_frame_covered.end(), target) == m_vr_frame_covered.end())
+		{
+			if (rsx::vr::camera_probe::get().hud_env_requested())
+			{
+				vr_clear_shown = true;
+				m_vr_frame_covered.push_back(target);
+			}
+			else if (vr_sampled_textures() & vr_texture_colour_target)
+			{
+				m_vr_frame_covered.push_back(target);
+			}
+		}
+	}
+	const auto vr_clear_shown_region = [&]()
+	{
+		const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+		const f32 scale = resolution_scaling_config.scale_factor();
+		VkClearRect rect{};
+		rect.rect.extent = { std::min<u32>(static_cast<u32>(out.width * scale), m_draw_fbo->width()), std::min<u32>(static_cast<u32>(out.height * scale), m_draw_fbo->height()) };
+		rect.layerCount = 1;
+		VkClearAttachment attachment{};
+		attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		attachment.clearValue.color = { { 0.f, 0.f, 0.f, 1.f } };
+		vkCmdClearAttachments(*m_current_command_buffer, 1, &attachment, 1, &rect);
+	};
 
 	if (!vr_render)
 	{
@@ -1604,6 +1642,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	// HUD-box draws: the game's scissor follows the HUD into the box (per eye).
 	const bool vr_box_scissor = vr_render && vr_apply_box_scissor();
+	if (vr_clear_shown)
+	{
+		vr_clear_shown_region();
+	}
 	emit_vulkan_draw();
 	if (vr_box_scissor)
 	{
@@ -1634,6 +1676,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			update_draw_state();
 			vr_apply_box_scissor(); // the next batched draw reloads the scissor
+			if (vr_clear_shown)
+			{
+				vr_clear_shown_region();
+			}
 			emit_vulkan_draw();
 			m_current_command_buffer = primary;
 			m_vr_right_rtts.on_write(m_framebuffer_layout.color_write_enabled, m_framebuffer_layout.zeta_write_enabled);
@@ -1681,6 +1727,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
+		if (vr_clear_shown)
+		{
+			vr_clear_shown_region();
+		}
 		if (vr_apply_box_scissor())
 		{
 			emit_vulkan_draw();
@@ -2347,15 +2397,15 @@ u32 VKGSRender::vr_sampled_textures()
 			// Depth render targets are fine (soft particles); colour ones mean post-processing.
 			if (!image || (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
 			{
-				// With hud_display_buffers_only, a pass reads the scene, a displayed frame or another
-				// full-width buffer; narrower colour targets are the HUD's own art (Gran Turismo 5's
-				// pre-rendered name strips and menu cards).
+				// With hud_display_buffers_only, a pass reads the scene, a displayed frame or a
+				// screen-sized texture; smaller reads are the HUD's own art (Gran Turismo 5's name strips,
+				// menu cards, and icon backgrounds cut from a 2048-wide blur buffer).
 				const auto* profile = rsx::vr::camera_probe::get().profile();
 				const auto* rtt = dynamic_cast<vk::render_target*>(image);
 				if (profile && profile->screen_space_hud_display_buffers_only && rtt &&
-					rtt->get_surface_width<rsx::surface_metrics::pixels>() < g_fxo->get<rsx::avconf>().video_frame_size().width &&
+					rsx::method_registers.fragment_textures[i].width() < g_fxo->get<rsx::avconf>().video_frame_size().width &&
 					std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), rtt->base_addr) == m_vr_camera_targets.end() &&
-					!vr_display_buffer(*this, rtt->base_addr))
+					!vr_display_buffer(*this, rtt->base_addr, rtt->get_surface_width<rsx::surface_metrics::pixels>(), rtt->get_surface_height<rsx::surface_metrics::pixels>()))
 				{
 					kinds |= vr_texture_ordinary;
 					continue;

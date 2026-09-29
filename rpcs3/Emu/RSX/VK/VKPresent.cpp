@@ -1301,6 +1301,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 // pose, and the frame is declared with it when the frame thread presents it.
 void VKGSRender::vr_update_view()
 {
+	m_vr_frame_covered.clear();
 	f32 head[4];
 	f32 head_position[3];
 	f32 eye_fov[2][4];

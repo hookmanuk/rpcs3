@@ -359,6 +359,11 @@ private:
 	std::vector<u8> m_draw_buffers;
 
 	shared_mutex m_flush_queue_mutex;
+	// VR: sections the game or the RSX read back (see flush_listed_sections), copied early in stereo.
+	shared_mutex m_vr_readback_mutex;
+	std::vector<utils::address_range32> m_vr_readback_ranges;
+	// VR: colour targets fully covered this frame (a pass or a full clear); see vr_clear_shown in emit_geometry.
+	std::vector<u32> m_vr_frame_covered;
 	vk::flush_request_task m_flush_requests;
 
 	ullong m_last_cond_render_eval_hint = 0;

@@ -399,8 +399,9 @@ namespace rsx::vr
 		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
 		bool hud_env_requested() const { return m_hud_env_request; }
 		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
-		// rear-view mirror's) moves into the box with the draws. rect: host pixels x1, y1, x2, y2.
-		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4]) const;
+		// rear-view mirror's) moves into the box with the draws. rect: host pixels x1, y1, x2, y2, in
+		// the left eye; right_rect receives the right eye's (shifted by the HUD parallax).
+		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4]) const;
 		void clear_hud_env_request() const { m_hud_env_request = false; }
 		// The draw about to be bound has depth test enabled.
 		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }

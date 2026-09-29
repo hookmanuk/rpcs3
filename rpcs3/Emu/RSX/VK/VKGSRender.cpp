@@ -993,6 +993,19 @@ bool VKGSRender::on_access_violation(u32 address, bool is_writing)
 
 	if (result.num_flushable > 0)
 	{
+		if (rsx::vr::camera_probe::get().render_enabled())
+		{
+			std::lock_guard lock(m_vr_readback_mutex);
+			for (const auto* section : result.sections_to_flush)
+			{
+				const auto range = section->get_section_range();
+				if (std::find(m_vr_readback_ranges.begin(), m_vr_readback_ranges.end(), range) == m_vr_readback_ranges.end() && m_vr_readback_ranges.size() < 64)
+				{
+					m_vr_readback_ranges.push_back(range);
+				}
+			}
+		}
+
 		// Dev GPU profile: time the guest thread spends blocked here.
 		struct readback_timer
 		{
@@ -1415,16 +1428,22 @@ void VKGSRender::clear_surface(u32 mask)
 	//clip region
 	std::tie(scissor_x, scissor_y, scissor_w, scissor_h) = rsx::clip_region<u16>(fb_width, fb_height, scissor_x, scissor_y, scissor_w, scissor_h, true);
 	const bool full_frame = (scissor_w == fb_width && scissor_h == fb_height);
+	// Sub-viewport clears moved into the HUD box: the right eye's rectangle (same size, shifted).
+	std::optional<areai> vr_right_clear;
 	if (!full_frame && rsx::vr::camera_probe::get().render_enabled())
 	{
 		f32 rect[4] = { static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h) };
+		f32 right[4];
 		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
-			fb_width, fb_height, rect))
+			fb_width, fb_height, rect, right))
 		{
 			scissor_x = static_cast<u16>(std::floor(rect[0]));
 			scissor_y = static_cast<u16>(std::floor(rect[1]));
 			scissor_w = static_cast<u16>(std::ceil(rect[2]) - scissor_x);
 			scissor_h = static_cast<u16>(std::ceil(rect[3]) - scissor_y);
+			const int rx = static_cast<int>(std::floor(right[0]));
+			const int ry = static_cast<int>(std::floor(right[1]));
+			vr_right_clear = areai{ rx, ry, rx + scissor_w, ry + scissor_h };
 		}
 	}
 	VkClearRect region = { { { scissor_x, scissor_y }, { scissor_w, scissor_h } }, 0, 1 };
@@ -1636,6 +1655,11 @@ void VKGSRender::clear_surface(u32 mask)
 		begin_render_pass();
 		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
 
+		if (full_frame && update_color)
+		{
+			m_vr_frame_covered.push_back(m_framebuffer_layout.color_addresses[0]);
+		}
+
 		// A fully cleared target holds nothing from an older head pose.
 		if (full_frame && update_color && m_vr_applied_pose)
 		{
@@ -1676,6 +1700,22 @@ void VKGSRender::clear_surface(u32 mask)
 				: areai{scissor_x, scissor_y, x2, y2};
 			if (rect.x2 <= rect.x1 || rect.y2 <= rect.y1)
 			{
+				continue;
+			}
+			if (vr_right_clear)
+			{
+				// The cleared area is uniform: copy it into the right eye's own rectangle.
+				areai dst_rect = *vr_right_clear;
+				dst_rect.x1 = std::max(dst_rect.x1, 0);
+				dst_rect.y1 = std::max(dst_rect.y1, 0);
+				dst_rect.x2 = std::min<int>(dst_rect.x2, dst->width());
+				dst_rect.y2 = std::min<int>(dst_rect.y2, dst->height());
+				const int w = std::min(dst_rect.width(), rect.width()), hgt = std::min(dst_rect.height(), rect.height());
+				if (w > 0 && hgt > 0)
+				{
+					vk::copy_image(*m_current_command_buffer, src, dst, areai{ rect.x1, rect.y1, rect.x1 + w, rect.y1 + hgt },
+						areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + w, dst_rect.y1 + hgt });
+				}
 				continue;
 			}
 			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect);
@@ -3128,6 +3168,12 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	const auto color_bpp = get_format_block_size_in_bytes(m_framebuffer_layout.color_format);
 	const auto samples = get_format_sample_count(m_framebuffer_layout.aa_mode);
 
+	// VR: a surface the game reads back every frame (Gran Turismo 5: two 16x8 targets in main memory and
+	// a 128x322 one the RSX reads as data) is copied as soon as it is left, and that work submitted: the
+	// read then waits only for the GPU to get this far, not for both eyes' work queued after it. Waiting
+	// for the whole queue serialised CPU and GPU (1-1.5 ms per read in stereo, 0.1 flat).
+	const bool vr_early_readback = rsx::vr::camera_probe::get().render_enabled();
+	bool vr_early_copies = false;
 	for (u8 i = 0; i < rsx::limits::color_buffers_count; ++i)
 	{
 		// Flush old address if we keep missing it
@@ -3136,6 +3182,14 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 			const utils::address_range32 rsx_range = m_surface_info[i].get_memory_range();
 			m_texture_cache.set_memory_read_flags(rsx_range, rsx::memory_read_flags::flush_once);
 			m_texture_cache.flush_if_cache_miss_likely(*m_current_command_buffer, rsx_range);
+		}
+		if (m_surface_info[i].pitch && vr_early_readback)
+		{
+			std::lock_guard lock(m_vr_readback_mutex);
+			if (!m_vr_readback_ranges.empty())
+			{
+				vr_early_copies |= m_texture_cache.flush_listed_sections(*m_current_command_buffer, m_surface_info[i].get_memory_range(), m_vr_readback_ranges);
+			}
 		}
 
 		m_surface_info[i].address = m_surface_info[i].pitch = 0;
@@ -3161,6 +3215,15 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_depth_surface_info.depth_format = m_framebuffer_layout.depth_format;
 		m_depth_surface_info.bpp = get_format_block_size_in_bytes(m_framebuffer_layout.depth_format);
 		m_depth_surface_info.samples = samples;
+	}
+
+	if (vr_early_copies)
+	{
+		if (vk::is_renderpass_open(*m_current_command_buffer))
+		{
+			vk::end_renderpass(*m_current_command_buffer);
+		}
+		flush_command_queue();
 	}
 
 	// Bind created rtts as current fbo...
