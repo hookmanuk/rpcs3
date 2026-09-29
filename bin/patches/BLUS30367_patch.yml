@@ -1,0 +1,14 @@
+Version: 1.2
+
+PPU-fdb78afab78aa27d81cb93e35e4bc73158f25d95:
+  "Unlocked frame rate (real-time above 60 FPS)":
+    Games:
+      "Bayonetta":
+        BLUS30367: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The engine clock (0x95b10) measures real time each frame in 1/60 s units, clamps it to [1.0, 2.0] (G+0xac, read at ~360 sites) and derives whole ticks from the running total (G+0xc4, at least 1, ~45 sites). Above 60 FPS both clamps round every frame up to a 60 FPS step, so at 90 Hz the game ran 1.5x fast. This lowers the step minimum to 0.25 (up to 240 FPS) and lets a frame have 0 ticks. Set Vblank Rate (or VR Frame Rate) to the rate you want. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ bef32, 0x014d26b8, 0.25 ]      # step minimum 1.0 -> 0.25 (TOC -0x6e08)
+      - [ be32, 0x00095db8, 0x39200000 ] # li r9, 1 -> li r9, 0: a frame may have no whole tick

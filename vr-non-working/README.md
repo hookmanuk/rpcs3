@@ -9,6 +9,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Game | ID | Profile | Patch |
 |---|---|---|---|
 | God of War III | BCUS98111 | `vr_profiles/BCUS98111.json` | |
+| Gran Turismo 5 | BCUS98114 | `vr_profiles/BCUS98114.json` | `patches/BCUS98114_patch.yml` |
 | inFamous | BCUS98119 | `vr_profiles/BCUS98119.json` | |
 | inFamous 2 | BCUS98125 | `vr_profiles/BCUS98125.json` | |
 | Metal Gear Solid 4 | BLUS30109 | `vr_profiles/BLUS30109.json` | `patches/BLUS30109_patch.yml` |

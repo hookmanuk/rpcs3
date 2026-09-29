@@ -50,6 +50,7 @@ To raise the resolution or change the VR settings for a game, see [vr-settings.m
 | Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
 | Ridge Racer 7 | BCAS20001 | Headset refresh rate |
 | Demon's Souls | BLUS30443 | Headset refresh rate |
+| Bayonetta | BLUS30367 | Headset refresh rate |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -133,6 +134,18 @@ To raise the resolution or change the VR settings for a game, see [vr-settings.m
   blurred the floor and the edges of the view.
 - **Cutscenes:** in-engine cutscenes play at the full frame rate: the patch *Smooth cutscenes* (on by default) interpolates their camera and object tracks, which the game steps at 30 per second. Pre-rendered videos (30 FPS) play on a fixed screen in front of you, placed by the HUD settings. Patches apply when the game boots, not when a savestate is loaded.
 
+### 7. Bayonetta (BLUS30367, US release): headset refresh rate
+
+- **Frame rate:** the headset's refresh rate by default; a slower PC can choose a lower rate with the VR
+  **Frame Rate** setting. The patch *Unlocked frame rate (real-time above 60 FPS)* is on by default: the game
+  measures real time but never let a frame count for less than a 60 FPS frame, so at 90 FPS it ran 1.5x fast.
+  With the patch, combat, movement and timers run at real speed at any rate up to 240 FPS. Patches apply when
+  the game boots, not when a savestate is loaded.
+- **Recommended settings:** Video > `Multithreaded RSX` on (stereo doubles the emulator's per-draw work);
+  `Resolution Scale` as high as your GPU allows while holding the frame rate.
+- **Known issues:** some menus show visual glitches in VR. The pink magic wisps around Bayonetta are drawn by
+  the game on the screen, not in the world, so they sit in the HUD box instead of on her.
+
 ---
 
 
@@ -171,6 +184,7 @@ the source repository, with instructions for trying them.
 | inFamous | BCUS98119 | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
 | Split/Second | BLUS30300 | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
 | God of War III | BCUS98111 | Early experimental profile. Not tested in a headset. |
+| Gran Turismo 5 | BCUS98114 | Work in progress: right-eye shadows can show red, some menu clipping, mirror crop, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
 
 ---
 
