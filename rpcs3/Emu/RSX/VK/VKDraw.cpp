@@ -1240,10 +1240,20 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	bool update_descriptors = false;
 	bool vr_render = rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
 		!draw_call.is_trivial_instanced_draw;
+	// A draw that samples a bound render target (a feedback loop) needs the texture barrier
+	// between the earlier writes and its read inside the eye's own pass. In the right-eye batch
+	// the barrier is recorded in the primary buffer before the batch runs, so the right eye
+	// would read its target unsynchronised (Gran Turismo 5's car shadows read the 2x MSAA
+	// scene target they draw into). These keep the per-draw replay.
+	bool vr_feedback = !!(current_fragment_program.ctrl & RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE);
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; vr_render && !vr_feedback && textures_ref; textures_ref >>= 1, ++i)
+	{
+		vr_feedback = (textures_ref & 1) && fs_sampler_state[i] && fs_sampler_state[i]->is_cyclic_reference;
+	}
 	// Gate 6: batch the right-eye draw into the current left pass's right-eye batch.
-	// Programmable blending (input attachments) and conditional rendering keep the
-	// per-draw replay: neither carries over into a secondary command buffer here.
-	const bool vr_batch = vr_render && m_vr_batching &&
+	// Programmable blending (input attachments), conditional rendering and feedback
+	// loops keep the per-draw replay: none carries over into a secondary command buffer here.
+	const bool vr_batch = vr_render && m_vr_batching && !vr_feedback &&
 		!(current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
 		!cond_render_ctrl.hw_cond_active;
 	u32 vr_query_continuation = umax;

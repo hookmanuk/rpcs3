@@ -1392,6 +1392,11 @@ void VKGSRender::vr_update_view()
 				head[3] = qy[3] * h[3] - qy[0] * h[0] - qy[1] * h[1] - qy[2] * h[2];
 			}
 		}
+		{
+			// VR fork dev hook: RPCS3_VR_HEAD_OFFSET=x,y,z (metres) moves the rendered head, e.g. 0,0,0.3 leans back.
+			static const std::array<f32, 3> s_offset = [] { std::array<f32, 3> o{}; if (const char* v = ::getenv("RPCS3_VR_HEAD_OFFSET")) std::sscanf(v, "%f,%f,%f", &o[0], &o[1], &o[2]); return o; }();
+			for (u32 i = 0; i < 3; ++i) head_position[i] += s_offset[i];
+		}
 		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
 			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
 		probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
