@@ -651,6 +651,18 @@ void VKGSRender::load_texture_env()
 	}
 }
 
+static bool vr_display_buffer(const rsx::thread& rsx, u32 address)
+{
+	for (const auto& buffer : rsx.display_buffers)
+	{
+		if (buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == address)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool VKGSRender::bind_texture_env(bool vr_right_eye)
 {
 	bool out_of_memory = false;
@@ -702,8 +714,20 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 			if (vr_right_eye && sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage && !sampler_state->image_handle)
 			{
 				const auto& desc = sampler_state->external_subresource_desc;
+				const auto* profile = rsx::vr::camera_probe::get().profile();
 				const bool cubemap = desc.op == rsx::deferred_request_command::cubemap_gather || desc.op == rsx::deferred_request_command::cubemap_unwrap;
-				if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && cubemap)
+				// An atlas gathered from off-aspect targets (Gran Turismo 5's shadow maps: one gather per lit
+				// draw) is the same in both eyes unless the profile says off-aspect targets hold per-eye views.
+				const bool atlas = desc.op == rsx::deferred_request_command::atlas_gather && profile && !profile->offaspect_player_views;
+				// A copy of a few texels (GT5 binds a 3x3 dummy texture at guest address 0, the corner of the
+				// final render target, for unused samplers: 146 right-eye rebuilds a frame) is no view of the scene.
+				const bool dummy = (desc.op == rsx::deferred_request_command::copy_image_static || desc.op == rsx::deferred_request_command::copy_image_dynamic) &&
+					desc.width <= 4 && desc.height <= 4;
+				if (profile && dummy)
+				{
+					shared_copy = desc.external_handle != nullptr;
+				}
+				else if (profile && (cubemap || atlas))
 				{
 					const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
 					const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
@@ -1250,9 +1274,22 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	if (vr_render)
 	{
-		rsx::vr::camera_probe::get().set_draw_samples_colour_target(vr_sampled_textures() & vr_texture_colour_target);
-		rsx::vr::camera_probe::get().set_draw_depth_test(rsx::method_registers.depth_test_enabled());
+		auto& probe = rsx::vr::camera_probe::get();
+		probe.set_draw_samples_colour_target(vr_sampled_textures() & vr_texture_colour_target);
+		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
+		// screen too: Gran Turismo 5 masks its track map with one.
+		bool display_target = vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0]);
+		if (!m_framebuffer_layout.color_addresses[0] && m_framebuffer_layout.zeta_address)
+		{
+			for (const auto& buffer : display_buffers)
+			{
+				display_target |= buffer.width == m_framebuffer_layout.width && buffer.height == m_framebuffer_layout.height;
+			}
+		}
+		probe.set_draw_into_display_buffer(display_target);
+		probe.set_draw_depth_test(rsx::method_registers.depth_test_enabled());
 	}
+	rsx::vr::camera_probe::get().clear_hud_env_request();
 	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
 	m_vr_camera_draws += vr_camera_draw;
 	if (vr_render && vk::xr::is_running())
@@ -1299,7 +1336,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	}
 
 	// HUD/menu drawn without a matrix: its own vertex context per eye (restored below).
-	const bool vr_hud = vr_render && !vr_camera_draw && vk::xr::is_running() && vr_is_passthrough_hud();
+	const bool vr_hud = vr_render && !vr_camera_draw && vk::xr::is_running() &&
+		(rsx::vr::camera_probe::get().hud_env_requested() || vr_is_passthrough_hud());
 	const VkDescriptorBufferInfoEx vr_saved_env_info = m_vertex_env_buffer_info;
 	const u64 vr_saved_env_offset = m_vertex_env_dynamic_offset;
 	// Sprites the game projected itself (ICO's flames): through the camera's eye transform.
@@ -2309,6 +2347,19 @@ u32 VKGSRender::vr_sampled_textures()
 			// Depth render targets are fine (soft particles); colour ones mean post-processing.
 			if (!image || (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
 			{
+				// With hud_display_buffers_only, a pass reads the scene, a displayed frame or another
+				// full-width buffer; narrower colour targets are the HUD's own art (Gran Turismo 5's
+				// pre-rendered name strips and menu cards).
+				const auto* profile = rsx::vr::camera_probe::get().profile();
+				const auto* rtt = dynamic_cast<vk::render_target*>(image);
+				if (profile && profile->screen_space_hud_display_buffers_only && rtt &&
+					rtt->get_surface_width<rsx::surface_metrics::pixels>() < g_fxo->get<rsx::avconf>().video_frame_size().width &&
+					std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), rtt->base_addr) == m_vr_camera_targets.end() &&
+					!vr_display_buffer(*this, rtt->base_addr))
+				{
+					kinds |= vr_texture_ordinary;
+					continue;
+				}
 				kinds |= vr_texture_colour_target;
 			}
 			continue;
@@ -2333,7 +2384,14 @@ u64 VKGSRender::vr_preprojected_program()
 bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 {
 	f32 box[4][4];
-	const f32 aspect = m_framebuffer_layout.height ? static_cast<f32>(m_framebuffer_layout.width) / m_framebuffer_layout.height : 16.f / 9.f;
+	f32 aspect = m_framebuffer_layout.height ? static_cast<f32>(m_framebuffer_layout.width) / m_framebuffer_layout.height : 16.f / 9.f;
+	if (rsx::vr::camera_probe::get().hud_env_requested())
+	{
+		// An orthographic HUD draw: the box has the output's shape (Gran Turismo 5 draws it through a
+		// 1280x720 viewport into a 2048x1080 buffer).
+		const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+		aspect = out.height ? static_cast<f32>(out.width) / out.height : aspect;
+	}
 	if (preprojected_program ? !rsx::vr::camera_probe::get().map_vr_preprojected(box, eye_sign, preprojected_program) :
 		!rsx::vr::camera_probe::get().map_vr_passthrough_hud(box, eye_sign, aspect))
 	{

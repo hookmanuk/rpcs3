@@ -1375,6 +1375,22 @@ void VKGSRender::vr_update_view()
 		vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
 		probe.set_screen_stereo_scale(1.f);
 		// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
+		{
+			// VR fork dev hook: RPCS3_VR_WOBBLE=<degrees> sweeps the rendered head yaw over that range, to
+			// test world-fixed HUD boxes and trails without moving the headset.
+			static const f32 s_wobble = [] { const char* v = ::getenv("RPCS3_VR_WOBBLE"); return v ? static_cast<f32>(std::atof(v)) : 0.f; }();
+			if (s_wobble != 0.f)
+			{
+				static u32 s_n = 0;
+				const f32 a = 0.5f * s_wobble * 3.14159265f / 180.f * std::sin(++s_n * 0.05f);
+				const f32 qy[4] = { 0.f, std::sin(a), 0.f, std::cos(a) };
+				const f32 h[4] = { head[0], head[1], head[2], head[3] };
+				head[0] = qy[3] * h[0] + qy[0] * h[3] + qy[1] * h[2] - qy[2] * h[1];
+				head[1] = qy[3] * h[1] - qy[0] * h[2] + qy[1] * h[3] + qy[2] * h[0];
+				head[2] = qy[3] * h[2] + qy[0] * h[1] - qy[1] * h[0] + qy[2] * h[3];
+				head[3] = qy[3] * h[3] - qy[0] * h[0] - qy[1] * h[1] - qy[2] * h[2];
+			}
+		}
 		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
 			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
 		probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,

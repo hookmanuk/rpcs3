@@ -195,6 +195,14 @@ namespace rsx::vr
 		// HUD and its post passes with the same c[0]. Off by default (WipEout's and Pure's
 		// passes never read their HUD block); the generator sets it when passes read it.
 		bool screen_space_hud_skips_passes = false;
+		// Only draws into a display buffer take the HUD box, and with hud_skips_passes only draws that
+		// sample the scene or a display buffer are passes. Gran Turismo 5 rasterises its glyphs into a
+		// 2048x1080 font atlas with the HUD's matrix (boxed, all text broke) and draws text from it.
+		bool screen_space_hud_display_buffers_only = false;
+		// The HUD box is applied to the vertex shader's output position instead of to the orthographic
+		// block, so varyings the shader derives from the projected position (Gran Turismo 5's text clip
+		// masks) stay with the geometry.
+		bool screen_space_hud_box_after_shader = false;
 		// Vertex programs (ucode hashes) whose positions come out already projected by
 		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
 		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
@@ -205,6 +213,13 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
+		// lays its HUD out in 1920x1080 units and clears and fades the screen in 1280x720 pixels. Boxed,
+		// the fills left trails around the box and broke the menu text.
+		bool screen_space_output_pixel_draws_not_hud = false;
+		// Camera draws through a viewport smaller than their view target go into the HUD box with the
+		// game's camera (Gran Turismo 5's rear-view mirror). Needs hud_box_after_shader.
+		bool screen_space_subviewport_cameras_in_box = false;
 
 		// Vertex constants holding texture-coordinate offsets (a pass's filter taps), divided
 		// by the resolution scale so the filter keeps its footprint in rendered pixels. Ridge
@@ -380,6 +395,13 @@ namespace rsx::vr
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
+		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
+		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
+		bool hud_env_requested() const { return m_hud_env_request; }
+		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
+		// rear-view mirror's) moves into the box with the draws. rect: host pixels x1, y1, x2, y2.
+		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4]) const;
+		void clear_hud_env_request() const { m_hud_env_request = false; }
 		// The draw about to be bound has depth test enabled.
 		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }
 		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
@@ -496,6 +518,8 @@ namespace rsx::vr
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
+		mutable bool m_draw_into_display_buffer = true;
+		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
 		mutable bool m_box_mapped = false;
 		mutable bool m_box_identity_pass = false;
@@ -559,7 +583,7 @@ namespace rsx::vr
 		// Undo the draw's viewport scale/offset where they differ from the render
 		// target's (ICO sets a 1360x768 viewport on a 1216x688 target), so clip space
 		// lands on the target exactly as the headset frustum mapping assumes.
-		void undo_viewport(f32* const rows[4]) const;
+		void undo_viewport(f32* const rows[4], bool displayed_region = false, bool inverse = false) const;
 
 	public:
 		// The HUD-box mapping as a clip-space matrix (row-vector: clip' = clip * m) for a

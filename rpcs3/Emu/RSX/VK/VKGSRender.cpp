@@ -1414,9 +1414,20 @@ void VKGSRender::clear_surface(u32 mask)
 
 	//clip region
 	std::tie(scissor_x, scissor_y, scissor_w, scissor_h) = rsx::clip_region<u16>(fb_width, fb_height, scissor_x, scissor_y, scissor_w, scissor_h, true);
-	VkClearRect region = { { { scissor_x, scissor_y }, { scissor_w, scissor_h } }, 0, 1 };
-
 	const bool full_frame = (scissor_w == fb_width && scissor_h == fb_height);
+	if (!full_frame && rsx::vr::camera_probe::get().render_enabled())
+	{
+		f32 rect[4] = { static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h) };
+		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
+			fb_width, fb_height, rect))
+		{
+			scissor_x = static_cast<u16>(std::floor(rect[0]));
+			scissor_y = static_cast<u16>(std::floor(rect[1]));
+			scissor_w = static_cast<u16>(std::ceil(rect[2]) - scissor_x);
+			scissor_h = static_cast<u16>(std::ceil(rect[3]) - scissor_y);
+		}
+	}
+	VkClearRect region = { { { scissor_x, scissor_y }, { scissor_w, scissor_h } }, 0, 1 };
 	bool update_color = false, update_z = false;
 	auto surface_depth_format = rsx::method_registers.surface_depth_fmt();
 
@@ -2667,7 +2678,13 @@ bool VKGSRender::vr_apply_box_scissor()
 		static_cast<f32>(m_scissor.offset.x), static_cast<f32>(m_scissor.offset.y),
 		static_cast<f32>(m_scissor.offset.x + m_scissor.extent.width), static_cast<f32>(m_scissor.offset.y + m_scissor.extent.height)
 	};
-	if (!rsx::vr::camera_probe::get().map_box_scissor(m_viewport.width / clip_w, m_viewport.height / clip_h, m_viewport.width, m_viewport.height, rect))
+	// Only the displayed part of the target: the box can reach past the guest viewport with the head
+	// turned, and Gran Turismo 5 keeps its glyphs in the unshown part of its 2048x1080 buffers.
+	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+	const f32 shown_w = out.width ? std::min<f32>(clip_w, static_cast<f32>(out.width)) : clip_w;
+	const f32 shown_h = out.height ? std::min<f32>(clip_h, static_cast<f32>(out.height)) : clip_h;
+	if (!rsx::vr::camera_probe::get().map_box_scissor(m_viewport.width / clip_w, m_viewport.height / clip_h,
+		m_viewport.width * shown_w / clip_w, m_viewport.height * shown_h / clip_h, rect))
 	{
 		return false;
 	}

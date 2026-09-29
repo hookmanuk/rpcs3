@@ -514,6 +514,14 @@ namespace rsx::vr
 		{
 			profile->screen_space_hud_skips_passes = skips == "true";
 		}
+		if (std::string only; read(screen_space, "hud_display_buffers_only", only, false))
+		{
+			profile->screen_space_hud_display_buffers_only = only == "true";
+		}
+		if (std::string after; read(screen_space, "hud_box_after_shader", after, false))
+		{
+			profile->screen_space_hud_box_after_shader = after == "true";
+		}
 		if (std::string hud; read(screen_space, "passthrough_hud", hud, false))
 		{
 			profile->screen_space_passthrough_hud = hud == "true";
@@ -547,6 +555,14 @@ namespace rsx::vr
 				if (text.empty() || !end || *end) fail("screen_space.hud_programs: '" + text + "' is not a hex program hash");
 				profile->screen_space_hud_programs.push_back(hash);
 			}
+		}
+		if (std::string fills; read(screen_space, "output_pixel_draws_not_hud", fills, false))
+		{
+			profile->screen_space_output_pixel_draws_not_hud = fills == "true";
+		}
+		if (std::string sub; read(screen_space, "subviewport_cameras_in_box", sub, false))
+		{
+			profile->screen_space_subviewport_cameras_in_box = sub == "true";
 		}
 
 		read(root, "reference_screen_width", profile->reference_screen_width, false);
@@ -714,7 +730,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "hud_keep_depth", "hud_skips_passes", "frames_without_3d_as_screen" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1393,6 +1409,29 @@ namespace rsx::vr
 			return false;
 		}
 
+		// A camera draw through part of a view target (Gran Turismo 5's rear-view mirror, 448x86 at the
+		// top of the screen) is a picture on the screen: into the HUD box, with the game's camera.
+		if (profile.screen_space_subviewport_cameras_in_box && profile.screen_space_hud_box_after_shader &&
+			m_vr_view && m_vr_hmd_fov && m_vr_proj_valid && output_eye.height &&
+			profile.is_view_target(surface_w, surface_h, static_cast<f32>(output_eye.width) / output_eye.height) &&
+			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f < rsx::method_registers.surface_clip_width() * 0.9f &&
+			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f < rsx::method_registers.surface_clip_height() * 0.9f)
+		{
+			block.release();
+			m_hud_env_request = true;
+			return false;
+		}
+
+		// A perspective draw straight into a display buffer is part of the 2D screen (Gran Turismo 5's
+		// menu cards, whose 3D scenes render elsewhere): it goes into the HUD box with the rest.
+		if (profile.screen_space_hud_box_after_shader && profile.screen_space_hud_display_buffers_only && m_draw_into_display_buffer &&
+			!(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target) && m_vr_view && m_vr_hmd_fov && m_vr_proj_valid)
+		{
+			block.release();
+			m_hud_env_request = true;
+			return false;
+		}
+
 		f32 game_block[4][4];
 		for (u32 r = 0; r < 4; ++r)
 		{
@@ -1722,7 +1761,8 @@ namespace rsx::vr
 		// pass (bloom chain, full-screen composite) reads no c[256..259] at all -
 		// so post-processing is never touched.
 		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || profile.screen_space_block == umax ||
-			(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target))
+			(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target) ||
+			(profile.screen_space_hud_display_buffers_only && !m_draw_into_display_buffer))
 		{
 			return;
 		}
@@ -1744,6 +1784,21 @@ namespace rsx::vr
 		if (is_perspective(block.rows))
 		{
 			block.release();
+			return;
+		}
+
+		if (profile.screen_space_output_pixel_draws_not_hud &&
+			std::fabs(std::fabs(block.rows[0][0]) * eye.width * 0.5f - 1.f) < 1e-3f &&
+			std::fabs(std::fabs(block.rows[1][1]) * eye.height * 0.5f - 1.f) < 1e-3f)
+		{
+			block.release();
+			return;
+		}
+
+		if (profile.screen_space_hud_box_after_shader)
+		{
+			block.release();
+			m_hud_env_request = true;
 			return;
 		}
 
@@ -1809,6 +1864,13 @@ namespace rsx::vr
 			m_box_mapped = true;
 		}
 
+		// Applied after the shader, the box works on the whole shown target: a draw through part of it
+		// (a sub-viewport) is first put where its viewport places it.
+		if (m_hud_env_request)
+		{
+			undo_viewport(rows, true, true);
+		}
+
 		// The game camera's FOV changes with speed and camera mode (and can exceed
 		// the headset's), so the HUD is not tied to it. It becomes a fixed box with
 		// the output aspect, fitted inside the central symmetric part of this
@@ -1852,7 +1914,7 @@ namespace rsx::vr
 				rows[r][0] = (rows[r][0] * tx + rows[r][3] * (cx + parallax)) * fx + rows[r][3] * ox;
 				rows[r][1] = (rows[r][1] * ty + rows[r][3] * cy) * fy + rows[r][3] * oy;
 			}
-			undo_viewport(rows);
+			undo_viewport(rows, true);
 			return;
 		}
 
@@ -1897,7 +1959,7 @@ namespace rsx::vr
 				rows[r][2] = 0.5f * v2;
 			}
 		}
-		undo_viewport(rows);
+		undo_viewport(rows, true);
 	}
 
 	void camera_probe::remap_to_eye_fov(f32* const rows[4], const f32* t, f32 A, f32 B, bool keep_viewport) const
@@ -1920,10 +1982,29 @@ namespace rsx::vr
 		}
 	}
 
+	bool camera_probe::map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4]) const
+	{
+		const title_profile* p = profile();
+		const size2u shown = g_fxo->get<rsx::avconf>().video_frame_size();
+		if (!p || !p->screen_space_subviewport_cameras_in_box || !p->screen_space_hud_box_after_shader ||
+			!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || !shown.height ||
+			!p->is_view_target(surface_w, surface_h, static_cast<f32>(shown.width) / shown.height) ||
+			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f >= rsx::method_registers.surface_clip_width() * 0.9f ||
+			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f >= rsx::method_registers.surface_clip_height() * 0.9f)
+		{
+			return false;
+		}
+		const bool request = std::exchange(m_hud_env_request, true);
+		f32 box[4][4];
+		const bool mapped = map_vr_passthrough_hud(box, -1.f, static_cast<f32>(shown.width) / shown.height);
+		m_hud_env_request = request;
+		return mapped && map_box_scissor(host_scale, host_scale, host_width, host_height, rect);
+	}
+
 	bool camera_probe::map_vr_passthrough_hud(f32 m[4][4], f32 eye_sign, f32 aspect) const
 	{
 		const title_profile* p = profile();
-		if (!p || !p->screen_space_passthrough_hud || !m_vr_view || !m_vr_hmd_fov)
+		if (!p || !(p->screen_space_passthrough_hud || m_hud_env_request) || !m_vr_view || !m_vr_hmd_fov)
 		{
 			return false;
 		}
@@ -2020,14 +2101,31 @@ namespace rsx::vr
 		return true;
 	}
 
-	void camera_probe::undo_viewport(f32* const rows[4]) const
+	void camera_probe::undo_viewport(f32* const rows[4], bool displayed_region, bool inverse) const
 	{
 		// Target NDC = NDC * k + o, with k = scale / (clip size / 2) and o the offset from
 		// the target centre; a viewport covering the target exactly is k = +-1, o = 0.
 		// The mapping above wants target NDC = its NDC (in the viewport's own y sense),
 		// so X' = (X - o*W) / k.
-		const f32 half_w = rsx::method_registers.surface_clip_width() / 2.f;
-		const f32 half_h = rsx::method_registers.surface_clip_height() / 2.f;
+		f32 half_w = rsx::method_registers.surface_clip_width() / 2.f;
+		f32 half_h = rsx::method_registers.surface_clip_height() / 2.f;
+		if (displayed_region)
+		{
+			// The HUD box belongs to the part of the target that is shown. Gran Turismo 5 draws its
+			// HUD through a 1280x720 viewport into a 2048x1080 buffer and displays only that corner;
+			// measured against the whole buffer the box came out 1.6x too large, off to the lower right.
+			const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+			const f32 vx0 = rsx::method_registers.viewport_offset_x() - std::fabs(rsx::method_registers.viewport_scale_x());
+			const f32 vy0 = rsx::method_registers.viewport_offset_y() - std::fabs(rsx::method_registers.viewport_scale_y());
+			const f32 vx1 = rsx::method_registers.viewport_offset_x() + std::fabs(rsx::method_registers.viewport_scale_x());
+			const f32 vy1 = rsx::method_registers.viewport_offset_y() + std::fabs(rsx::method_registers.viewport_scale_y());
+			if (out.width && out.height && (half_w * 2.f > out.width || half_h * 2.f > out.height) &&
+				vx0 > -0.5f && vy0 > -0.5f && vx1 < out.width + 0.5f && vy1 < out.height + 0.5f)
+			{
+				half_w = std::min<f32>(half_w, out.width / 2.f);
+				half_h = std::min<f32>(half_h, out.height / 2.f);
+			}
+		}
 		if (half_w <= 0.f || half_h <= 0.f)
 		{
 			return;
@@ -2046,7 +2144,9 @@ namespace rsx::vr
 				vr_probe_log.notice("VR viewport: scale %.4f x %.4f, offset %.4f, %.4f (clip %.0fx%.0f)", kx, ky, ox, oy, half_w * 2.f, half_h * 2.f);
 			}
 		}
-		if (ax < 0.25f || ay < 0.25f || ax > 4.f || ay > 4.f ||
+		// A box applied after the shader also takes small sub-viewports (a rear-view mirror).
+		const f32 min_scale = m_hud_env_request ? 0.01f : 0.25f;
+		if (ax < min_scale || ay < min_scale || ax > 4.f || ay > 4.f ||
 			(std::fabs(ax - 1.f) < 1e-3f && std::fabs(ay - 1.f) < 1e-3f && std::fabs(ox) < 1e-3f && std::fabs(oy) < 1e-3f))
 		{
 			return;
@@ -2057,6 +2157,12 @@ namespace rsx::vr
 		const f32 soy = oy / (ky < 0.f ? -1.f : 1.f);
 		for (u32 r = 0; r < 4; ++r)
 		{
+			if (inverse)
+			{
+				rows[r][0] = rows[r][0] * ax + sox * rows[r][3];
+				rows[r][1] = rows[r][1] * ay + soy * rows[r][3];
+				continue;
+			}
 			rows[r][0] = (rows[r][0] - sox * rows[r][3]) / ax;
 			rows[r][1] = (rows[r][1] - soy * rows[r][3]) / ay;
 		}
