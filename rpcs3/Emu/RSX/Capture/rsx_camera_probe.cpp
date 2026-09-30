@@ -1093,9 +1093,10 @@ namespace rsx::vr
 		{
 			return u64{fps} * profile->vblanks_per_frame;
 		}
-		// Unlimited: the headset's refresh rate, if the runtime reports it.
+		// Unlimited: a game frame per headset refresh, if the runtime reports it (Killzone 2 flips
+		// every second vblank: 180 Hz for a 90 Hz headset).
 		const u32 headset = g_headset_refresh_hz.load();
-		return headset ? headset : configured;
+		return headset ? u64{headset} * profile->vblanks_per_frame : configured;
 	}
 
 	f32 effective_hud_depth()

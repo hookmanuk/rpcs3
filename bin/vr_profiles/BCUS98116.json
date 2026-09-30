@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98116",
+  "app_version": "01.01",
+  "name": "Killzone®2",
+  "max_fps": 0,
+  "default_fps": 45,
+  "vblanks_per_frame": 2,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0, 5, 1],
+  "linked_camera_blocks": [25],
+  "require_camera_aspect": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0169749,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 8
+  }
+}
