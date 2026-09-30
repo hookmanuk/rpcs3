@@ -686,6 +686,9 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 			m_texture_upload_buffer_ring_info);
 
 	vk::get_overlay_pass<vk::ui_overlay_renderer>()->init(*m_current_command_buffer, m_texture_upload_buffer_ring_info);
+	// VR fork: the headset's overlay layer has its own renderer instance and image cache; without its own
+	// init the built-in images (controller button icons) were missing in the headset's menus.
+	vk::get_overlay_pass<vk::ui_overlay_renderer_xr>()->init(*m_current_command_buffer, m_texture_upload_buffer_ring_info);
 
 	if (shadermode == shader_mode::async_with_interpreter || shadermode == shader_mode::interpreter_only)
 	{
