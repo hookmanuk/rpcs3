@@ -1107,6 +1107,34 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			if (image_to_flip) calibration_src.push_back(image_to_flip);
 			if (image_to_flip2) calibration_src.push_back(image_to_flip2);
 
+			// VR fork: generated stereo from a display buffer larger than the region the game shows (Gran Turismo 5:
+			// 2048x1080 surfaces, 1280x720 shown) would put each whole surface into its half of the window, the shown
+			// part small in a corner. Copy the shown region of each eye into an image of that size first.
+			if (generated_stereo && buffer_width && buffer_height)
+			{
+				for (auto& img : calibration_src)
+				{
+					if (img->width() <= buffer_width && img->height() <= buffer_height)
+					{
+						continue;
+					}
+					const u32 w = std::min<u32>(buffer_width, img->width()), h = std::min<u32>(buffer_height, img->height());
+					auto& crop = m_vr_warp_scratch[(1ull << 63) | (static_cast<u64>(img->format()) << 40) | (static_cast<u64>(w) << 20) | h];
+					if (!crop)
+					{
+						crop = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+							VK_IMAGE_TYPE_2D, img->format(), w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+							VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+							VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+							0, VMM_ALLOCATION_POOL_SYSTEM);
+						crop->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+					}
+					vk::copy_image(*m_current_command_buffer, img, crop.get(), areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) },
+						areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) });
+					img = crop.get();
+				}
+			}
+
 			if (m_output_scaling == output_scaling_mode::fsr && !avconfig.stereo_enabled && !generated_stereo) // 3D will be implemented later
 			{
 				// Run upscaling pass before the rest of the output effects pipeline
