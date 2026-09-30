@@ -275,6 +275,45 @@ namespace rsx::vr
 			bool m_far_plane = false;
 		};
 
+		// The camera position slot holds the eye point: w = 1 and, when the camera block has a finite eye
+		// (clip x = y = w = 0 there), close to it. Gran Turismo 5 keeps the camera position in c[467] for most
+		// programs but per-channel fog densities there in its car-shadow program (w 0.991); offsetting those
+		// by the eye tinted the shadows red in one eye and green in the other.
+		bool plausible_camera_position(const f32 cam[4], const f32 m[4][4], f32 eye_baseline)
+		{
+			if (!std::isfinite(cam[3]) || std::fabs(cam[3] - 1.f) > 1e-4f)
+			{
+				return false;
+			}
+			// Row-vector convention: clip[j] = sum_k p[k] * m[k][j] + m[3][j]. Solve clip x, y, w = 0.
+			const f64 a[3][3] = {
+				{ m[0][0], m[1][0], m[2][0] },
+				{ m[0][1], m[1][1], m[2][1] },
+				{ m[0][3], m[1][3], m[2][3] } };
+			const f64 b[3] = { -m[3][0], -m[3][1], -m[3][3] };
+			const f64 det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+				a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+			const f64 scale = std::fabs(a[0][0]) + std::fabs(a[1][1]) + std::fabs(a[2][2]) + 1e-30;
+			if (std::fabs(det) < 1e-9 * scale * scale * scale)
+			{
+				return true; // no finite eye to compare with
+			}
+			f64 p[3];
+			for (u32 i = 0; i < 3; ++i)
+			{
+				f64 t[3][3];
+				for (u32 r = 0; r < 3; ++r)
+					for (u32 c = 0; c < 3; ++c)
+						t[r][c] = c == i ? b[r] : a[r][c];
+				p[i] = (t[0][0] * (t[1][1] * t[2][2] - t[1][2] * t[2][1]) - t[0][1] * (t[1][0] * t[2][2] - t[1][2] * t[2][0]) +
+					t[0][2] * (t[1][0] * t[2][1] - t[1][1] * t[2][0])) / det;
+			}
+			const f64 dx = cam[0] - p[0], dy = cam[1] - p[1], dz = cam[2] - p[2];
+			const f64 distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+			const f64 eye_distance = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+			return distance <= std::max(0.01 * eye_distance, 50.0 * eye_baseline);
+		}
+
 		bool is_perspective(f32* const r[4])
 		{
 			constexpr f32 eps = 1e-6f;
@@ -1888,7 +1927,8 @@ namespace rsx::vr
 		}
 
 		const u32 cam_slot = m_cam_slot != umax ? m_cam_slot : profile.camera_position_slot;
-		if (f32* cam = cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cam_slot) : nullptr; cam && m_render_camera_right_valid && !at_infinity)
+		if (f32* cam = cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cam_slot) : nullptr;
+			cam && m_render_camera_right_valid && !at_infinity && plausible_camera_position(cam, game_block, profile.eye_baseline))
 		{
 			const f32 half_eye_baseline = profile.eye_baseline * 0.5f * (m_vr_view ? m_vr_eye_scale : m_screen_stereo_scale);
 			cam[0] += eye_sign * half_eye_baseline * m_render_camera_right[0];

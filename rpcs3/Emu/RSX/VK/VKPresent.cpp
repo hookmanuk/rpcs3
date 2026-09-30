@@ -1507,7 +1507,7 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 		region.imageSubresource = { static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 0, 1 };
 		region.imageExtent = { w, h, 1 };
 		if (vk::is_renderpass_open(*m_current_command_buffer)) vk::end_renderpass(*m_current_command_buffer);
-		rt->read_barrier(*m_current_command_buffer);
+		rt->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read); // resolves an MSAA surface
 		auto* image = rt->get_surface(rsx::surface_access::transfer_read);
 		image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 		if (depth)
