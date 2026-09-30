@@ -722,6 +722,9 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 				// An atlas gathered from off-aspect targets (Gran Turismo 5's shadow maps: one gather per lit
 				// draw) is the same in both eyes unless the profile says off-aspect targets hold per-eye views.
 				const bool atlas = desc.op == rsx::deferred_request_command::atlas_gather && profile && !profile->offaspect_player_views;
+				// Likewise a mip chain gathered from off-aspect levels (MotorStorm: Pacific Rift's 2048x2048 environment map
+				// and its seven downsampled levels: up to 25 right-eye rebuilds a frame in menus).
+				const bool mipmaps = desc.op == rsx::deferred_request_command::mipmap_gather && profile && !profile->offaspect_player_views;
 				// A copy of a few texels (GT5 binds a 3x3 dummy texture at guest address 0, the corner of the
 				// final render target, for unused samplers: 146 right-eye rebuilds a frame) is no view of the scene.
 				const bool dummy = (desc.op == rsx::deferred_request_command::copy_image_static || desc.op == rsx::deferred_request_command::copy_image_dynamic) &&
@@ -730,7 +733,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 				{
 					shared_copy = desc.external_handle != nullptr;
 				}
-				else if (profile && (cubemap || atlas))
+				else if (profile && (cubemap || atlas || mipmaps))
 				{
 					const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
 					const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
@@ -784,6 +787,13 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 						desc.op = rsx::deferred_request_command::copy_image_dynamic;
 					}
 					m_gpuprof_right_copies++;
+					if (m_gpuprof_enabled > 0)
+					{
+						const auto* first = desc.external_handle ? desc.external_handle : (desc.sections_to_copy.empty() ? nullptr : desc.sections_to_copy.front().src);
+						const auto* first_rtt = dynamic_cast<const vk::render_target*>(first);
+						m_gpuprof_right_copy_kinds[fmt::format("op %d %ux%u from 0x%x %ux%u (%u sections)", static_cast<int>(desc.op), desc.width, desc.height,
+							first_rtt ? first_rtt->base_addr : 0u, first ? first->width() : 0u, first ? first->height() : 0u, static_cast<u32>(desc.sections_to_copy.size()))]++;
+					}
 					view = m_texture_cache.create_temporary_subresource(*m_current_command_buffer, desc);
 				}
 			}

@@ -22,6 +22,7 @@
 #include "Emu/RSX/GSRender.h"
 #include "Emu/RSX/Host/RSXDMAWriter.h"
 #include <functional>
+#include <map>
 #include <initializer_list>
 
 namespace rsx::vr { struct fragment_constant_override; }
@@ -209,6 +210,7 @@ private:
 	u64 m_gpuprof_draw_sum = 0;
 	u64 m_gpuprof_batches = 0;       // right-eye batches executed
 	u64 m_gpuprof_right_copies = 0;  // right-eye texture copies rebuilt from right-eye surfaces
+	std::map<std::string, u32> m_gpuprof_right_copy_kinds; // what those copies were (op, size, first source)
 	s64 m_gpuprof_rsx_us[5]{};     // RSX thread: setup, vertex upload, texture upload, draw exec, flip
 	std::chrono::steady_clock::time_point m_gpuprof_last_flip{};
 	f64 m_gpuprof_wall_ms = 0.;

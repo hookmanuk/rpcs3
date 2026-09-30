@@ -3183,7 +3183,9 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	bool vr_early_copies = false;
 	// The RSX's own reads count too (MotorStorm: Pacific Rift samples render target memory as a plain texture
 	// each frame, and the texture cache flushed the target, waiting for both eyes' queued work).
-	m_texture_cache.vr_record_flushes = vr_early_readback;
+	// Dev: RPCS3_VR_NO_RSX_EARLY=1 leaves these out (A/B measurements).
+	static const bool s_no_rsx_early = std::getenv("RPCS3_VR_NO_RSX_EARLY") != nullptr;
+	m_texture_cache.vr_record_flushes = vr_early_readback && !s_no_rsx_early;
 	if (vr_early_readback)
 	{
 		std::lock_guard lock_flushed(m_texture_cache.vr_flushed_mutex);
@@ -4200,6 +4202,11 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 				text += fmt::format("; %.0f draws/frame", m_gpuprof_draw_sum / 120.);
 				text += fmt::format(" (%.0f right-eye batches/frame, %.1f right-eye texture rebuilds/frame)", m_gpuprof_batches / 120., m_gpuprof_right_copies / 120.);
 				m_gpuprof_right_copies = 0;
+				for (const auto& [kind, count] : m_gpuprof_right_copy_kinds)
+				{
+					rsx_log.notice("GPU profile: right-eye rebuild %s: %.1f/frame", kind, count / 120.);
+				}
+				m_gpuprof_right_copy_kinds.clear();
 				m_gpuprof_batches = 0;
 				m_gpuprof_draw_sum = 0;
 				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
