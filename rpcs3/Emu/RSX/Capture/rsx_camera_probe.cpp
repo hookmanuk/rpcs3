@@ -558,6 +558,10 @@ namespace rsx::vr
 		{
 			profile->screen_space_depth_offset_projection = offset == "true";
 		}
+		if (std::string offaspect; read(screen_space, "offaspect_projection", offaspect, false))
+		{
+			profile->screen_space_offaspect_projection = offaspect == "true";
+		}
 		if (std::string rotation; read(screen_space, "rotation_only_passthrough", rotation, false))
 		{
 			profile->screen_space_rotation_only_passthrough = rotation == "true";
@@ -884,7 +888,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "scaled_draws" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "scaled_draws" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1770,7 +1774,7 @@ namespace rsx::vr
 		// When the profile says so, it is part of the screen and goes into the same
 		// fixed box as the HUD instead of following the head.
 		if (output_aspect_match && m_vr_view && m_vr_hmd_fov &&
-			(profile.screen_space_bare_projection || profile.screen_space_depth_offset_projection))
+			(profile.screen_space_bare_projection || profile.screen_space_depth_offset_projection || profile.screen_space_offaspect_projection))
 		{
 			constexpr f32 eps = 1e-5f;
 			const bool depth_offset = std::fabs(rows[3][3]) >= eps;
@@ -1783,15 +1787,23 @@ namespace rsx::vr
 				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
 				(depth_offset || (std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps)) &&
 				std::fabs(rows[2][3]) > eps;
+			// God of War HD: the scene and the HUD are both bare projections; only the HUD's
+			// square-pixel aspect (B/A 1.33) is not the output's (1.78).
+			const bool off_aspect = camera_space && !depth_offset && std::fabs(rows[0][0]) > eps &&
+				std::fabs(std::fabs(rows[1][1] / rows[0][0]) / output_aspect - 1.f) > 0.1f;
 			const bool bare_projection = camera_space &&
-				(depth_offset ? profile.screen_space_depth_offset_projection : profile.screen_space_bare_projection);
+				(depth_offset ? profile.screen_space_depth_offset_projection :
+					(profile.screen_space_bare_projection || (profile.screen_space_offaspect_projection && off_aspect)));
 			if (bare_projection)
 			{
 				// Still the game's projection, so it keeps the FOV cache valid on
-				// screens with no other camera draws.
-				m_vr_proj_x = std::fabs(rows[0][0] / rows[2][3]);
-				m_vr_proj_y = std::fabs(rows[1][1] / rows[2][3]);
-				m_vr_proj_valid = true;
+				// screens with no other camera draws. Not an off-aspect HUD's projection.
+				if (!off_aspect)
+				{
+					m_vr_proj_x = std::fabs(rows[0][0] / rows[2][3]);
+					m_vr_proj_y = std::fabs(rows[1][1] / rows[2][3]);
+					m_vr_proj_valid = true;
+				}
 				map_vr_screen_box(rows, eye_sign, output_aspect);
 				return false;
 			}

@@ -705,6 +705,8 @@ namespace rsx::vr
 		std::map<u16, std::vector<f64>> bare_scale_a_by_width;
 		std::vector<f64> bare_near_planes;
 		bool bare_projection = false;
+		u32 offaspect_bare_draws = 0; // bare projections without depth test and not at the output aspect
+		bool offaspect_projection = false;
 		u32 depth_offset_draws = 0;
 		f64 camera_target_aspect_error = 0.0; // the renderer's output_aspect_tolerance must cover it
 		std::map<u32, u32> position_hits;
@@ -757,6 +759,12 @@ namespace rsx::vr
 				if (!s->depth_test)
 				{
 					bare_projection = true;
+					// God of War HD: the HUD is a 4:3 bare projection in the scene's (16:9) slots.
+					if (!aspect_matches(cam->m, output_aspect, 0.1))
+					{
+						offaspect_bare_draws++;
+						continue;
+					}
 				}
 				const f64 a = projection(cam->m).first;
 				bare_scale_a_by_width[s->width].push_back(a);
@@ -823,6 +831,12 @@ namespace rsx::vr
 			scale_a_by_width = std::move(bare_scale_a_by_width);
 			near_planes = std::move(bare_near_planes);
 			bare_projection = false;
+			// The camera is a bare projection too, so only the aspect tells the HUD apart.
+			if (offaspect_bare_draws >= 2)
+			{
+				vr_gen_log.notice("%u draws without depth test use a bare projection at another aspect (a HUD): offaspect_projection.", offaspect_bare_draws);
+				offaspect_projection = true;
+			}
 		}
 
 		if (covered_draws < 10)
@@ -916,9 +930,12 @@ namespace rsx::vr
 		}
 		u32 hud_block = umax;
 		u32 hud_best = 1;
+		// A HUD found as an off-aspect projection needs no block, and the pixel-scale matrix
+		// its sprites carry beside it is their object matrix (God of War HD: c[260]), which
+		// would also box axis-aligned scene sprites.
 		for (const auto& [base, hits] : hud_hits)
 		{
-			if (hits > hud_best) { hud_best = hits; hud_block = base; }
+			if (!offaspect_projection && hits > hud_best) { hud_best = hits; hud_block = base; }
 		}
 		// Full-screen passes reading the HUD block too: the renderer must leave them as drawn.
 		const bool hud_skips_passes = hud_block != umax && pass_hits.contains(hud_block);
@@ -1109,7 +1126,7 @@ namespace rsx::vr
 		{
 			vr_gen_log.notice("%u camera draws are camera-space geometry at a fixed depth (a 3D HUD): depth_offset_projection.", depth_offset_draws);
 		}
-		if (hud_block != umax || bare_projection || depth_offset_projection || passthrough_hud)
+		if (hud_block != umax || bare_projection || depth_offset_projection || offaspect_projection || passthrough_hud)
 		{
 			std::vector<std::string> entries;
 			if (passthrough_hud) entries.push_back("    \"passthrough_hud\": true");
@@ -1123,6 +1140,7 @@ namespace rsx::vr
 			if (hud_skips_passes) entries.push_back("    \"hud_skips_passes\": true");
 			if (bare_projection) entries.push_back("    \"bare_projection\": true");
 			if (depth_offset_projection) entries.push_back("    \"depth_offset_projection\": true");
+			if (offaspect_projection) entries.push_back("    \"offaspect_projection\": true");
 			json += ",\n\n  \"screen_space\": {\n";
 			for (usz i = 0; i < entries.size(); ++i) json += entries[i] + (i + 1 < entries.size() ? ",\n" : "\n");
 			json += "  }";

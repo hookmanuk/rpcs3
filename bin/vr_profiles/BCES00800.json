@@ -1,0 +1,28 @@
+﻿{
+  "schema": 1,
+  "title_id": "BCES00800",
+  "app_version": "01.00",
+  "name": "God of War Collection (game selector)",
+  "max_fps": 60,
+  "default_fps": 60,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [256],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 3.20128
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0243067,
+    "convergence": 128.051,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "offaspect_projection": true,
+    "frames_without_3d_as_screen": true
+  }
+}

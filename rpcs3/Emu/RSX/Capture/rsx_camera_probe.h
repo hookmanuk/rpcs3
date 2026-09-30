@@ -189,6 +189,10 @@ namespace rsx::vr
 		// axis (W = z + d, d != 0): geometry the game draws in its camera's space at
 		// a fixed depth, e.g. Blur's 3D HUD. Screen space too.
 		bool screen_space_depth_offset_projection = false;
+		// A bare projection (as above) whose aspect is not the output's: God of War HD draws
+		// its HUD with the scene's slots and a 4:3 projection, and its scene with a 16:9 one
+		// (both bare: the view is applied to the vertices). The HUD goes into the box.
+		bool screen_space_offaspect_projection = false;
 		// A draw without depth test whose camera block has no translation at all (the
 		// view rotation and projection only, clip w = view z) is a full-screen pass
 		// that builds view rays from it, e.g. inFamous 2's final composite. Left as the
