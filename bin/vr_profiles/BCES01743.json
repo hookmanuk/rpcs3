@@ -35,8 +35,8 @@
     "clear_outside_box": true,
     "unboxed_draws": [ { "program": "4948caa7790a8473", "texture": "128x128" } ],
     "scaled_draws": [
-      { "program": "4948caa81a9a8473", "texture": "128x128", "scale": 0.25 },
-      { "program": "4948caa81a9a8473", "texture": "64x64", "scale": 0.25 }
+      { "program": "4948caa81a9a8473", "texture": "128x128", "scale": 0.35 },
+      { "program": "4948caa81a9a8473", "texture": "64x64", "scale": 0.35 }
     ]
   }
 }
