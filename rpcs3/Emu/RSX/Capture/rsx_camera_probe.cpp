@@ -743,6 +743,17 @@ namespace rsx::vr
 		{
 			profile->camera_slots_read_directly = direct == "true";
 		}
+		if (const YAML::Node programs = child(root, "game_camera_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("game_camera_programs: '" + text + "' is not a hex program hash");
+				profile->game_camera_programs.push_back(hash);
+			}
+		}
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
@@ -897,7 +908,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });

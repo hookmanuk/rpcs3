@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30035",
+  "app_version": "01.03",
+  "name": "THE DARKNESS",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [0],
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0133889,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 31,
+    "bare_projection": true
+  }
+}

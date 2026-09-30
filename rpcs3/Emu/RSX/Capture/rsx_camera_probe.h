@@ -149,6 +149,10 @@ namespace rsx::vr
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
 		// directly (the program's constant_ids), as the profile generator samples them.
 		bool camera_slots_read_directly = false;
+		// Vertex program ucode hashes whose draws keep the game camera in both eyes (no head transform or
+		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn
+		// without colour). Probe gamecam= tries candidates live.
+		std::vector<u64> game_camera_programs;
 		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches

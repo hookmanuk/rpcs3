@@ -2800,9 +2800,15 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	const auto* vr_profile = rsx::vr::camera_probe::get().profile();
 	const rsx::vr::full_bank_direct_slots direct_slots(full_bank && m_vertex_prog && vr_profile && vr_profile->camera_slots_read_directly
 		? &m_vertex_prog->constant_ids : nullptr);
-	const auto& game_camera_programs = rsx::vr::camera_probe::get().game_camera_programs();
-	const bool keep_game_camera = !game_camera_programs.empty() && std::find(game_camera_programs.begin(), game_camera_programs.end(),
-		program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)) != game_camera_programs.end();
+	// Programs kept on the game camera: the profile's game_camera_programs, or probe gamecam= (development).
+	const auto& probe_game_camera = rsx::vr::camera_probe::get().game_camera_programs();
+	bool keep_game_camera = false;
+	if (!probe_game_camera.empty() || (vr_profile && !vr_profile->game_camera_programs.empty()))
+	{
+		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		keep_game_camera = std::find(probe_game_camera.begin(), probe_game_camera.end(), hash) != probe_game_camera.end() ||
+			(vr_profile && std::find(vr_profile->game_camera_programs.begin(), vr_profile->game_camera_programs.end(), hash) != vr_profile->game_camera_programs.end());
+	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 
