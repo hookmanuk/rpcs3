@@ -467,6 +467,12 @@ namespace vk
 		// Stuff that has been dereferenced by the GPU goes into these
 		const u32 max_cached_image_pool_size = 256;
 		std::deque<cached_image_t> m_cached_images;
+
+		// VR fork: display buffers uploaded from guest memory for a flip. Kept until the next flip:
+		// disposed at upload, any submit between the upload and the present blit (VR stereo,
+		// screenshots) let the image be freed before the blit read it (crashes at boot loading
+		// screens in Uncharted and Killzone 2).
+		std::vector<std::unique_ptr<vk::viewable_image>> m_flip_uploads;
 		atomic_t<u64> m_cached_memory_size = { 0 };
 		shared_mutex m_cached_pool_lock;
 
@@ -543,6 +549,9 @@ namespace vk
 		void on_frame_end() override;
 
 		vk::viewable_image* upload_image_simple(vk::command_buffer& cmd, VkFormat format, u32 address, u32 width, u32 height, u32 pitch);
+
+		// Dispose the previous flip's uploads (call at the start of a flip).
+		void release_flip_uploads();
 
 		bool blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& m_rtts, vk::command_buffer& cmd);
 

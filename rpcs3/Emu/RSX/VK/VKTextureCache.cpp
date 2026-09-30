@@ -1501,7 +1501,17 @@ namespace vk
 
 	void texture_cache::destroy()
 	{
+		release_flip_uploads();
 		clear();
+	}
+
+	void texture_cache::release_flip_uploads()
+	{
+		for (auto& image : m_flip_uploads)
+		{
+			vk::get_resource_manager()->dispose(image);
+		}
+		m_flip_uploads.clear();
 	}
 
 	bool texture_cache::is_depth_texture(u32 rsx_address, u32 rsx_size)
@@ -1672,9 +1682,10 @@ namespace vk
 
 		vk::change_image_layout(cmd, image.get(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-		// Fully dispose immediately. These immages aren't really reusable right now.
+		// Not reusable. Disposed at the next flip (release_flip_uploads), not now: a submit before
+		// this flip's present blit would otherwise free it first.
 		auto result = image.get();
-		vk::get_resource_manager()->dispose(image);
+		m_flip_uploads.push_back(std::move(image));
 
 		return result;
 	}

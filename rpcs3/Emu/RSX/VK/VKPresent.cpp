@@ -636,6 +636,9 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			buffer_pitch = buffer_width * 4;
 	}
 
+	// The previous flip's display-buffer uploads are no longer read.
+	m_texture_cache.release_flip_uploads();
+
 	// Scan memory for required data. This is done early to optimize waiting for the driver image acquire below.
 	vk::viewable_image* image_to_flip = nullptr;
 	vk::viewable_image* image_to_flip2 = nullptr;
