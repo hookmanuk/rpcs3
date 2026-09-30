@@ -226,6 +226,10 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+		// Draws never boxed, by vertex program ucode hash and the size of texture 0: full-screen overlays drawn with the
+		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
+		struct unboxed_draw { u64 program = 0; u16 width = 0; u16 height = 0; };
+		std::vector<unboxed_draw> screen_space_unboxed_draws;
 		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
 		// lays its HUD out in 1920x1080 units and clears and fades the screen in 1280x720 pixels. Boxed,
 		// the fills left trails around the box and broke the menu text.
@@ -411,6 +415,8 @@ namespace rsx::vr
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
 		// Probe "dev=<bits>": renderer switches for live A/B measurements (see their users). 0 unless set.
 		u32 dev_flags() const { return m_dev_flags; }
+		// Probe "unboxfp=<id>[+<id>...]": fragment program session ids (inspector fp_session_id) left out of the HUD box.
+		bool unboxed_fragment_program(u32 id) const { return std::find(m_unbox_fp.begin(), m_unbox_fp.end(), id) != m_unbox_fp.end(); }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
@@ -546,6 +552,7 @@ namespace rsx::vr
 		bool m_render_enabled = false;
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
 		u32 m_dev_flags = 0;
+		std::vector<u32> m_unbox_fp;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;

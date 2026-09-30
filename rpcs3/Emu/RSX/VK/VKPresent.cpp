@@ -812,7 +812,11 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		{
 			// Also shows an overlay published in this flip.
 			f32 tan_x = 0.f, tan_y = 0.f;
-			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
+			// Rendered with the headset's FOV, the projection layer declares the headset's own per-eye FOV
+			// and needs nothing from the game. Waiting for the game's first camera draw put everything before
+			// it (Killzone HD's splash screens, videos and menus, already in the HUD box) on a head-locked quad,
+			// stretched: the box looked ultrawide and followed the face until the first 3D frame.
+			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y) || vk::xr::hmd_fov();
 			// The pose the displayed image was drawn with, if it can be traced.
 			u32 pose = m_vr_applied_pose;
 			if (m_vr_frame_boundaries && info.buffer < display_buffers_count)

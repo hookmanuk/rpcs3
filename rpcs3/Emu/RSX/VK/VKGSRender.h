@@ -158,6 +158,7 @@ private:
 	// Kinds of texture the fragment program samples: ordinary (uploaded) textures, colour render targets.
 	enum : u32 { vr_texture_ordinary = 1, vr_texture_colour_target = 2 };
 	u32 vr_sampled_textures();
+	bool vr_unboxed_draw();
 	// Point the vertex context at a copy whose viewport matrix also maps the draw
 	// into this eye's HUD box, or, for a profile pre-projected program (hash), from
 	// the game's clip space into this eye's. Returns false if not applicable.

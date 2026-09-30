@@ -1298,7 +1298,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	if (vr_render)
 	{
 		auto& probe = rsx::vr::camera_probe::get();
-		probe.set_draw_samples_colour_target(vr_sampled_textures() & vr_texture_colour_target);
+		probe.set_draw_samples_colour_target((vr_sampled_textures() & vr_texture_colour_target) || vr_unboxed_draw());
 		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
 		// screen too: Gran Turismo 5 masks its track map with one.
 		bool display_target = vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height);
@@ -2428,6 +2428,50 @@ bool VKGSRender::vr_is_passthrough_hud()
 	return (kinds & vr_texture_ordinary) && !(kinds & vr_texture_colour_target);
 }
 
+// Profile screen_space.unboxed_draws (vertex program ucode hash + texture 0 size), or the dev probe key
+// unboxfp=<fragment program session id>, which also logs the draw's vertex program hash and texture size.
+bool VKGSRender::vr_unboxed_draw()
+{
+	auto& probe = rsx::vr::camera_probe::get();
+	const auto* profile = probe.profile();
+	const bool dev = m_fragment_prog && probe.unboxed_fragment_program(m_fragment_prog->id);
+	if (!dev && (!profile || profile->screen_space_unboxed_draws.empty()))
+	{
+		return false;
+	}
+	const auto& tex = rsx::method_registers.fragment_textures[0];
+	const u16 width = tex.enabled() ? tex.width() : 0;
+	const u16 height = tex.enabled() ? tex.height() : 0;
+	static std::unordered_map<u32, u64> s_hashes; // vertex program session id -> ucode hash
+	u64 hash = 0;
+	if (m_vertex_prog)
+	{
+		auto [it, added] = s_hashes.try_emplace(m_vertex_prog->id, 0);
+		if (added)
+		{
+			it->second = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		}
+		hash = it->second;
+	}
+	if (dev)
+	{
+		static std::set<u64> s_logged;
+		if (s_logged.insert((hash << 16) ^ (u64{width} << 32) ^ height ^ m_fragment_prog->id).second)
+		{
+			rsx_log.notice("VR: left out of the HUD box (probe unboxfp=%u): vertex program %016llx, texture 0 %ux%u.", m_fragment_prog->id, hash, width, height);
+		}
+		return true;
+	}
+	for (const auto& draw : profile->screen_space_unboxed_draws)
+	{
+		if (draw.program == hash && draw.width == width && draw.height == height)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 u32 VKGSRender::vr_sampled_textures()
 {
 	u32 kinds = 0;
@@ -2461,7 +2505,17 @@ u32 VKGSRender::vr_sampled_textures()
 			}
 			continue;
 		}
-		kinds |= vr_texture_ordinary;
+		// A read of a display buffer is the shown frame, whichever way it reached the texture cache: Killzone
+		// HD blends the previous frame over the current one, and with Write/Read Color Buffers it arrives as
+		// an ordinary upload from memory. Boxed as HUD, it showed as a grey panel behind the HUD.
+		const auto& tex = rsx::method_registers.fragment_textures[i];
+		const u32 tex_address = rsx::get_address(tex.offset(), tex.location());
+		bool display_read = false;
+		for (const auto& buffer : display_buffers)
+		{
+			display_read |= buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == tex_address;
+		}
+		kinds |= display_read ? vr_texture_colour_target : vr_texture_ordinary;
 	}
 	return kinds;
 }

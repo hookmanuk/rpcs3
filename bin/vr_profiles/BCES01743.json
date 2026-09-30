@@ -27,6 +27,7 @@
   "screen_space": {
     "orthographic_block": 256,
     "hud_skips_passes": true,
-    "clear_outside_box": true
+    "clear_outside_box": true,
+    "unboxed_draws": [ { "program": "4948caa7790a8473", "texture": "128x128" } ]
   }
 }
