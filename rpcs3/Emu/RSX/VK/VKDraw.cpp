@@ -1897,6 +1897,24 @@ void VKGSRender::end()
 	load_texture_env();
 	m_frame_stats.textures_upload_time += m_profiler.duration();
 
+	// Profile hidden_draws: effects switched off while VR is enabled (vertex program + texture 0 size).
+	if (const auto* profile = g_cfg.video.vr.enabled ? rsx::vr::camera_probe::get().profile() : nullptr; profile && !profile->hidden_draws.empty())
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[0];
+		const u16 width = tex.enabled() ? tex.width() : 0;
+		const u16 height = tex.enabled() ? tex.height() : 0;
+		if (std::any_of(profile->hidden_draws.begin(), profile->hidden_draws.end(), [&](const auto& d) { return d.width == width && d.height == height; }) &&
+			std::any_of(profile->hidden_draws.begin(), profile->hidden_draws.end(), [&, hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)](const auto& d)
+			{
+				return d.program == hash && d.width == width && d.height == height;
+			}))
+		{
+			execute_nop_draw();
+			rsx::thread::end();
+			return;
+		}
+	}
+
 	// Probe hide=<hash>[@<target>]: skip this vertex program's draws (development: finding which program draws an artefact).
 	if (const auto& hidden = rsx::vr::camera_probe::get().hidden_programs(); !hidden.empty())
 	{

@@ -601,6 +601,33 @@ namespace rsx::vr
 				profile->screen_space_preprojected_programs.push_back(hash);
 			}
 		}
+		if (const YAML::Node draws = child(root, "hidden_draws"); draws && draws.IsSequence())
+		{
+			for (const YAML::Node& node : draws)
+			{
+				std::string name, program, texture, hidden = "true";
+				read(node, "name", name, false);
+				read(node, "program", program);
+				read(node, "texture", texture);
+				read(node, "hidden", hidden, false);
+				char* end = nullptr;
+				title_profile::unboxed_draw draw{};
+				draw.program = std::strtoull(program.c_str(), &end, 16);
+				u32 w = 0, h = 0;
+				if (program.empty() || !end || *end || std::sscanf(texture.c_str(), "%ux%u", &w, &h) != 2 || (hidden != "true" && hidden != "false"))
+				{
+					fail("hidden_draws: expected {\"name\": \"...\", \"program\": \"<vertex ucode hash>\", \"texture\": \"<width>x<height>\", \"hidden\": true|false}");
+					continue;
+				}
+				draw.width = static_cast<u16>(w);
+				draw.height = static_cast<u16>(h);
+				if (hidden == "true")
+				{
+					profile->hidden_draws.push_back(draw);
+				}
+				vr_probe_log.notice("VR profile: %s %s.", name.empty() ? program : name, hidden == "true" ? "hidden" : "shown");
+			}
+		}
 		if (const YAML::Node draws = child(screen_space, "unboxed_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -822,7 +849,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });

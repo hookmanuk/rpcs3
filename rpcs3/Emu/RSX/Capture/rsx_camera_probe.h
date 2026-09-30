@@ -230,6 +230,9 @@ namespace rsx::vr
 		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
 		struct unboxed_draw { u64 program = 0; u16 width = 0; u16 height = 0; };
 		std::vector<unboxed_draw> screen_space_unboxed_draws;
+		// Draws skipped entirely while VR is enabled, same match as unboxed_draws; each entry has a name and an
+		// on/off flag ("hidden") so a player can switch an effect back on (Killzone HD: film grain).
+		std::vector<unboxed_draw> hidden_draws;
 		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
 		// lays its HUD out in 1920x1080 units and clears and fades the screen in 1280x720 pixels. Boxed,
 		// the fills left trails around the box and broke the menu text.
