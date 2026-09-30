@@ -404,6 +404,8 @@ namespace rsx::vr
 		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
+		// Probe "dev=<bits>": renderer switches for live A/B measurements (see their users). 0 unless set.
+		u32 dev_flags() const { return m_dev_flags; }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
@@ -536,6 +538,7 @@ namespace rsx::vr
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
+		u32 m_dev_flags = 0;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;

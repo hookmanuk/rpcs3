@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "rsx_camera_probe.h"
+#include <array>
 #include <set>
 
 #include "Emu/System.h"
@@ -116,14 +117,56 @@ namespace rsx::vr
 				return reinterpret_cast<f32*>(base + guest_index * 16);
 			}
 
-			for (usz i = 0; i < reloc_size; ++i)
+			if (guest_index >= 468) return nullptr;
+			if (reloc_size <= 16)
 			{
-				if (reloc[i] == guest_index)
+				for (usz i = 0; i < reloc_size; ++i)
 				{
-					return reinterpret_cast<f32*>(base + i * 16);
+					if (reloc[i] == guest_index)
+					{
+						return reinterpret_cast<f32*>(base + i * 16);
+					}
+				}
+				return nullptr;
+			}
+
+			// Larger programs (skinned meshes with bone palettes) were scanned linearly for every slot of
+			// every candidate block, per draw and eye: ~7% of the RSX thread in MotorStorm: Pacific Rift.
+			// Keep a slot -> index table per relocation table (a program's constant_ids, stable while the
+			// program lives), a few most recent ones.
+			struct slot_table
+			{
+				const u16* reloc = nullptr;
+				usz size = 0;
+				u16 first = 0, last = 0; // first and last entries, in case the storage was reused by another program
+				std::array<u16, 468> index;
+			};
+			static thread_local std::array<slot_table, 8> s_tables{};
+			static thread_local u32 s_next = 0;
+			slot_table* table = nullptr;
+			for (auto& t : s_tables)
+			{
+				if (t.reloc == reloc && t.size == reloc_size && t.first == reloc[0] && t.last == reloc[reloc_size - 1])
+				{
+					table = &t;
+					break;
 				}
 			}
-			return nullptr;
+			if (!table)
+			{
+				table = &s_tables[s_next++ % s_tables.size()];
+				table->reloc = reloc;
+				table->size = reloc_size;
+				table->first = reloc[0];
+				table->last = reloc[reloc_size - 1];
+				table->index.fill(u16{umax});
+				for (usz i = reloc_size; i-- > 0;)
+				{
+					if (reloc[i] < 468) table->index[reloc[i]] = static_cast<u16>(i); // the first occurrence wins
+				}
+			}
+			const u16 i = table->index[guest_index];
+			return i == u16{umax} ? nullptr : reinterpret_cast<f32*>(base + usz{i} * 16);
 		}
 
 		// A 4-slot matrix in the row-vector convention all the math here uses:
@@ -1271,6 +1314,7 @@ namespace rsx::vr
 		m_have_stereo = false;
 		m_render_enabled = false;
 		m_hidden_programs.clear();
+		m_dev_flags = 0;
 		m_render_camera_right = {};
 		m_render_camera_right_valid = false;
 		m_have_raw = false;
@@ -1408,6 +1452,7 @@ namespace rsx::vr
 			else if (k == "conv")   { m_stereo_conv = as_f(); }
 			else if (k == "render") { m_render_enabled = (as_u() != 0); }
 			else if (k == "scene")  { m_scene_override = as_u() != 0; }
+			else if (k == "dev")    { m_dev_flags = as_u(); }
 			else if (k == "hide")
 			{
 				for (usz start = 0; start < v.size();)
