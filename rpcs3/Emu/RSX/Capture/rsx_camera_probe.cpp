@@ -20,6 +20,9 @@
 
 LOG_CHANNEL(vr_probe_log, "VRPROBE");
 
+// cellVdec.cpp: open video decoders (see effective_vblank_rate).
+u32 vdec_open_count();
+
 namespace rsx::vr
 {
 	namespace
@@ -655,6 +658,7 @@ namespace rsx::vr
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
+		read(root, "video_vblank_rate", profile->video_vblank_rate, false);
 		if (profile->default_fps == umax)
 		{
 			profile->default_fps = profile->max_fps ? profile->max_fps : 60;
@@ -797,7 +801,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -968,7 +972,29 @@ namespace rsx::vr
 		return fps;
 	}
 
+	static u64 vr_vblank_rate();
+
 	u64 effective_vblank_rate()
+	{
+		const u64 rate = vr_vblank_rate();
+		// Profile video_vblank_rate: movies at their own pace, whatever the game runs at (applies with VR off too).
+		if (const title_profile* profile = camera_probe::get().profile(); profile && profile->video_vblank_rate && rate > profile->video_vblank_rate)
+		{
+			static atomic_t<bool> s_capped = false;
+			const bool video = vdec_open_count() != 0;
+			if (s_capped.exchange(video) != video)
+			{
+				vr_probe_log.notice("VR: video decoder %s: vblank %u Hz", video ? "open" : "closed", video ? profile->video_vblank_rate : static_cast<u32>(rate));
+			}
+			if (video)
+			{
+				return profile->video_vblank_rate;
+			}
+		}
+		return rate;
+	}
+
+	static u64 vr_vblank_rate()
 	{
 		const u64 configured = g_cfg.video.vblank_rate;
 		if (!g_cfg.video.vr.enabled || !g_headset_active.load())
@@ -1909,12 +1935,28 @@ namespace rsx::vr
 	{
 		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
 		m_vr_hud_depth = hud_depth;
-		m_vr_hmd_fov = tangents != nullptr;
+		// Only a usable frustum counts: the HUD box divides by its width and height. Boxing from the first
+		// frame (not after the game's first camera draw) reached frames drawn before the headset had reported
+		// its views, and the non-finite box scissor that followed lost the Vulkan device at boot.
+		const auto usable = [](const f32 (*fov)[4])
+		{
+			for (u32 e = 0; e < 2; ++e)
+			{
+				const f32* t = fov[e];
+				if (!std::isfinite(t[0]) || !std::isfinite(t[1]) || !std::isfinite(t[2]) || !std::isfinite(t[3]) ||
+					t[1] - t[0] < 0.01f || t[2] - t[3] < 0.01f || -t[0] <= 0.f || t[1] <= 0.f || t[2] <= 0.f || -t[3] <= 0.f)
+				{
+					return false;
+				}
+			}
+			return true;
+		};
+		m_vr_hmd_fov = tangents != nullptr && usable(tangents) && (!visible || usable(visible));
 		m_vr_hud_scale = hud_scale;
 		m_vr_hud_fixed = hud_fixed;
 		m_vr_hud_offset_x = hud_offset_x;
 		m_vr_hud_offset_y = hud_offset_y;
-		if (tangents)
+		if (m_vr_hmd_fov)
 		{
 			for (u32 e = 0; e < 2; ++e)
 			{
@@ -2045,6 +2087,10 @@ namespace rsx::vr
 			out[1] = std::min(out[1], y);
 			out[2] = std::max(out[2], x);
 			out[3] = std::max(out[3], y);
+		}
+		if (!std::isfinite(out[0]) || !std::isfinite(out[1]) || !std::isfinite(out[2]) || !std::isfinite(out[3]))
+		{
+			return false;
 		}
 		rect[0] = std::clamp(out[0], 0.f, host_width);
 		rect[1] = std::clamp(out[1], 0.f, host_height);

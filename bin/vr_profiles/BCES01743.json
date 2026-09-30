@@ -5,6 +5,7 @@
   "name": "KILLZONE®",
   "max_fps": 90,
   "default_fps": 90,
+  "video_vblank_rate": 60,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [256, 258],

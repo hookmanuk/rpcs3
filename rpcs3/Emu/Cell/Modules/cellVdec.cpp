@@ -1428,6 +1428,14 @@ static error_code vdecOpen(ppu_thread& ppu, T type, U res, vm::cptr<CellVdecCb> 
 	return CELL_OK;
 }
 
+// VR fork: number of open video decoders (rsx::vr::effective_vblank_rate caps the vblank while a video plays).
+u32 vdec_open_count()
+{
+	u32 count = 0;
+	idm::select<vdec_context>([&](u32, vdec_context&) { count++; });
+	return count;
+}
+
 error_code cellVdecOpen(ppu_thread& ppu, vm::cptr<CellVdecType> type, vm::cptr<CellVdecResource> res, vm::cptr<CellVdecCb> cb, vm::ptr<u32> handle)
 {
 	cellVdec.warning("cellVdecOpen(type=*0x%x, res=*0x%x, cb=*0x%x, handle=*0x%x)", type, res, cb, handle);

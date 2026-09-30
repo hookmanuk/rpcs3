@@ -269,6 +269,9 @@ namespace rsx::vr
 		u32 max_fps = 0;
 		u32 default_fps = umax;
 		u32 vblanks_per_frame = 1;
+		// While the game has a video decoder open, the emulated vblank runs at most this fast (0 = no cap).
+		// Killzone HD's movie player (libsail) stops taking frames above 60 Hz: the intro stayed black.
+		u32 video_vblank_rate = 0;
 
 		// The game builds effects across frames from full-screen buffers (Ico's glow and
 		// previous-frame blend): with the head moving between frames, older-pose buffers are
