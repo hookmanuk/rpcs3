@@ -279,6 +279,10 @@ namespace rsx::vr
 		// While the game has a video decoder open, the emulated vblank runs at most this fast (0 = no cap).
 		// Killzone HD's movie player (libsail) stops taking frames above 60 Hz: the intro stayed black.
 		u32 video_vblank_rate = 0;
+		// In stereo, memory copies (NV0039) into a display buffer are skipped. Killzone HD saves each finished frame to
+		// main memory and copies another memory image back into the display buffer; with Read Color Buffers the left
+		// eye was then reloaded from memory at 1x while the host-only right eye kept the scaled frame.
+		bool keep_rendered_display_buffers = false;
 
 		// The game builds effects across frames from full-screen buffers (Ico's glow and
 		// previous-frame blend): with the head moving between frames, older-pose buffers are

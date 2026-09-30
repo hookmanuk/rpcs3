@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "nv0039.h"
 #include "Emu/RSX/Capture/rsx_stereo_inspector.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 
 #include "Emu/RSX/RSXThread.h"
 #include "Emu/RSX/Core/RSXReservationLock.hpp"
@@ -106,6 +107,26 @@ namespace rsx
 			{
 				inspector.record_note("nv0039", fmt::format("\"src\":%u,\"dst\":%u,\"in_pitch\":%d,\"out_pitch\":%d,\"line_length\":%u,\"line_count\":%u,\"in_format\":%u,\"out_format\":%u",
 					read_address, write_address, in_pitch, out_pitch, line_length, line_count, in_format, out_format));
+			}
+
+			// VR fork: profile keep_rendered_display_buffers (see there).
+			if (auto& probe = rsx::vr::camera_probe::get(); probe.render_enabled() && probe.profile() && probe.profile()->keep_rendered_display_buffers)
+			{
+				const auto write_range = utils::address_range32::start_length(write_address, write_length);
+				for (u32 i = 0; i < RSX(ctx)->display_buffers_count; ++i)
+				{
+					const auto& buffer = RSX(ctx)->display_buffers[i];
+					if (buffer.width && buffer.height &&
+						write_range.overlaps(utils::address_range32::start_length(get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL), buffer.pitch * buffer.height)))
+					{
+						static bool s_logged = false;
+						if (!std::exchange(s_logged, true))
+						{
+							rsx_log.notice("VR: memory copy 0x%x -> display buffer 0x%x skipped (profile keep_rendered_display_buffers).", read_address, write_address);
+						}
+						return;
+					}
+				}
 			}
 
 			RSX(ctx)->invalidate_fragment_program(dst_dma, dst_offset, write_length);
