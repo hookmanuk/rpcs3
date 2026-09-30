@@ -16,5 +16,6 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Blur | BLUS30295 | `vr_profiles/BLUS30295.json` | `patches/BLUS30295_patch.yml` |
 | Split/Second | BLUS30300 | `vr_profiles/BLUS30300.json` | `patches/BLUS30300_patch.yml` |
 | Need for Speed Most Wanted | BLUS31010 | `vr_profiles/BLUS31010.json` | `patches/BLUS31010_patch.yml` |
+| MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

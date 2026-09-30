@@ -51,6 +51,7 @@ To raise the resolution or change the VR settings for a game, see [vr-settings.m
 | Ridge Racer 7 | BCAS20001 | Headset refresh rate |
 | Demon's Souls | BLUS30443 | Headset refresh rate |
 | Bayonetta | BLUS30367 | Headset refresh rate |
+| Killzone HD | BCES01743 | 90 FPS |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -146,6 +147,19 @@ To raise the resolution or change the VR settings for a game, see [vr-settings.m
 - **Known issues:** some menus show visual glitches in VR. The pink magic wisps around Bayonetta are drawn by
   the game on the screen, not in the world, so they sit in the HUD box instead of on her.
 
+### 8. Killzone HD (BCES01743, European disc): 90 FPS
+
+- **Required settings:** Video > `Write Color Buffers` **and** `Read Color Buffers` both on (right-click the game
+  > Create Custom Configuration). Without them the 3D world is black in levels (menus and HUD still show).
+- **Frame rate:** the patch *Frame rate 90 FPS (set Vblank Rate 90)* is on by default and the game runs at 90 FPS
+  in the headset at real-time speed. For another rate, turn it off and turn on the 60, 72 or 120 FPS entry in
+  `Manage > Game Patches`, and set the VR **Frame Rate** to match. Intro and menu videos play at 60 FPS (the
+  game's video player stalls above that); gameplay returns to 90. Patches apply when the game boots.
+- **In the headset:** the film grain is off (to turn it back on, set `"hidden": false` in the "Film grain" entry
+  of `bin/vr_profiles/BCES01743.json`). The aiming reticule is shown at 35% of its size (the two `scale` values
+  in the same file). The HUD sits at 4 m by default; change it with **HUD Depth** in the home menu's VR tab.
+- **Recommended settings:** `Resolution Scale` 300% held 88-90 FPS in testing.
+
 ---
 
 
@@ -155,6 +169,7 @@ Defaults, all changeable per game:
 |---|---|---|
 | Frame Rate | the game's own (table above) | The game's frame rate in the headset: 30, 45, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Until you choose one, each game runs its own default (ICO and Shadow of the Colossus share a configuration but keep their own). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
+| HUD Depth | Auto | How far away the HUD and menus appear (1-10 m). Auto: the game's own distance from its VR profile (Killzone HD: 4 m), otherwise 2 m. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees when the game runs below the headset's refresh rate, 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
@@ -184,6 +199,7 @@ the source repository, with instructions for trying them.
 | inFamous | BCUS98119 | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
 | Split/Second | BLUS30300 | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
 | God of War III | BCUS98111 | Early experimental profile. Not tested in a headset. |
+| MotorStorm: Pacific Rift | BCUS98155 | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
 | Gran Turismo 5 | BCUS98114 | Work in progress: right-eye shadows can show red, some menu clipping, mirror crop, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
 
 ---
