@@ -141,15 +141,16 @@ namespace rsx::assembler::FP
 
 		// The rest are unimplemented and not encountered in real software.
 		// TODO: Probe these on real PS3 and figure out what they actually do.
+		// VR fork: a program that is not ready yet (Gran Turismo 5 draws one while loading a race) can decode to these.
+		// Treat them as reading three full sources instead of ending the RSX thread; the decompiler handles the rest.
 		case RSX_FP_OPCODE_POW:
-			fmt::throw_exception("Unimplemented POW instruction."); // Unused
 		case RSX_FP_OPCODE_BEM:
 		case RSX_FP_OPCODE_TEXBEM:
 		case RSX_FP_OPCODE_TXPBEM:
 		case RSX_FP_OPCODE_BEMLUM:
-			fmt::throw_exception("Unimplemented BEM class instruction"); // Unused
 		case RSX_FP_OPCODE_TIMESWTEX:
-			fmt::throw_exception("Unimplemented TIMESWTEX instruction"); // Unused
+			rsx_log.error("Fragment program uses unimplemented instruction %s", get_opcode_name(opcode));
+			return 3;
 		default:
 			break;
 		}
@@ -308,14 +309,12 @@ namespace rsx::assembler::FP
 			return 0;
 
 		case RSX_FP_OPCODE_POW:
-			fmt::throw_exception("Unimplemented POW instruction."); // Unused ??
 		case RSX_FP_OPCODE_BEM:
 		case RSX_FP_OPCODE_TEXBEM:
 		case RSX_FP_OPCODE_TXPBEM:
 		case RSX_FP_OPCODE_BEMLUM:
-			fmt::throw_exception("Unimplemented BEM class instruction"); // Unused
 		case RSX_FP_OPCODE_TIMESWTEX:
-			fmt::throw_exception("Unimplemented TIMESWTEX instruction"); // Unused
+			return xyzw; // VR fork: unimplemented (see get_operand_count); assume every lane is read
 		default:
 			break;
 		}

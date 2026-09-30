@@ -3181,6 +3181,26 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	// for the whole queue serialised CPU and GPU (1-1.5 ms per read in stereo, 0.1 flat).
 	const bool vr_early_readback = rsx::vr::camera_probe::get().render_enabled();
 	bool vr_early_copies = false;
+	// The RSX's own reads count too (MotorStorm: Pacific Rift samples render target memory as a plain texture
+	// each frame, and the texture cache flushed the target, waiting for both eyes' queued work).
+	m_texture_cache.vr_record_flushes = vr_early_readback;
+	if (vr_early_readback)
+	{
+		std::lock_guard lock_flushed(m_texture_cache.vr_flushed_mutex);
+		if (!m_texture_cache.vr_flushed_ranges.empty())
+		{
+			std::lock_guard lock(m_vr_readback_mutex);
+			for (const auto& range : m_texture_cache.vr_flushed_ranges)
+			{
+				if (std::find(m_vr_readback_ranges.begin(), m_vr_readback_ranges.end(), range) == m_vr_readback_ranges.end() && m_vr_readback_ranges.size() < 64)
+				{
+					m_vr_readback_ranges.push_back(range);
+					rsx_log.notice("VR: render target memory 0x%x-0x%x read back by the RSX or CPU; copied early from now on.", range.start, range.end);
+				}
+			}
+			m_texture_cache.vr_flushed_ranges.clear();
+		}
+	}
 	for (u8 i = 0; i < rsx::limits::color_buffers_count; ++i)
 	{
 		// Flush old address if we keep missing it

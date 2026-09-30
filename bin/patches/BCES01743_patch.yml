@@ -1,0 +1,63 @@
+Version: 1.2
+
+PPU-70ad975e7fbb5bb57bb2159a16ec895cbccd3b4e:
+  "Frame rate 90 FPS (set Vblank Rate 90)":
+    Games:
+      "Killzone":
+        BCES01743: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Killzone HD runs its game loop from a millisecond clock multiplied by 0.03 (30 ticks a second): it waits for at least one tick, advances the simulation one step per tick (up to 4) and scales each step by a factor stored at object+0x58 (1.0). This sets the tick rate to 90 a second (all four 0.03 constants) and the step factor to 30/90, so the game draws at 90 FPS at real-time speed. Set Vblank Rate to 90. Based on the community 60 FPS patch (ZEROx, illusion), which has the same cutscene caveats: some cutscene animations may play too fast. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x002125a4, 0x3ca03eab ] # lis r5: step factor 30/90 (0.33398) (object+0x58)
+      - [ be32, 0x002192f8, 0x3ca03eab ] # same, second constructor
+      - [ bef64, 0x002124b0, 0.09 ] # ticks per ms (was 0.03)
+      - [ bef64, 0x002192c8, 0.09 ]
+      - [ bef64, 0x0021c0a0, 0.09 ] # frame wait loop
+      - [ bef64, 0x0021c180, 0.09 ] # clock reset
+
+  "Frame rate 60 FPS (set Vblank Rate 60)":
+    Games:
+      "Killzone":
+        BCES01743: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Killzone HD runs its game loop from a millisecond clock multiplied by 0.03 (30 ticks a second): it waits for at least one tick, advances the simulation one step per tick (up to 4) and scales each step by a factor stored at object+0x58 (1.0). This sets the tick rate to 60 a second (all four 0.03 constants) and the step factor to 30/60, so the game draws at 60 FPS at real-time speed. Set Vblank Rate to 60. Based on the community 60 FPS patch (ZEROx, illusion), which has the same cutscene caveats: some cutscene animations may play too fast. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002125a4, 0x3ca03f00 ] # lis r5: step factor 30/60 (0.50000) (object+0x58)
+      - [ be32, 0x002192f8, 0x3ca03f00 ] # same, second constructor
+      - [ bef64, 0x002124b0, 0.06 ] # ticks per ms (was 0.03)
+      - [ bef64, 0x002192c8, 0.06 ]
+      - [ bef64, 0x0021c0a0, 0.06 ] # frame wait loop
+      - [ bef64, 0x0021c180, 0.06 ] # clock reset
+
+  "Frame rate 72 FPS (set Vblank Rate 72)":
+    Games:
+      "Killzone":
+        BCES01743: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Killzone HD runs its game loop from a millisecond clock multiplied by 0.03 (30 ticks a second): it waits for at least one tick, advances the simulation one step per tick (up to 4) and scales each step by a factor stored at object+0x58 (1.0). This sets the tick rate to 72 a second (all four 0.03 constants) and the step factor to 30/72, so the game draws at 72 FPS at real-time speed. Set Vblank Rate to 72. Based on the community 60 FPS patch (ZEROx, illusion), which has the same cutscene caveats: some cutscene animations may play too fast. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002125a4, 0x3ca03ed5 ] # lis r5: step factor 30/72 (0.41602) (object+0x58)
+      - [ be32, 0x002192f8, 0x3ca03ed5 ] # same, second constructor
+      - [ bef64, 0x002124b0, 0.072 ] # ticks per ms (was 0.03)
+      - [ bef64, 0x002192c8, 0.072 ]
+      - [ bef64, 0x0021c0a0, 0.072 ] # frame wait loop
+      - [ bef64, 0x0021c180, 0.072 ] # clock reset
+
+  "Frame rate 120 FPS (set Vblank Rate 120)":
+    Games:
+      "Killzone":
+        BCES01743: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Killzone HD runs its game loop from a millisecond clock multiplied by 0.03 (30 ticks a second): it waits for at least one tick, advances the simulation one step per tick (up to 4) and scales each step by a factor stored at object+0x58 (1.0). This sets the tick rate to 120 a second (all four 0.03 constants) and the step factor to 30/120, so the game draws at 120 FPS at real-time speed. Set Vblank Rate to 120. Based on the community 60 FPS patch (ZEROx, illusion), which has the same cutscene caveats: some cutscene animations may play too fast. Needs a fresh boot: savestates keep their old code."
+    Patch Version: 1.0
+    Patch:
+      - [ be32, 0x002125a4, 0x3ca03e80 ] # lis r5: step factor 30/120 (0.25000) (object+0x58)
+      - [ be32, 0x002192f8, 0x3ca03e80 ] # same, second constructor
+      - [ bef64, 0x002124b0, 0.12 ] # ticks per ms (was 0.03)
+      - [ bef64, 0x002192c8, 0.12 ]
+      - [ bef64, 0x0021c0a0, 0.12 ] # frame wait loop
+      - [ bef64, 0x0021c180, 0.12 ] # clock reset

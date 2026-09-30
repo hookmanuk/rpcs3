@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98155",
+  "app_version": "01.00",
+  "name": "MOTORSTORM®: PACIFIC RIFT",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0, 256],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 32,
+    "eye_baseline": 0.0640009
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0116429,
+    "convergence": 2.56003,
+    "eye_offset": "baseline",
+    "by_target_width": [
+      { "output_width_divisor": 2, "per_eye_separation": 0.0100456, "convergence": 2.56003 }
+    ]
+  },
+
+  "screen_space": {
+    "orthographic_block": 256
+  }
+}

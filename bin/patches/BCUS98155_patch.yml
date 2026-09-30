@@ -1,0 +1,34 @@
+Version: 1.2
+
+PPU-34984cacd60f2ee2a380157a009122698d470056:
+  "Unlocked frame rate (VR)":
+    Games:
+      "MotorStorm: Pacific Rift":
+        BCUS98155: [ 01.00 ]
+    Author: "VR fork (community 60 FPS + Variable FPS: illusion, ZEROx)"
+    Notes: "The community 60 FPS patch (the game no longer switches its flip interval to 2 vblanks) plus Variable FPS (the game clock steps by measured real time instead of a fixed tick). Set Vblank Rate to the headset rate. Known from the community patches: slower movement through water above 60 FPS."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00435d1c, 0x60000000 ]
+      - [ be32, 0x00435f9c, 0x38c00001 ]
+  "Disable Dynamic Resolution Scaling (VR)":
+    Games:
+      "MotorStorm: Pacific Rift":
+        BCUS98155: [ 01.00 ]
+    Author: "VR fork (community patch: illusion, ZEROx)"
+    Notes: "The game lowers its render resolution when a frame takes long; stereo rendering doubles the RSX work, so in VR it dropped the resolution and the picture went soft."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00360590, 0x38600000 ]
+  "Disable Motion Blur (VR)":
+    Games:
+      "MotorStorm: Pacific Rift":
+        BCUS98155: [ 01.00 ]
+    Author: "VR fork (community patch: illusion, ZEROx)"
+    Notes: "Camera motion blur smears the view on head turns in VR."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x0035fdec, 0x38600000 ]

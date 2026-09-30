@@ -686,6 +686,14 @@ namespace rsx
 		atomic_t<u32> m_texture_copies_ellided_this_frame = { 0 };
 		static const u32 m_predict_max_flushes_per_frame = 50; // Above this number the predictions are disabled
 
+	public:
+		// VR fork: ranges of sections that needed a GPU transfer when flushed (a CPU or RSX read of render target
+		// memory). The VK renderer drains them in stereo and copies those sections as soon as their surface is left.
+		bool vr_record_flushes = false;
+		shared_mutex vr_flushed_mutex;
+		std::vector<address_range32> vr_flushed_ranges;
+	protected:
+
 		// Invalidation
 		static const bool invalidation_ignore_unsynchronized = true; // If true, unsynchronized sections don't get forcefully flushed unless they overlap the fault range
 		static const bool invalidation_keep_ro_during_read = true; // If true, RO sections are not invalidated during read faults
@@ -830,6 +838,12 @@ namespace rsx
 				for (auto &surface : sections_to_transfer)
 				{
 					surface->copy_texture(cmd, true, std::forward<Args>(extras)...);
+					if (vr_record_flushes)
+					{
+						// VR fork: the renderer copies these early next time (see VKGSRender::prepare_rtts).
+						std::lock_guard lock(vr_flushed_mutex);
+						if (vr_flushed_ranges.size() < 64) vr_flushed_ranges.push_back(surface->get_section_range());
+					}
 				}
 
 				cleanup_after_dma_transfers(cmd);

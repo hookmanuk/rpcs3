@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "title_id": "BCES01743",
+  "app_version": "01.00",
+  "name": "KILLZONE®",
+  "max_fps": 90,
+  "default_fps": 90,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [256, 258],
+  "require_rigid_camera": true,
+  "require_camera_aspect": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0131545,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 256,
+    "hud_skips_passes": true
+  }
+}
