@@ -287,6 +287,9 @@ namespace rsx::vr
 		// main memory and copies another memory image back into the display buffer; with Read Color Buffers the left
 		// eye was then reloaded from memory at 1x while the host-only right eye kept the scaled frame.
 		bool keep_rendered_display_buffers = false;
+		// Distance of the HUD box in metres when the HUD Depth setting is Auto (0 = the 2 m default).
+		// Killzone HD: 4 (its aiming reticule sat too close at 2 m).
+		f32 hud_depth = 0.f;
 
 		// The game builds effects across frames from full-screen buffers (Ico's glow and
 		// previous-frame blend): with the head moving between frames, older-pose buffers are
@@ -409,6 +412,8 @@ namespace rsx::vr
 	// Reprojection Margin in degrees: the configured value, or for "Auto" (-1) 10 degrees
 	// when the game runs below the headset's refresh rate and 0 when it does not.
 	u32 effective_reprojection_margin();
+	// HUD box distance in metres: the HUD Depth setting, or with Auto the VR profile's hud_depth, else 2 m.
+	f32 effective_hud_depth();
 
 	// True while stereo is rendered and [start, end] overlaps the profile's occlusion_depth_readback.
 	bool occlusion_depth_readback(u32 start, u32 end);

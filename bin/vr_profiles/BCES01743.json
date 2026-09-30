@@ -7,6 +7,7 @@
   "default_fps": 90,
   "video_vblank_rate": 60,
   "keep_rendered_display_buffers": true,
+  "hud_depth": 4,
 
   "hidden_draws": [
     { "name": "Film grain", "program": "4948caa7790a8473", "texture": "128x128", "hidden": true }

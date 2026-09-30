@@ -38,7 +38,7 @@ Scroll down the **GPU** tab to the **VR** section.
 | HUD Fixed In Front | Keeps the HUD and menus in front of you instead of following your head; turn your head to look away from them. With Fixed Screen, it keeps the screen in place in the room. |
 | Frame Rate | The game's frame rate in the headset. The default is the game's own (see [vr-games.md](vr-games.md)); a slower PC can choose a lower rate. Set the headset to this rate or a multiple of it. |
 | HUD Scale | Size of the HUD and menus (or the fixed screen) as a percentage of the central view. |
-| HUD Depth | How far away the HUD and menus (or the fixed screen) appear, 1-10 m (default 2 m). They keep the same apparent size; further away sits better with a distant scene, for example a gun sight you look through. |
+| HUD Depth | How far away the HUD and menus (or the fixed screen) appear, 1-10 m. Auto (the default) uses the game's own setting from its VR profile, otherwise 2 m. They keep the same apparent size; further away sits better with a distant scene, for example a gun sight you look through. |
 | HUD Horizontal / Vertical Offset | Moves the HUD and menus. 100% moves the centre of the HUD to the edge of the central view; positive is right or up. |
 | Screen 3D Depth | Strength of the 3D effect on the fixed screen (Fixed Screen only). |
 | Camera Depth Offset | Moves your viewpoint forward (positive) or back. Leave at 0 to sit where the game puts the camera. |

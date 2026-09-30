@@ -1349,7 +1349,7 @@ void VKGSRender::vr_update_view()
 	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
 	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
 	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
-	const f32 vr_hud_distance = g_cfg.video.vr.hud_depth.get() / 100.f;
+	const f32 vr_hud_distance = rsx::vr::effective_hud_depth();
 	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
 		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
 	const bool located = pose != 0;

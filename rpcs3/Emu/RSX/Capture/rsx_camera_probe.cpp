@@ -730,6 +730,10 @@ namespace rsx::vr
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
 		read(root, "video_vblank_rate", profile->video_vblank_rate, false);
+		if (read(root, "hud_depth", profile->hud_depth, false) && !(profile->hud_depth >= 1.f && profile->hud_depth <= 10.f))
+		{
+			fail("hud_depth must be between 1 and 10 (metres)");
+		}
 		if (std::string keep; read(root, "keep_rendered_display_buffers", keep, false))
 		{
 			profile->keep_rendered_display_buffers = keep == "true";
@@ -876,7 +880,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1088,6 +1092,16 @@ namespace rsx::vr
 		// Unlimited: the headset's refresh rate, if the runtime reports it.
 		const u32 headset = g_headset_refresh_hz.load();
 		return headset ? headset : configured;
+	}
+
+	f32 effective_hud_depth()
+	{
+		if (const u64 configured = g_cfg.video.vr.hud_depth.get())
+		{
+			return std::max<u64>(configured, 100) / 100.f;
+		}
+		const title_profile* profile = camera_probe::get().profile();
+		return profile && profile->hud_depth > 0.f ? profile->hud_depth : 2.f;
 	}
 
 	u32 effective_reprojection_margin()
