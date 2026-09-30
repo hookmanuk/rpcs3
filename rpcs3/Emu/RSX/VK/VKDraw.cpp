@@ -1595,7 +1595,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		const bool full_bank = m_vertex_prog->constant_ids.empty();
 		generator.record_draw(full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids),
 			m_vertex_prog->id, m_framebuffer_layout.width, m_framebuffer_layout.height, rsx::method_registers.depth_test_enabled(), vr_sampled_textures(),
-			m_framebuffer_layout.color_addresses[0], program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program));
+			m_framebuffer_layout.color_addresses[0], program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program),
+			m_vertex_prog->has_indexed_constants);
 	}
 
 	// Keep Vulkan command emission in one host-only callable. Gate 5 invokes it
@@ -1914,6 +1915,13 @@ void VKGSRender::end()
 			rsx::thread::end();
 			return;
 		}
+	}
+
+	// RPCS3_VR_RTDUMP with prog=<hash>: dump the requested surfaces of both eyes just before this program draws.
+	if (m_vr_rtdump_program && program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == m_vr_rtdump_program)
+	{
+		m_vr_rtdump_program = 0;
+		vr_rtdump(m_vr_rtdump_addresses, fmt::format("before program %x", program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)));
 	}
 
 	// Probe hide=<hash>[@<target>]: skip this vertex program's draws (development: finding which program draws an artefact).

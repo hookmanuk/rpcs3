@@ -1,0 +1,17 @@
+Version: 1.2
+
+PPU-ec112cfa3c2dae2ea6295d0e091bed942d550ff7:
+  "Full screen (no letterbox)":
+    Games:
+      "Dragon's Dogma: Dark Arisen":
+        BLUS31155: [ 01.02 ]
+    Author: "VR fork"
+    Notes: "The game draws its 3D view letterboxed, 1280x608 inside 1280x720, from the height/width factor 0.475 next to the camera class name. This sets it to 0.5625 (16:9): the view fills the screen, as on PC. Needed for VR (the headset view has no bars)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x0139a9d4, 0x3f100000 ] # 0.475 -> 0.5625 (camera aspect, readers at 0x305590, 0x44b1c8, 0x528ef4)
+      - [ be32, 0x0003dae8, 0x3c803f10 ] # lis r4, 0x3f10: renderer +0xd10 (view height / width) = 0.5625
+      - [ be32, 0x0003daf0, 0x60840000 ] # ori r4, r4, 0
+      - [ be32, 0x0003d598, 0x3f100000 ] # letterbox table {0.475, 0.5625} (0x3d5a0): letterbox entry = 0.5625
+      - [ be32, 0x0003d5f0, 0x3f100000 ] # second table (0x3d6d0), same

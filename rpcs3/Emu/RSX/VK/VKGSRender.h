@@ -299,6 +299,10 @@ private:
 	bool vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo);
 	void vr_batch_flush();   // run any open batch now (ends the left pass if it is open)
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
+	// RPCS3_VR_RTDUMP: write both eyes' surfaces at these addresses (development).
+	void vr_rtdump(const std::vector<u32>& addresses, const std::string& tag);
+	u64 m_vr_rtdump_program = 0;            // "prog=<hash>" in the request: dump before this program's next draw
+	std::vector<u32> m_vr_rtdump_addresses;
 	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate);
 
 	sizeu m_swapchain_dims{};

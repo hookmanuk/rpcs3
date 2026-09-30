@@ -144,6 +144,11 @@ namespace rsx::vr
 		// where the profile lists overlapping bases and a HUD block can pass the
 		// perspective and rigid tests.
 		bool require_camera_aspect = false;
+		// Programs that index their constants (bone palettes) get the whole bank, so any slot of a camera
+		// block is found there: bones at c[3] in Dragon's Dogma's skinned programs looked like its static
+		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
+		// directly (the program's constant_ids), as the profile generator samples them.
+		bool camera_slots_read_directly = false;
 		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
@@ -422,6 +427,17 @@ namespace rsx::vr
 	// True while stereo is rendered and [start, end] overlaps the profile's occlusion_depth_readback.
 	bool occlusion_depth_readback(u32 start, u32 end);
 
+	// While alive, full-bank constant uploads (programs with indexed constants) expose only the slots
+	// in `ids` (the program's directly read constants) to camera block matching on this thread. Null or
+	// empty ids: no restriction. VKGSRender sets it per draw for profiles with camera_slots_read_directly.
+	struct full_bank_direct_slots
+	{
+		explicit full_bank_direct_slots(const std::vector<u16>* ids);
+		~full_bank_direct_slots();
+		full_bank_direct_slots(const full_bank_direct_slots&) = delete;
+		full_bank_direct_slots& operator=(const full_bank_direct_slots&) = delete;
+	};
+
 	class camera_probe
 	{
 	public:
@@ -433,6 +449,8 @@ namespace rsx::vr
 		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
+		// Probe gamecam=<hash>[+<hash>...]: these vertex programs keep the game camera in the right eye (development).
+		const std::vector<u64>& game_camera_programs() const { return m_game_camera_programs; }
 		// Probe "dev=<bits>": renderer switches for live A/B measurements (see their users). 0 unless set.
 		u32 dev_flags() const { return m_dev_flags; }
 		// Probe "unboxfp=<id>[+<id>...]": fragment program session ids (inspector fp_session_id) left out of the HUD box.
@@ -573,6 +591,7 @@ namespace rsx::vr
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
+		std::vector<u64> m_game_camera_programs;
 		u32 m_dev_flags = 0;
 		std::vector<u32> m_unbox_fp;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's

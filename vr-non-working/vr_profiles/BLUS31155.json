@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title_id": "BLUS31155",
+  "app_version": "01.02",
+  "name": "Dragon's Dogma: Dark Arisen",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [255, 3, 0, 258, 19],
+  "require_rigid_camera": true,
+  "nonrigid_camera_blocks": [255, 3],
+  "require_camera_aspect": true,
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 6.4
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0168849,
+    "convergence": 204.801,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 266
+  }
+}

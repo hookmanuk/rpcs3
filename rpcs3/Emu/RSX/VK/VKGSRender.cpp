@@ -1626,6 +1626,8 @@ void VKGSRender::clear_surface(u32 mask)
 		}
 	}
 
+	// The aspects this clear writes, for the right-eye mirror below (a partial stencil clear drops its bit here).
+	const VkImageAspectFlags vr_cleared_ds_aspects = static_cast<VkImageAspectFlags>(depth_stencil_mask);
 	if (depth_stencil_mask)
 	{
 		if ((depth_stencil_mask & VK_IMAGE_ASPECT_STENCIL_BIT) &&
@@ -1709,6 +1711,9 @@ void VKGSRender::clear_surface(u32 mask)
 			{
 				continue;
 			}
+			// Copy only the aspects this clear wrote. A stencil-only clear (Dragon's Dogma, before each light
+			// volume pass) must not copy the left eye's depth over the right eye's.
+			const VkImageAspectFlags aspects = is_color ? VkImageAspectFlags{0xFF} : (vr_cleared_ds_aspects ? vr_cleared_ds_aspects : VkImageAspectFlags{0xFF});
 			if (vr_right_clear)
 			{
 				// The cleared area is uniform: copy it into the right eye's own rectangle.
@@ -1721,11 +1726,11 @@ void VKGSRender::clear_surface(u32 mask)
 				if (w > 0 && hgt > 0)
 				{
 					vk::copy_image(*m_current_command_buffer, src, dst, areai{ rect.x1, rect.y1, rect.x1 + w, rect.y1 + hgt },
-						areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + w, dst_rect.y1 + hgt });
+						areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + w, dst_rect.y1 + hgt }, {}, aspects, aspects);
 				}
 				continue;
 			}
-			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect);
+			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect, {}, aspects, aspects);
 		}
 		m_vr_right_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
@@ -2791,7 +2796,14 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 
 	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
 	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();
-	const bool classified_world = rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
+	// Programs indexing a bone palette get the whole bank: match camera blocks on the slots they read directly.
+	const auto* vr_profile = rsx::vr::camera_probe::get().profile();
+	const rsx::vr::full_bank_direct_slots direct_slots(full_bank && m_vertex_prog && vr_profile && vr_profile->camera_slots_read_directly
+		? &m_vertex_prog->constant_ids : nullptr);
+	const auto& game_camera_programs = rsx::vr::camera_probe::get().game_camera_programs();
+	const bool keep_game_camera = !game_camera_programs.empty() && std::find(game_camera_programs.begin(), game_camera_programs.end(),
+		program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)) != game_camera_programs.end();
+	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;

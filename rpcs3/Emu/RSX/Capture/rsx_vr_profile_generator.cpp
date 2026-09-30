@@ -282,7 +282,7 @@ namespace rsx::vr
 	}
 
 	void profile_generator::record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures,
-		u32 target, u64 ucode)
+		u32 target, u64 ucode, bool indexed)
 	{
 		const auto& bank = rsx::method_registers.transform_constants;
 
@@ -291,6 +291,7 @@ namespace rsx::vr
 		s.width = surface_w;
 		s.height = surface_h;
 		s.full_bank = constant_ids.empty();
+		s.indexed = indexed;
 		s.depth_test = depth_test;
 		s.textures = static_cast<u8>(textures);
 		s.target = target;
@@ -1096,6 +1097,12 @@ namespace rsx::vr
 			json += fmt::format("  \"nonrigid_camera_blocks\": [%s],\n", nonrigid_text);
 		}
 		if (overlapping) json += "  \"require_camera_aspect\": true,\n";
+		// Indexed programs were sampled by the slots they read directly; the renderer gets their whole
+		// bank, where bone matrices can pass for a camera block (Dragon's Dogma: bones at c[3]).
+		if (std::any_of(samples.begin(), samples.end(), [](const draw_sample& s) { return s.indexed && !s.ids.empty(); }))
+		{
+			json += "  \"camera_slots_read_directly\": true,\n";
+		}
 		const f64 aspect_tolerance_out = camera_target_aspect_error > 0.019 ? std::ceil((camera_target_aspect_error + 0.005) * 100.0) / 100.0 : 0.02;
 		json += fmt::format("  \"output_aspect_tolerance\": %s,\n", fmt_number(aspect_tolerance_out));
 		if (clip_space_scene_draws) json += "  \"clip_space_scene_draws\": true,\n";

@@ -36,8 +36,10 @@ namespace rsx::vr
 		// means the program reads the whole bank (indexed constants). textures: what the
 		// fragment program samples (bit 0 ordinary textures, bit 1 colour render targets).
 		// target: colour address 0; ucode: the vertex program's ucode hash (profile hud_programs).
+		// indexed: the program indexes its constants (bone palettes); its constant_ids are then the
+		// slots it reads directly.
 		void record_draw(std::span<const u16> constant_ids, u32 program_id, u16 surface_w, u16 surface_h, bool depth_test, u32 textures,
-			u32 target, u64 ucode);
+			u32 target, u64 ucode, bool indexed);
 
 		// Frame boundary (game flips only).
 		void on_frame_end();
@@ -49,6 +51,7 @@ namespace rsx::vr
 			u16 width = 0;
 			u16 height = 0;
 			bool full_bank = false;
+			bool indexed = false;
 			bool depth_test = false;
 			u8 textures = 0;         // bit 0 ordinary textures, bit 1 colour render targets
 			u32 target = 0;          // colour address 0

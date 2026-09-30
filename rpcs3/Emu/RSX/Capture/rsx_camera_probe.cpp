@@ -107,6 +107,14 @@ namespace rsx::vr
 #endif
 		}
 
+		// The directly read slots of the current full-bank program (full_bank_direct_slots), or none.
+		struct direct_slot_filter
+		{
+			const std::vector<u16>* ids = nullptr;
+			std::array<bool, 468> read{};
+		};
+		thread_local direct_slot_filter t_direct_slots;
+
 		// Locate a guest constant slot inside the transient buffer.
 		// Returns nullptr when this program does not read that slot.
 		f32* find_slot(void* buffer, const u16* reloc, usz reloc_size, u32 guest_index)
@@ -117,6 +125,7 @@ namespace rsx::vr
 			{
 				// Full-bank upload: natural indexing.
 				if (guest_index >= 468) return nullptr;
+				if (t_direct_slots.ids && !t_direct_slots.read[guest_index]) return nullptr;
 				return reinterpret_cast<f32*>(base + guest_index * 16);
 			}
 
@@ -730,6 +739,10 @@ namespace rsx::vr
 		{
 			profile->require_camera_aspect = aspect == "true";
 		}
+		if (std::string direct; read(root, "camera_slots_read_directly", direct, false))
+		{
+			profile->camera_slots_read_directly = direct == "true";
+		}
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
@@ -884,7 +897,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1438,6 +1451,7 @@ namespace rsx::vr
 		m_have_stereo = false;
 		m_render_enabled = false;
 		m_hidden_programs.clear();
+		m_game_camera_programs.clear();
 		m_dev_flags = 0;
 		m_unbox_fp.clear();
 		m_render_camera_right = {};
@@ -1597,6 +1611,13 @@ namespace rsx::vr
 					start = plus == umax ? v.size() : plus + 1;
 				}
 			}
+			else if (k == "gamecam")
+			{
+				for (const auto& id : fmt::split(v, {"+"}))
+				{
+					m_game_camera_programs.push_back(std::strtoull(id.c_str(), nullptr, 16));
+				}
+			}
 			else if (k == "title") m_title = v;
 		}
 
@@ -1620,6 +1641,22 @@ namespace rsx::vr
 		vr_probe_log.success("Camera probe ARMED for title '%s': %s", m_title.empty() ? "(any profiled)" : m_title, cfg);
 		vr_probe_log.warning("This modifies the transient per-draw constant copy only. "
 			"Guest state is untouched.");
+	}
+
+	full_bank_direct_slots::full_bank_direct_slots(const std::vector<u16>* ids)
+	{
+		if (!ids || ids->empty()) return;
+		t_direct_slots.ids = ids;
+		t_direct_slots.read.fill(false);
+		for (u16 id : *ids)
+		{
+			if (id < 468) t_direct_slots.read[id] = true;
+		}
+	}
+
+	full_bank_direct_slots::~full_bank_direct_slots()
+	{
+		t_direct_slots.ids = nullptr;
 	}
 
 	bool camera_probe::apply_render_eye(void* buffer, const u16* reloc, usz reloc_size,

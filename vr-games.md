@@ -200,6 +200,7 @@ the source repository, with instructions for trying them.
 | Split/Second | BLUS30300 | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
 | God of War III | BCUS98111 | Early experimental profile. Not tested in a headset. |
 | MotorStorm: Pacific Rift | BCUS98155 | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
+| Dragon's Dogma: Dark Arisen | BLUS31155 | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. 90 FPS in stereo in the prologue; the open world is untested. NPC name tags stay in the HUD box. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | Work in progress: right-eye shadows can show red, some menu clipping, mirror crop, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
 
 ---
