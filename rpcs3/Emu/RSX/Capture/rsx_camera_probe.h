@@ -210,6 +210,8 @@ namespace rsx::vr
 		// sample the scene or a display buffer are passes. Gran Turismo 5 rasterises its glyphs into a
 		// 2048x1080 font atlas with the HUD's matrix (boxed, all text broke) and draws text from it.
 		bool screen_space_hud_display_buffers_only = false;
+		// A frame whose first write to a display buffer is a HUD-box draw: clear the shown region first (Killzone HD).
+		bool screen_space_clear_outside_box = false;
 		// The HUD box is applied to the vertex shader's output position instead of to the orthographic
 		// block, so varyings the shader derives from the projected position (Gran Turismo 5's text clip
 		// masks) stay with the geometry.
@@ -422,6 +424,8 @@ namespace rsx::vr
 		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
 		// anything the game parked outside its screen stays clipped. Call clear before each eye.
 		void clear_box_mapped() const { m_box_mapped = false; }
+		// The draw just bound (since clear_box_mapped) was mapped into the HUD box through its constants.
+		bool box_mapped() const { return m_box_mapped; }
 		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
 		bool scene_draws_by_clip_space() const;

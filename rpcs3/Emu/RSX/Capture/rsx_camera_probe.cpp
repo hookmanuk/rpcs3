@@ -563,6 +563,10 @@ namespace rsx::vr
 		{
 			profile->screen_space_hud_skips_passes = skips == "true";
 		}
+		if (std::string clear; read(screen_space, "clear_outside_box", clear, false))
+		{
+			profile->screen_space_clear_outside_box = clear == "true";
+		}
 		if (std::string only; read(screen_space, "hud_display_buffers_only", only, false))
 		{
 			profile->screen_space_hud_display_buffers_only = only == "true";
@@ -797,7 +801,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1955,7 +1959,10 @@ namespace rsx::vr
 		// c[256..259] as an orthographic pixel matrix, while every post-process
 		// pass (bloom chain, full-screen composite) reads no c[256..259] at all -
 		// so post-processing is never touched.
-		if (!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || profile.screen_space_block == umax ||
+		// The box needs only the headset view, not a game camera: requiring one (m_vr_proj_valid) left
+		// menus full-view until the game first drew 3D, and boxed after, so Killzone HD's main menu
+		// looked different from run to run depending on what had been drawn before it.
+		if (!m_vr_view || !m_vr_hmd_fov || profile.screen_space_block == umax ||
 			(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target) ||
 			(profile.screen_space_hud_display_buffers_only && !m_draw_into_display_buffer))
 		{

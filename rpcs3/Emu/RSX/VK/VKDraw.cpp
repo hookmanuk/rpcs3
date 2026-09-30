@@ -1310,7 +1310,11 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			}
 		}
 		probe.set_draw_into_display_buffer(display_target);
-		probe.set_draw_depth_test(rsx::method_registers.depth_test_enabled());
+		// Depth test that can reject something: a depth buffer bound and a compare other than ALWAYS.
+		// Killzone HD draws its menus with depth test on, no depth buffer and ALWAYS; taken as a real
+		// test, the HUD box kept their z while the head moved W, and text near the far plane was clipped.
+		probe.set_draw_depth_test(rsx::method_registers.depth_test_enabled() && m_framebuffer_layout.zeta_address &&
+			rsx::method_registers.depth_func() != rsx::comparison_function::always);
 	}
 	rsx::vr::camera_probe::get().clear_hud_env_request();
 	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
@@ -1399,19 +1403,33 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// turns. Before the first boxed draw into a display buffer that no pass or full clear covered
 	// this frame, clear the shown region in both eyes.
 	bool vr_clear_shown = false;
-	if (vr_render && m_framebuffer_layout.color_addresses[0] && m_framebuffer_layout.color_write_enabled[0] &&
-		vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height))
+	// The colour target this draw writes: the first of the surface target's set (Killzone HD draws into
+	// surface B, with A's write mask off; the framebuffer holds it as attachment 0 either way).
+	const auto vr_rtt_indexes = rsx::utility::get_rtt_indexes(m_framebuffer_layout.target);
+	const u8 vr_color_index = vr_rtt_indexes.empty() ? 0 : vr_rtt_indexes.front();
+	if (vr_render && !vr_rtt_indexes.empty() && m_framebuffer_layout.color_addresses[vr_color_index] && m_framebuffer_layout.color_write_enabled[vr_color_index] &&
+		vr_display_buffer(*this, m_framebuffer_layout.color_addresses[vr_color_index], m_framebuffer_layout.width, m_framebuffer_layout.height))
 	{
-		const u32 target = m_framebuffer_layout.color_addresses[0];
+		const u32 target = m_framebuffer_layout.color_addresses[vr_color_index];
 		if (std::find(m_vr_frame_covered.begin(), m_vr_frame_covered.end(), target) == m_vr_frame_covered.end())
 		{
-			if (rsx::vr::camera_probe::get().hud_env_requested())
+			// Boxed through the HUD-box constants (Killzone HD's menus): the game's own full-screen
+			// background is boxed too, so outside the box nothing is written, and its glow pass (which
+			// samples the whole display buffer and adds back onto it) fed on itself there up to white.
+			const auto& probe = rsx::vr::camera_probe::get();
+			const auto* profile = probe.profile();
+			const bool box_after_shader = profile && profile->screen_space_hud_box_after_shader;
+			const bool outside_box_clear = profile && profile->screen_space_clear_outside_box && !box_after_shader;
+			const bool boxed_by_constants = outside_box_clear && !vr_camera_draw && probe.box_mapped();
+			if (probe.hud_env_requested() || boxed_by_constants)
 			{
 				vr_clear_shown = true;
 				m_vr_frame_covered.push_back(target);
 			}
-			else if (vr_sampled_textures() & vr_texture_colour_target)
+			else if ((vr_sampled_textures() & vr_texture_colour_target) || outside_box_clear)
 			{
+				// A pass, or (outside Gran Turismo 5's after-shader mode) any unboxed draw such as a scene
+				// drawn straight into the display buffer: the buffer is this frame's, not to be cleared.
 				m_vr_frame_covered.push_back(target);
 			}
 		}
