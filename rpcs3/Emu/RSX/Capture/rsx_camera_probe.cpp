@@ -628,6 +628,29 @@ namespace rsx::vr
 				vr_probe_log.notice("VR profile: %s %s.", name.empty() ? program : name, hidden == "true" ? "hidden" : "shown");
 			}
 		}
+		if (const YAML::Node draws = child(screen_space, "scaled_draws"); draws && draws.IsSequence())
+		{
+			for (const YAML::Node& node : draws)
+			{
+				std::string program, texture, scale;
+				read(node, "program", program);
+				read(node, "texture", texture);
+				read(node, "scale", scale);
+				char* end = nullptr;
+				title_profile::scaled_draw draw{};
+				draw.program = std::strtoull(program.c_str(), &end, 16);
+				u32 w = 0, h = 0;
+				draw.scale = static_cast<f32>(std::atof(scale.c_str()));
+				if (program.empty() || !end || *end || std::sscanf(texture.c_str(), "%ux%u", &w, &h) != 2 || !(draw.scale > 0.f && draw.scale <= 10.f))
+				{
+					fail("screen_space.scaled_draws: expected {\"program\": \"<vertex ucode hash>\", \"texture\": \"<width>x<height>\", \"scale\": <0-10>}");
+					continue;
+				}
+				draw.width = static_cast<u16>(w);
+				draw.height = static_cast<u16>(h);
+				profile->screen_space_scaled_draws.push_back(draw);
+			}
+		}
 		if (const YAML::Node draws = child(screen_space, "unboxed_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -857,7 +880,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "scaled_draws" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1994,6 +2017,11 @@ namespace rsx::vr
 		f32 hud_offset_x, f32 hud_offset_y, f32 hud_depth, f32 ipd)
 	{
 		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
+		if (static std::pair<f32, f32> s_logged{ -1.f, -1.f }; std::fabs(s_logged.first - hud_depth) > 1e-3f || std::fabs(s_logged.second - ipd) > 1e-4f)
+		{
+			s_logged = { hud_depth, ipd };
+			vr_probe_log.notice("VR: HUD box at %.2f m, IPD %.1f mm (HUD parallax %.4f per eye).", hud_depth, ipd * 1000.f, m_vr_hud_parallax);
+		}
 		m_vr_hud_depth = hud_depth;
 		// Only a usable frustum counts: the HUD box divides by its width and height. Boxing from the first
 		// frame (not after the game's first camera draw) reached frames drawn before the headset had reported
@@ -2108,6 +2136,15 @@ namespace rsx::vr
 			return;
 		}
 
+		if (m_draw_hud_scale != 1.f)
+		{
+			// Resize about the game screen's centre (NDC origin): scale clip x and y.
+			for (u32 r = 0; r < 4; ++r)
+			{
+				block.rows[r][0] *= m_draw_hud_scale;
+				block.rows[r][1] *= m_draw_hud_scale;
+			}
+		}
 		map_vr_screen_box(block.rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
 	}
 

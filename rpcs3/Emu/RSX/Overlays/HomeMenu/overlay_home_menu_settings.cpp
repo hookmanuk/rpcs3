@@ -214,6 +214,7 @@ namespace rsx
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
+			add_unsigned_slider(&g_cfg.video.vr.hud_depth, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_DEPTH, " cm", 25);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_x, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X, " %", 1);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);
 			add_unsigned_slider(&g_cfg.video.vr.screen_depth, localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH, " %", 5);

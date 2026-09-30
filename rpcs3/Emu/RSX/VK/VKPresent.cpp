@@ -1347,15 +1347,16 @@ void VKGSRender::vr_update_view()
 	}
 	m_vr_video_on_screen = no_3d;
 	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
-	// HUD stereo distance, and the fixed screen's distance (metres).
-	constexpr f32 vr_hud_distance = 2.f;
+	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
+	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
+	const f32 vr_hud_distance = g_cfg.video.vr.hud_depth.get() / 100.f;
 	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
 		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
 	const bool located = pose != 0;
 	m_vr_applied_pose = 0;
 
 	// The HUD box: the game's output aspect, fitted in the central symmetric part of
-	// both eyes' views, scaled by the HUD settings, at 2 m. The fixed screen and
+	// both eyes' views, scaled by the HUD settings, at the HUD Depth. The fixed screen and
 	// RPCS3's overlays use it.
 	const size2u output_size = g_fxo->get<rsx::avconf>().video_frame_size();
 	const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;

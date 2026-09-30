@@ -1299,6 +1299,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	{
 		auto& probe = rsx::vr::camera_probe::get();
 		probe.set_draw_samples_colour_target((vr_sampled_textures() & vr_texture_colour_target) || vr_unboxed_draw());
+		probe.set_draw_hud_scale(vr_hud_draw_scale());
 		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
 		// screen too: Gran Turismo 5 masks its track map with one.
 		bool display_target = vr_display_buffer(*this, m_framebuffer_layout.color_addresses[0], m_framebuffer_layout.width, m_framebuffer_layout.height);
@@ -2448,6 +2449,38 @@ bool VKGSRender::vr_is_passthrough_hud()
 
 // Profile screen_space.unboxed_draws (vertex program ucode hash + texture 0 size), or the dev probe key
 // unboxfp=<fragment program session id>, which also logs the draw's vertex program hash and texture size.
+// Profile screen_space.scaled_draws: the size factor for this draw (1 = none).
+f32 VKGSRender::vr_hud_draw_scale()
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->screen_space_scaled_draws.empty() || !m_vertex_prog)
+	{
+		return 1.f;
+	}
+	const auto& tex = rsx::method_registers.fragment_textures[0];
+	const u16 width = tex.enabled() ? tex.width() : 0;
+	const u16 height = tex.enabled() ? tex.height() : 0;
+	const auto& list = profile->screen_space_scaled_draws;
+	if (std::none_of(list.begin(), list.end(), [&](const auto& d) { return d.width == width && d.height == height; }))
+	{
+		return 1.f;
+	}
+	static std::unordered_map<u32, u64> s_hashes; // vertex program session id -> ucode hash
+	auto [it, added] = s_hashes.try_emplace(m_vertex_prog->id, 0);
+	if (added)
+	{
+		it->second = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	}
+	for (const auto& d : list)
+	{
+		if (d.program == it->second && d.width == width && d.height == height)
+		{
+			return d.scale;
+		}
+	}
+	return 1.f;
+}
+
 bool VKGSRender::vr_unboxed_draw()
 {
 	auto& probe = rsx::vr::camera_probe::get();

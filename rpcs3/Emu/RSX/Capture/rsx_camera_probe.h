@@ -233,6 +233,10 @@ namespace rsx::vr
 		// Draws skipped entirely while VR is enabled, same match as unboxed_draws; each entry has a name and an
 		// on/off flag ("hidden") so a player can switch an effect back on (Killzone HD: film grain).
 		std::vector<unboxed_draw> hidden_draws;
+		// HUD draws resized about the game screen's centre before the HUD box (same match as unboxed_draws).
+		// Killzone HD's aiming reticule filled much of the headset view: 0.25.
+		struct scaled_draw { u64 program = 0; u16 width = 0; u16 height = 0; f32 scale = 1.f; };
+		std::vector<scaled_draw> screen_space_scaled_draws;
 		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
 		// lays its HUD out in 1920x1080 units and clears and fades the screen in 1280x720 pixels. Boxed,
 		// the fills left trails around the box and broke the menu text.
@@ -436,6 +440,8 @@ namespace rsx::vr
 		void clear_hud_env_request() const { m_hud_env_request = false; }
 		// The draw about to be bound has depth test enabled.
 		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }
+		// Profile screen_space.scaled_draws: this draw's size factor in the HUD box (1 = as drawn).
+		void set_draw_hud_scale(f32 v) const { m_draw_hud_scale = v; }
 		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
 		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
 		// anything the game parked outside its screen stays clipped. Call clear before each eye.
@@ -565,6 +571,7 @@ namespace rsx::vr
 		mutable bool m_draw_into_display_buffer = true;
 		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
+		mutable f32 m_draw_hud_scale = 1.f;
 		mutable bool m_box_mapped = false;
 		mutable bool m_box_identity_pass = false;
 		mutable f32 m_box_map[4][4] = {};
