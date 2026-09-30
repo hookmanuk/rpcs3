@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "title_id": "BLUS31006",
+  "app_version": "01.00",
+  "name": "Tales of Xillia",
+  "max_fps": 60,
+  "default_fps": 60,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0, 47],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 3.20002
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0169749,
+    "convergence": 128.001,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 0,
+    "hud_skips_passes": true
+  }
+}
