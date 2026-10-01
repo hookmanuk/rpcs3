@@ -53,6 +53,7 @@
   },
 
   "screen_space": {
+    "frames_without_3d_as_screen": false,
     "passthrough_hud": true,
     "hud_programs": ["f78118c010d9eba2"],
     "bare_projection": false

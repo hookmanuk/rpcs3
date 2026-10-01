@@ -27,6 +27,7 @@
 #include "../Program/SPIRVCommon.h"
 
 #include "util/asm.hpp"
+#include "util/sysinfo.hpp"
 #include <vulkan/vulkan_core.h>
 
 namespace vk
@@ -1442,6 +1443,17 @@ void VKGSRender::clear_surface(u32 mask)
 	//clip region
 	std::tie(scissor_x, scissor_y, scissor_w, scissor_h) = rsx::clip_region<u16>(fb_width, fb_height, scissor_x, scissor_y, scissor_w, scissor_h, true);
 	const bool full_frame = (scissor_w == fb_width && scissor_h == fb_height);
+	// VR: a full colour clear starts the target over, without 3D content (see vr_has_3d).
+	if (full_frame && (mask & RSX_GCM_CLEAR_COLOR_RGBA_MASK))
+	{
+		for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+		{
+			if (auto* surface = std::get<1>(m_rtts.m_bound_render_targets[index]))
+			{
+				surface->vr_has_3d = false;
+			}
+		}
+	}
 	// Sub-viewport clears moved into the HUD box: the right eye's rectangle (same size, shifted).
 	std::optional<areai> vr_right_clear;
 	if (!full_frame && rsx::vr::camera_probe::get().render_enabled())
@@ -2807,7 +2819,28 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	static thread_local std::vector<u8> scratch;
 	scratch.resize(size);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
-	m_draw_processor.fill_vertex_program_constants_data(scratch.data(), constant_ids);
+	// Ordinary stores, as fill_vertex_program_constants_data would but without its non-temporal (streaming)
+	// stores, which suit the write-combined ring: the camera classification reads this buffer right back,
+	// and reading streamed data stalled on memory (~5% of the RSX thread in Ratchet & Clank).
+	const auto& guest_constants = rsx::method_registers.transform_constants;
+	if (constant_ids.empty())
+	{
+		std::memcpy(scratch.data(), guest_constants.data(), 468 * 16);
+	}
+	else
+	{
+		u8* dst = scratch.data();
+		for (const u16 index : constant_ids)
+		{
+			std::memcpy(dst, &guest_constants[index], 16);
+			dst += 16;
+		}
+	}
+	if (const auto& probe = rsx::vr::camera_probe::get(); probe.enabled())
+	{
+		probe.apply(scratch.data(), constant_ids.data(), constant_ids.size(), guest_constants.data(),
+			rsx::method_registers.surface_clip_width(), rsx::method_registers.surface_clip_height());
+	}
 	scale_offset_constants(scratch.data(), constant_ids);
 	lap(0);
 
@@ -2823,7 +2856,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	bool keep_game_camera = false;
 	if (!probe_game_camera.empty() || !probe_game_camera_nocolor.empty() || (vr_profile && !vr_profile->game_camera_programs.empty()))
 	{
-		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		const u64 hash = vr_vertex_program_hash();
 		const bool no_colour = std::none_of(std::begin(m_framebuffer_layout.color_write_enabled), std::end(m_framebuffer_layout.color_write_enabled), [](bool b) { return b; }) ||
 			!rsx::method_registers.color_write_enabled(0);
 		keep_game_camera = std::find(probe_game_camera.begin(), probe_game_camera.end(), hash) != probe_game_camera.end() ||
@@ -3802,6 +3835,10 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src_in, cons
 			{
 				to->vr_pose = from->vr_pose;
 			}
+			if (from && to && from->vr_has_3d)
+			{
+				to->vr_has_3d = true;
+			}
 		}
 		m_current_command_buffer->set_flag(vk::command_buffer::cb_has_blit_transfer);
 
@@ -3905,7 +3942,7 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 		for (const auto occlusion_id : data.indices)
 		{
 			query->result += m_occlusion_query_manager->get_query_result(occlusion_id);
-			if (query->result && !g_cfg.video.precise_zpass_count)
+			if (query->result && !rsx::reports::precise_zpass_count())
 			{
 				// We only need one hit unless precise zcull is requested
 				break;
@@ -4333,12 +4370,12 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 	m_gpuprof_rsx_us[4] += m_frame_stats.flip_time;
 #ifdef _WIN32
 	{
-		FILETIME ctime, etime, ktime, utime;
-		if (GetThreadTimes(GetCurrentThread(), &ctime, &etime, &ktime, &utime))
+		// Cycle-exact (GetThreadTimes is tick-sampled and undercounted the RSX thread by more than half).
+		ULONG64 cycles = 0;
+		if (const u64 tsc = utils::get_tsc_freq(); tsc && QueryThreadCycleTime(GetCurrentThread(), &cycles))
 		{
-			const u64 t = ((ktime.dwLowDateTime | static_cast<u64>(ktime.dwHighDateTime) << 32) + (utime.dwLowDateTime | static_cast<u64>(utime.dwHighDateTime) << 32));
-			if (m_gpuprof_cpu_last) m_gpuprof_cpu_ms += (t - m_gpuprof_cpu_last) / 10000.;
-			m_gpuprof_cpu_last = t;
+			if (m_gpuprof_cpu_last) m_gpuprof_cpu_ms += static_cast<f64>(cycles - m_gpuprof_cpu_last) * 1000. / static_cast<f64>(tsc);
+			m_gpuprof_cpu_last = cycles;
 		}
 	}
 #endif

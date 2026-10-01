@@ -29,6 +29,10 @@ namespace rsx
 
 	namespace reports
 	{
+		// Exact occlusion counts (ZCULL Accuracy "Precise"): the setting, unless the VR profile asks for approximate
+		// reports while VR renders (zcull_approximate).
+		bool precise_zpass_count();
+
 		struct occlusion_query_info
 		{
 			u32 driver_handle;

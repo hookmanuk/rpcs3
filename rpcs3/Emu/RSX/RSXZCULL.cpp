@@ -3,11 +3,23 @@
 #include "Core/RSXReservationLock.hpp"
 #include "Host/MM.h"
 #include "RSXThread.h"
+#include "Capture/rsx_camera_probe.h"
 
 namespace rsx
 {
 	namespace reports
 	{
+		bool precise_zpass_count()
+		{
+			if (!g_cfg.video.precise_zpass_count)
+			{
+				return false;
+			}
+			const auto& probe = rsx::vr::camera_probe::get();
+			const auto* profile = probe.profile();
+			return !(profile && profile->zcull_approximate && probe.render_enabled());
+		}
+
 		ZCULL_control::ZCULL_control()
 		{
 			for (auto& query : m_occlusion_query_data)
@@ -350,7 +362,7 @@ namespace rsx
 			case CELL_GCM_ZPASS_PIXEL_CNT:
 				if (value)
 				{
-					value = (g_cfg.video.precise_zpass_count) ?
+					value = (precise_zpass_count()) ?
 						scale_result(value) :
 						u16{ umax };
 				}
@@ -467,7 +479,7 @@ namespace rsx
 					ensure(query->pending);
 
 					const bool implemented = (writer.type == CELL_GCM_ZPASS_PIXEL_CNT || writer.type == CELL_GCM_ZCULL_STATS3);
-					const bool have_result = counter.result && !g_cfg.video.precise_zpass_count;
+					const bool have_result = counter.result && !precise_zpass_count();
 
 					if (implemented && !have_result && query->num_draws)
 					{
@@ -607,7 +619,7 @@ namespace rsx
 					ensure(query->pending);
 
 					const bool implemented = (writer.type == CELL_GCM_ZPASS_PIXEL_CNT || writer.type == CELL_GCM_ZCULL_STATS3);
-					const bool have_result = counter.result && !g_cfg.video.precise_zpass_count;
+					const bool have_result = counter.result && !precise_zpass_count();
 
 					if (!implemented || !query->num_draws || have_result)
 					{

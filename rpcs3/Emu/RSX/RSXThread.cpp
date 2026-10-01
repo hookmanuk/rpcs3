@@ -33,6 +33,7 @@
 #include "Utilities/date_time.h"
 
 #include "util/asm.hpp"
+#include "util/sysinfo.hpp"
 
 #include <span>
 #include <thread>
@@ -54,6 +55,239 @@ extern thread_local std::string(*g_tls_log_prefix)();
 extern atomic_t<u32> g_lv2_preempts_taken;
 
 LOG_CHANNEL(perf_log, "PERF");
+
+#ifdef _WIN32
+#include "Utilities/stack_trace.h"
+#include <DbgHelp.h>
+
+namespace
+{
+	// VR fork dev hook: RPCS3_RSX_SAMPLE=1 samples the RSX thread's host call stack every millisecond and logs,
+	// every RPCS3_STATS_PERIOD_MS (default 5000), the functions with the most samples: self (the leaf) and
+	// inclusive (anywhere on the stack). Names come from rpcs3.pdb. Started from the RSX thread itself.
+	void start_rsx_host_sampler()
+	{
+		if (!std::getenv("RPCS3_RSX_SAMPLE"))
+		{
+			return;
+		}
+
+		HANDLE target{};
+		if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(), GetCurrentProcess(), &target,
+			THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, 0))
+		{
+			return;
+		}
+
+		std::thread([target]()
+		{
+			constexpr usz max_depth = 64;
+			const char* period_env = std::getenv("RPCS3_STATS_PERIOD_MS");
+			const auto period = std::chrono::milliseconds(period_env ? std::max(100, std::atoi(period_env)) : 5000);
+			std::unordered_map<u64, u32> self_hits, incl_hits;
+			// RPCS3_RSX_SAMPLE=2: also the most frequent stacks (leaf and its 7 callers).
+			const bool with_stacks = std::atoi(std::getenv("RPCS3_RSX_SAMPLE")) >= 2;
+			std::map<std::array<u64, 8>, u32> stack_hits;
+			// RPCS3_RSX_SAMPLE=3: also self samples by source line (the leaf's instruction address).
+			const bool with_lines = std::atoi(std::getenv("RPCS3_RSX_SAMPLE")) >= 3;
+			std::unordered_map<u64, u32> line_hits;
+			u32 samples = 0;
+			auto last = std::chrono::steady_clock::now();
+
+			while (!Emu.IsStopped())
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+				// Nothing may allocate while the thread is suspended (it could hold the heap lock).
+				u64 funcs[max_depth];
+				usz depth = 0;
+				u64 leaf_rip = 0;
+				if (SuspendThread(target) == static_cast<DWORD>(-1))
+				{
+					break;
+				}
+				CONTEXT ctx{};
+				ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+				if (GetThreadContext(target, &ctx))
+				{
+					leaf_rip = ctx.Rip;
+					u32 misses = 0;
+					while (depth < max_depth && ctx.Rip)
+					{
+						DWORD64 image = 0;
+						if (const auto entry = RtlLookupFunctionEntry(ctx.Rip, &image, nullptr))
+						{
+							misses = 0;
+							funcs[depth++] = image + entry->BeginAddress;
+							void* handler_data{};
+							DWORD64 establisher{};
+							RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, ctx.Rip, entry, &ctx, &handler_data, &establisher, nullptr);
+						}
+						else
+						{
+							// A leaf without unwind data: its return address is at [rsp].
+							funcs[depth++] = ctx.Rip | (1ull << 63);
+							if (++misses > 1)
+							{
+								break;
+							}
+							ctx.Rip = *reinterpret_cast<const u64*>(ctx.Rsp);
+							ctx.Rsp += 8;
+						}
+					}
+				}
+				ResumeThread(target);
+
+				if (!depth)
+				{
+					continue;
+				}
+				samples++;
+				self_hits[funcs[0]]++;
+				if (with_lines)
+				{
+					line_hits[leaf_rip]++;
+				}
+				if (with_stacks)
+				{
+					std::array<u64, 8> key{};
+					std::copy_n(funcs, std::min<usz>(depth, key.size()), key.begin());
+					stack_hits[key]++;
+				}
+				for (usz i = 0; i < depth; i++)
+				{
+					if (std::find(funcs, funcs + i, funcs[i]) == funcs + i)
+					{
+						incl_hits[funcs[i]]++;
+					}
+				}
+
+				if (const auto now = std::chrono::steady_clock::now(); now - last >= period)
+				{
+					const auto top = [&](const std::unordered_map<u64, u32>& hits, usz count)
+					{
+						std::vector<std::pair<u64, u32>> sorted(hits.begin(), hits.end());
+						std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+						sorted.resize(std::min(sorted.size(), count));
+						std::vector<void*> addrs;
+						for (const auto& s : sorted)
+						{
+							addrs.push_back(reinterpret_cast<void*>(s.first & ~(1ull << 63)));
+						}
+						const auto names = utils::get_backtrace_symbols(addrs);
+						std::string text;
+						for (usz i = 0; i < sorted.size(); i++)
+						{
+							std::string name = i < names.size() ? names[i] : std::string("?");
+							// "path\file.cpp:line function" -> "file.cpp:line function"
+							if (const usz slash = name.find_last_of("\\/", name.find(' ')); slash != umax)
+							{
+								name = name.substr(slash + 1);
+							}
+							fmt::append(text, "\n   %5.1f%% %s%s", sorted[i].second * 100. / samples, (sorted[i].first >> 63) ? "(no unwind) " : "", name);
+						}
+						return text;
+					};
+					std::string stacks;
+					if (with_stacks)
+					{
+						std::vector<std::pair<std::array<u64, 8>, u32>> sorted(stack_hits.begin(), stack_hits.end());
+						std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+						sorted.resize(std::min<usz>(sorted.size(), 40));
+						for (const auto& [key, count] : sorted)
+						{
+							std::vector<void*> addrs;
+							for (const u64 f : key)
+							{
+								if (f) addrs.push_back(reinterpret_cast<void*>(f & ~(1ull << 63)));
+							}
+							std::string line;
+							for (std::string name : utils::get_backtrace_symbols(addrs))
+							{
+								// Function name only: "path:line name" -> "name", template arguments dropped.
+								for (usz i = 0; i + 1 < name.size(); i++)
+								{
+									if (name[i] != ':' || !std::isdigit(static_cast<u8>(name[i + 1]))) continue;
+									usz j = i + 1;
+									while (j < name.size() && std::isdigit(static_cast<u8>(name[j]))) j++;
+									if (j < name.size() && name[j] == ' ')
+									{
+										name = name.substr(j + 1);
+										break;
+									}
+								}
+								if (const usz angle = name.find('<'); angle != umax) name.resize(angle);
+								fmt::append(line, "%s%s", line.empty() ? "" : " < ", name);
+							}
+							fmt::append(stacks, "\n   %5.1f%% %s", count * 100. / samples, line);
+						}
+						stack_hits.clear();
+					}
+					std::string lines;
+					if (with_lines)
+					{
+						// Instruction addresses -> "file:line function", merged per line.
+						std::vector<void*> addrs;
+						std::vector<u32> counts;
+						for (const auto& [rip, count] : line_hits)
+						{
+							addrs.push_back(reinterpret_cast<void*>(rip));
+							counts.push_back(count);
+						}
+						// The innermost inlined frame of each address (DbgHelp inline trace): "file:line function".
+						utils::get_backtrace_symbols({}); // initialises DbgHelp
+						const HANDLE process = GetCurrentProcess();
+						std::vector<u8> symbol_buf(sizeof(SYMBOL_INFO) + 256);
+						auto* const sym = reinterpret_cast<SYMBOL_INFO*>(symbol_buf.data());
+						std::unordered_map<std::string, u32> by_line;
+						for (usz i = 0; i < addrs.size(); i++)
+						{
+							const DWORD64 addr = reinterpret_cast<DWORD64>(addrs[i]);
+							std::memset(symbol_buf.data(), 0, symbol_buf.size());
+							sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+							sym->MaxNameLen = 255;
+							IMAGEHLP_LINE64 line{};
+							line.SizeOfStruct = sizeof(line);
+							DWORD64 disp64 = 0;
+							DWORD disp32 = 0;
+							DWORD context = 0, frame_index = 0;
+							bool named = false, lined = false;
+							if (SymAddrIncludeInlineTrace(process, addr) && SymQueryInlineTrace(process, addr, 0, addr, addr, &context, &frame_index))
+							{
+								named = SymFromInlineContext(process, addr, context, &disp64, sym);
+								lined = SymGetLineFromInlineContext(process, addr, context, 0, &disp32, &line);
+							}
+							if (!named) named = SymFromAddr(process, addr, &disp64, sym);
+							if (!lined) lined = SymGetLineFromAddr64(process, addr, &disp32, &line);
+							std::string file = lined && line.FileName ? std::string(line.FileName) : std::string("?");
+							if (const usz slash = file.find_last_of("\\/"); slash != umax) file = file.substr(slash + 1);
+							std::string name = fmt::format("%s:%u %s", file, lined ? line.LineNumber : 0, named ? std::string(sym->Name, sym->NameLen) : std::string("?"));
+							if (name.size() > 110) name.resize(110);
+							by_line[name] += counts[i];
+						}
+						std::vector<std::pair<std::string, u32>> sorted(by_line.begin(), by_line.end());
+						std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+						sorted.resize(std::min<usz>(sorted.size(), 50));
+						for (const auto& [name, count] : sorted)
+						{
+							fmt::append(lines, "\n   %5.1f%% %s", count * 100. / samples, name);
+						}
+						line_hits.clear();
+					}
+					rsx_log.success("RSX host samples over %.1f s (%u samples)\n  self:%s\n  inclusive:%s%s%s%s%s",
+						std::chrono::duration<f64>(now - last).count(), samples, top(self_hits, 40), top(incl_hits, 60),
+						stacks.empty() ? "" : "\n  stacks:", stacks, lines.empty() ? "" : "\n  lines:", lines);
+					self_hits.clear();
+					incl_hits.clear();
+					samples = 0;
+					last = now;
+				}
+			}
+			CloseHandle(target);
+		}).detach();
+	}
+}
+#endif
 
 template <>
 bool serialize<rsx::rsx_state>(utils::serial& ar, rsx::rsx_state& o)
@@ -1093,6 +1327,11 @@ namespace rsx
 
 		is_initialized = true;
 		is_initialized.notify_all();
+
+#ifdef _WIN32
+		static std::once_flag s_sampler_started;
+		std::call_once(s_sampler_started, start_rsx_host_sampler);
+#endif
 
 		if (!zcull_ctrl)
 		{
@@ -3396,6 +3635,16 @@ namespace rsx
 		rsx::vr::update_game_refresh_rate();
 		rsx::vr::profile_generator::get().on_frame_end();
 
+		// The dev trigger files below are checked at most every 100 ms: a file stat per frame each cost ~1% of
+		// the RSX thread in test runs (they are only checked when their variables are set).
+		static u64 s_dev_poll_us = 0;
+		const u64 dev_now_us = get_system_time();
+		const bool dev_poll = dev_now_us - s_dev_poll_us >= 100'000;
+		if (dev_poll)
+		{
+			s_dev_poll_us = dev_now_us;
+		}
+
 		// VR fork dev hook: RPCS3_VR_SHOT=<file>; creating the file takes a screenshot
 		// (consumed), for scripted runs where the desktop cannot be captured.
 		static const std::string s_shot_trigger = []() -> std::string
@@ -3403,7 +3652,7 @@ namespace rsx
 			const char* v = std::getenv("RPCS3_VR_SHOT");
 			return v ? v : "";
 		}();
-		if (!s_shot_trigger.empty() && fs::is_file(s_shot_trigger) && fs::remove_file(s_shot_trigger))
+		if (dev_poll && !s_shot_trigger.empty() && fs::is_file(s_shot_trigger) && fs::remove_file(s_shot_trigger))
 		{
 			g_user_asked_for_screenshot = true;
 		}
@@ -3416,7 +3665,7 @@ namespace rsx
 			const char* v = std::getenv("RPCS3_VR_MEMDUMP");
 			return v ? v : "";
 		}();
-		if (!s_dump_trigger.empty() && fs::is_file(s_dump_trigger) && fs::remove_file(s_dump_trigger))
+		if (dev_poll && !s_dump_trigger.empty() && fs::is_file(s_dump_trigger) && fs::remove_file(s_dump_trigger))
 		{
 			static u32 s_dump_index = 0;
 			const std::string base = fmt::format("%s.%u", s_dump_trigger, s_dump_index++);
@@ -3487,7 +3736,7 @@ namespace rsx
 			const char* v = std::getenv("RPCS3_VR_POKE");
 			return v ? v : "";
 		}();
-		if (!s_poke_trigger.empty() && fs::is_file(s_poke_trigger))
+		if (dev_poll && !s_poke_trigger.empty() && fs::is_file(s_poke_trigger))
 		{
 			std::string spec;
 			if (fs::file f{s_poke_trigger}; f)
@@ -3533,7 +3782,7 @@ namespace rsx
 			const char* v = std::getenv("RPCS3_PPU_WATCH_FILE");
 			return v ? v : "";
 		}();
-		if (!s_watch_trigger.empty() && fs::is_file(s_watch_trigger))
+		if (dev_poll && !s_watch_trigger.empty() && fs::is_file(s_watch_trigger))
 		{
 			std::string spec;
 			if (fs::file f{s_watch_trigger}; f)
@@ -3743,6 +3992,20 @@ namespace rsx
 		{
 			static std::vector<f32> s_times;
 			static u64 s_last = 0, s_start = 0;
+			// The RSX thread's CPU time per frame (Windows): an A/B measure of its per-draw cost at a fixed rate.
+			const auto rsx_cpu_us = []() -> u64
+			{
+#ifdef _WIN32
+				// Cycle-exact (GetThreadTimes is tick-sampled), at the TSC rate.
+				ULONG64 cycles = 0;
+				if (static const u64 s_tsc = utils::get_tsc_freq(); s_tsc && QueryThreadCycleTime(GetCurrentThread(), &cycles))
+				{
+					return static_cast<u64>(static_cast<f64>(cycles) * 1e6 / static_cast<f64>(s_tsc));
+				}
+#endif
+				return 0;
+			};
+			static u64 s_cpu_start = 0;
 			const u64 now = get_system_time();
 			if (s_last)
 			{
@@ -3751,6 +4014,7 @@ namespace rsx
 			else
 			{
 				s_start = now;
+				s_cpu_start = rsx_cpu_us();
 			}
 			s_last = now;
 			if (now - s_start >= s_window * 1'000'000ull && s_times.size() >= 10)
@@ -3764,10 +4028,13 @@ namespace rsx
 				// Missed frames: longer than 1.5x the median frame time (at a fixed rate the median is the frame period).
 				const f32 median = sorted[sorted.size() / 2];
 				const usz late = static_cast<usz>(sorted.end() - std::upper_bound(sorted.begin(), sorted.end(), median * 1.5f));
-				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%",
-					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size());
+				const u64 cpu = rsx_cpu_us();
+				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%, RSX thread %.2f ms/frame",
+					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size(),
+					(cpu - s_cpu_start) / 1000. / sorted.size());
 				s_times.clear();
 				s_start = now;
+				s_cpu_start = cpu;
 			}
 		}
 

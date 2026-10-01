@@ -466,7 +466,14 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	{
 		m_vr_rtdump_armed = true;
 	}
-	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
+	// Checked at most every 100 ms (a file stat per frame cost ~3% of the RSX thread in test runs).
+	static u64 s_rtdump_poll_us = 0;
+	const bool rtdump_poll = !s_rtdump.empty() && get_system_time() - s_rtdump_poll_us >= 100'000;
+	if (rtdump_poll)
+	{
+		s_rtdump_poll_us = get_system_time();
+	}
+	if (rtdump_poll && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
 	{
 		std::string request;
 		if (fs::file f{s_rtdump}) request = f.to_string();
@@ -835,6 +842,17 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		// nothing, so the pose waits for the next game flip. Games whose frames end in
 		// a display buffer take it at the frame boundary instead (prepare_rtts); the
 		// flip falls back to it if no boundary has been seen for two flips.
+		if (info.emu_flip && info.buffer < display_buffers_count)
+		{
+			// Whether the frame just shown holds 3D content (vr_has_3d). A buffer the CPU wrote has no surface.
+			const auto* shown = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
+			m_vr_flip_has_3d = shown && shown->vr_has_3d;
+		}
+		else if (vr_video_refresh)
+		{
+			// Re-shown without game flips for 200 ms: a video decoded into the display buffer (or a stall).
+			m_vr_flip_has_3d = false;
+		}
 		if (vr_video_refresh || (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2)))
 		{
 			vr_update_view();
@@ -1349,9 +1367,13 @@ void VKGSRender::vr_update_view()
 	// instead of stretched over the whole view. Back to the headset view on the first
 	// frame with a camera draw (that frame is still shown as the screen).
 	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
+	m_vr_frames_2d = m_vr_camera_draws || m_vr_flip_has_3d ? 0 : m_vr_frames_2d + 1;
 	m_vr_camera_draws = 0;
 	const auto* no_3d_profile = probe.profile();
-	const bool no_3d = m_vr_frames_without_camera >= 3 && no_3d_profile && no_3d_profile->screen_space_frames_without_3d_as_screen;
+	using frames_without_3d_mode = rsx::vr::title_profile::frames_without_3d_mode;
+	const auto no_3d_mode = no_3d_profile ? no_3d_profile->screen_space_frames_without_3d_as_screen : frames_without_3d_mode::never;
+	const bool no_3d = no_3d_mode == frames_without_3d_mode::always ? m_vr_frames_without_camera >= 3 :
+		no_3d_mode == frames_without_3d_mode::automatic && m_vr_frames_2d >= 3;
 	if (static bool s_no_3d = false; no_3d != s_no_3d)
 	{
 		s_no_3d = no_3d;

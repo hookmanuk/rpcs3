@@ -8,6 +8,7 @@
 #include "Emu/system_config.h"
 #include "Utilities/File.h"
 #include "Emu/IdManager.h"
+#include "Emu/Cell/timers.hpp"
 #include "Emu/RSX/Utils/rsx_utils.h"
 #include "Emu/RSX/rsx_methods.h"
 
@@ -130,55 +131,13 @@ namespace rsx::vr
 			}
 
 			if (guest_index >= 468) return nullptr;
-			if (reloc_size <= 16)
-			{
-				for (usz i = 0; i < reloc_size; ++i)
-				{
-					if (reloc[i] == guest_index)
-					{
-						return reinterpret_cast<f32*>(base + i * 16);
-					}
-				}
-				return nullptr;
-			}
 
-			// Larger programs (skinned meshes with bone palettes) were scanned linearly for every slot of
-			// every candidate block, per draw and eye: ~7% of the RSX thread in MotorStorm: Pacific Rift.
-			// Keep a slot -> index table per relocation table (a program's constant_ids, stable while the
-			// program lives), a few most recent ones.
-			struct slot_table
-			{
-				const u16* reloc = nullptr;
-				usz size = 0;
-				u16 first = 0, last = 0; // first and last entries, in case the storage was reused by another program
-				std::array<u16, 468> index;
-			};
-			static thread_local std::array<slot_table, 8> s_tables{};
-			static thread_local u32 s_next = 0;
-			slot_table* table = nullptr;
-			for (auto& t : s_tables)
-			{
-				if (t.reloc == reloc && t.size == reloc_size && t.first == reloc[0] && t.last == reloc[reloc_size - 1])
-				{
-					table = &t;
-					break;
-				}
-			}
-			if (!table)
-			{
-				table = &s_tables[s_next++ % s_tables.size()];
-				table->reloc = reloc;
-				table->size = reloc_size;
-				table->first = reloc[0];
-				table->last = reloc[reloc_size - 1];
-				table->index.fill(u16{umax});
-				for (usz i = reloc_size; i-- > 0;)
-				{
-					if (reloc[i] < 468) table->index[reloc[i]] = static_cast<u16>(i); // the first occurrence wins
-				}
-			}
-			const u16 i = table->index[guest_index];
-			return i == u16{umax} ? nullptr : reinterpret_cast<f32*>(base + usz{i} * 16);
+			// The relocation table is a vertex program's constant_ids, built from a std::set: sorted and unique,
+			// so a binary search finds the slot. (A cache of 8 slot -> index tables, rebuilt on a miss, thrashed in
+			// scenes with many large programs: ~10% of the RSX thread in Ratchet & Clank.)
+			const u16* const end = reloc + reloc_size;
+			const u16* const it = std::lower_bound(reloc, end, static_cast<u16>(guest_index));
+			return it != end && *it == guest_index ? reinterpret_cast<f32*>(base + (it - reloc) * 16) : nullptr;
 		}
 
 		// A 4-slot matrix in the row-vector convention all the math here uses:
@@ -640,7 +599,8 @@ namespace rsx::vr
 		}
 		if (std::string screen; read(screen_space, "frames_without_3d_as_screen", screen, false))
 		{
-			profile->screen_space_frames_without_3d_as_screen = screen == "true";
+			profile->screen_space_frames_without_3d_as_screen = screen == "true" ? title_profile::frames_without_3d_mode::always :
+				screen == "false" ? title_profile::frames_without_3d_mode::never : title_profile::frames_without_3d_mode::automatic;
 		}
 		if (const YAML::Node programs = child(screen_space, "preprojected_programs"); programs && programs.IsSequence())
 		{
@@ -825,6 +785,10 @@ namespace rsx::vr
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
 		read(root, "video_vblank_rate", profile->video_vblank_rate, false);
+		if (std::string approximate; read(root, "zcull_approximate", approximate, false))
+		{
+			profile->zcull_approximate = approximate == "true";
+		}
 		if (read(root, "hud_depth", profile->hud_depth, false) && !(profile->hud_depth >= 1.f && profile->hud_depth <= 10.f))
 		{
 			fail("hud_depth must be between 1 and 10 (metres)");
@@ -978,7 +942,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1474,12 +1438,6 @@ namespace rsx::vr
 		m_profile_fast_valid = false;
 	}
 
-	camera_probe& camera_probe::get()
-	{
-		static camera_probe instance;
-		return instance;
-	}
-
 	camera_probe::camera_probe()
 	{
 		if (const std::string audit = read_env("RPCS3_VR_AUDIT"); !audit.empty())
@@ -1625,6 +1583,16 @@ namespace rsx::vr
 		if (!m_enabled || m_config_path.empty())
 		{
 			return;
+		}
+
+		// The probe file is checked at most every 100 ms (a stat per frame cost ~1% of the RSX thread).
+		if (const u64 now_us = get_system_time(); now_us - m_config_poll_us < 100'000)
+		{
+			return;
+		}
+		else
+		{
+			m_config_poll_us = now_us;
 		}
 
 		fs::stat_t st{};

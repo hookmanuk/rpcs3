@@ -1342,7 +1342,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		probe.set_draw_into_display_buffer(display_target);
 		if (const auto* profile = probe.profile(); profile && !profile->screen_space_boxed_camera_programs.empty())
 		{
-			probe.set_draw_program(program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program));
+			probe.set_draw_program(vr_vertex_program_hash());
 		}
 		// Depth test that can reject something: a depth buffer bound and a compare other than ALWAYS.
 		// Killzone HD draws its menus with depth test on, no depth buffer and ALWAYS; taken as a real
@@ -1383,6 +1383,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			vr_pose = m_vr_applied_pose;
 		}
 		vr_stamp_targets(vr_pose, vr_camera_draw);
+		vr_mark_3d_targets(vr_camera_draw);
 		if (vr_camera_draw && vr_tracing())
 		{
 			// Reads by 3D draws (traced only; they keep their own stamp).
@@ -1768,9 +1769,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	if (vr_render && vr_batch)
 	{
 		auto* const left_fbo = m_draw_fbo;
-		auto left_images = std::move(m_fbo_images);
+		m_vr_left_fbo_images.assign(m_fbo_images.begin(), m_fbo_images.end());
 		m_draw_fbo = m_vr_right_draw_fbo;
-		m_fbo_images = m_vr_right_fbo_images;
+		m_fbo_images.assign(m_vr_right_fbo_images.begin(), m_vr_right_fbo_images.end());
 
 		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
 		// On the primary: a barrier here ends the left pass, which runs the batch first.
@@ -1811,7 +1812,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 
 		m_draw_fbo = left_fbo;
-		m_fbo_images = std::move(left_images);
+		m_fbo_images.assign(m_vr_left_fbo_images.begin(), m_vr_left_fbo_images.end());
 		m_vertex_constants_buffer_info = guest_constants_info;
 		m_xform_constants_dynamic_offset = guest_constants_dynamic_offset;
 		if (m_vs_binding_table->cbuf_location != umax)
@@ -1832,9 +1833,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 
 		auto* const left_fbo = m_draw_fbo;
-		auto left_images = std::move(m_fbo_images);
+		m_vr_left_fbo_images.assign(m_fbo_images.begin(), m_fbo_images.end());
 		m_draw_fbo = m_vr_right_draw_fbo;
-		m_fbo_images = m_vr_right_fbo_images;
+		m_fbo_images.assign(m_vr_right_fbo_images.begin(), m_vr_right_fbo_images.end());
 
 		bind_vr_eye_constants(1.f, guest_constants_source_offset, m_xform_constants_data_size);
 		if (vr_hud_env)
@@ -1863,7 +1864,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		vk::end_renderpass(*m_current_command_buffer);
 
 		m_draw_fbo = left_fbo;
-		m_fbo_images = std::move(left_images);
+		m_fbo_images.assign(m_vr_left_fbo_images.begin(), m_vr_left_fbo_images.end());
 		// Restore the guest-authored allocation. Pipeline dependency processing
 		// for later RSX draws must never inherit either host eye's constants.
 		m_vertex_constants_buffer_info = guest_constants_info;
@@ -2193,6 +2194,48 @@ u32 VKGSRender::vr_sampled_pose()
 	return pose;
 }
 
+void VKGSRender::vr_mark_3d_targets(bool camera)
+{
+	// 3D content passes on: a camera draw's targets hold it, and so do targets drawn from a texture that does. The
+	// displayed buffer's flag tells a 2D screen (splash, menu, video: shown on the fixed screen) from a paused game
+	// re-showing its last 3D frame (Pure, WipEout: stays in the headset view).
+	const auto is_3d = [](vk::image* image)
+	{
+		const auto* rtt = dynamic_cast<vk::render_target*>(image);
+		return rtt && rtt->vr_has_3d;
+	};
+	bool has_3d = camera;
+	for (u32 textures_ref = current_fp_metadata.referenced_textures_mask, i = 0; !has_3d && textures_ref; textures_ref >>= 1, ++i)
+	{
+		auto sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+		if (!(textures_ref & 1) || !sampler_state || sampler_state->upload_context != rsx::texture_upload_context::framebuffer_storage)
+		{
+			continue;
+		}
+		if (sampler_state->image_handle)
+		{
+			has_3d = is_3d(sampler_state->image_handle->image());
+		}
+		else
+		{
+			const auto& desc = sampler_state->external_subresource_desc;
+			has_3d = (desc.external_handle && is_3d(desc.external_handle)) ||
+				std::any_of(desc.sections_to_copy.begin(), desc.sections_to_copy.end(), [&](const auto& section) { return is_3d(section.src); });
+		}
+	}
+	if (!has_3d)
+	{
+		return;
+	}
+	for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+	{
+		if (auto* surface = std::get<1>(m_rtts.m_bound_render_targets[index]))
+		{
+			surface->vr_has_3d = true;
+		}
+	}
+}
+
 void VKGSRender::vr_stamp_targets(u32 pose, bool camera)
 {
 	if (!pose)
@@ -2508,8 +2551,7 @@ bool VKGSRender::vr_is_passthrough_hud()
 	{
 		// Unless the profile lists this program as HUD (drawn into the scene's final image).
 		const auto* profile = rsx::vr::camera_probe::get().profile();
-		const u64 hash = profile && !profile->screen_space_hud_programs.empty() ?
-			program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) : 0;
+		const u64 hash = profile && !profile->screen_space_hud_programs.empty() ? vr_vertex_program_hash() : 0;
 		if (!hash || std::find(profile->screen_space_hud_programs.begin(), profile->screen_space_hud_programs.end(), hash) == profile->screen_space_hud_programs.end())
 		{
 			return false;
@@ -2668,6 +2710,20 @@ u32 VKGSRender::vr_sampled_textures()
 	return kinds;
 }
 
+u64 VKGSRender::vr_vertex_program_hash()
+{
+	if (!m_vertex_prog)
+	{
+		return program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	}
+	if (m_vr_hash_program != m_vertex_prog)
+	{
+		m_vr_hash_program = m_vertex_prog;
+		m_vr_hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	}
+	return m_vr_hash;
+}
+
 u64 VKGSRender::vr_preprojected_program()
 {
 	const auto* profile = rsx::vr::camera_probe::get().profile();
@@ -2675,7 +2731,7 @@ u64 VKGSRender::vr_preprojected_program()
 	{
 		return 0;
 	}
-	const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	const u64 hash = vr_vertex_program_hash();
 	const auto& list = profile->screen_space_preprojected_programs;
 	return std::find(list.begin(), list.end(), hash) != list.end() ? hash : 0;
 }

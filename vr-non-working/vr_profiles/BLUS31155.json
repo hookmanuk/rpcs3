@@ -5,6 +5,7 @@
   "name": "Dragon's Dogma: Dark Arisen",
   "max_fps": 0,
   "default_fps": 0,
+  "zcull_approximate": true,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [255, 3, 0, 258, 19],

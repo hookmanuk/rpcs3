@@ -123,6 +123,9 @@ private:
 	vk::framebuffer_holder* m_draw_fbo = nullptr;
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
 	std::vector<vk::image*> m_vr_right_fbo_images;
+	// The left eye's attachments while a draw's right eye uses m_fbo_images; a member so its storage is
+	// reused (a moved-from m_fbo_images reallocated on every VR draw: ~5% of the RSX thread).
+	std::vector<vk::image*> m_vr_left_fbo_images;
 
 	// Headset pose per game frame. A frame must be declared with the pose its camera
 	// draws were rotated by.
@@ -139,6 +142,9 @@ private:
 	s32 m_vr_display_target = -1;    // display buffer bound as the colour target, or -1
 	u32 vr_sampled_pose();           // newest pose stamp among the render targets the current draw samples
 	void vr_stamp_targets(u32 pose, bool camera);
+	void vr_mark_3d_targets(bool camera);    // camera draws, and draws sampling 3D content, mark their targets vr_has_3d
+	bool m_vr_flip_has_3d = true;            // the last displayed buffer held 3D content (vr_has_3d)
+	u32 m_vr_frames_2d = 0;                  // consecutive frames with no camera draws whose displayed buffer held no 3D
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
 	// pose (ICO blends last frame's scene and glow into each new frame) sample it
@@ -168,6 +174,11 @@ private:
 	// The ucode hash of the current vertex program when the profile lists it as
 	// pre-projected (screen_space.preprojected_programs), else 0.
 	u64 vr_preprojected_program();
+	// The current vertex program's ucode hash for the VR checks, cached per compiled program: several checks
+	// per draw hashed the whole ucode each time.
+	u64 vr_vertex_program_hash();
+	const void* m_vr_hash_program = nullptr;
+	u64 m_vr_hash = 0;
 	bool vr_shift_feedback_textures(rsx::fragment_program_texture_config& params);
 	void vr_redirect_previous_frame_copy(rsx::blit_src_info& src); // profile current_frame_copies
 	bool m_vr_frame_boundaries = false;

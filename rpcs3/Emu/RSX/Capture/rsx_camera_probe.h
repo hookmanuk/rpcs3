@@ -284,10 +284,13 @@ namespace rsx::vr
 		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
 		// menu layers. Off by default: it broke ICO's HUD box.
 		bool screen_space_hud_keep_depth = false;
-		// Frames without any camera draw (Ico's splash screens and videos) are shown as the
-		// fixed screen instead of over the whole view. Off by default: games whose pause
-		// freezes the 3D (Pure, WipEout) would show the paused frame as a screen, HUD twice.
-		bool screen_space_frames_without_3d_as_screen = false;
+		// Frames without 3D (splash screens, videos, 2D menus) are shown on the fixed screen (where the HUD box is)
+		// instead of over the whole view, where they followed the head. Unset (auto): frames with no camera draws whose
+		// displayed buffer holds no 3D content either; a paused game re-showing its last 3D frame (Pure, WipEout: the
+		// pause HUD was drawn twice on the screen) stays in the headset view. true: every frame without camera draws
+		// (Ico, Demon's Souls, God of War). false: never.
+		enum class frames_without_3d_mode : u8 { automatic, always, never };
+		frames_without_3d_mode screen_space_frames_without_3d_as_screen = frames_without_3d_mode::automatic;
 
 		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
 
@@ -303,6 +306,10 @@ namespace rsx::vr
 		// While the game has a video decoder open, the emulated vblank runs at most this fast (0 = no cap).
 		// Killzone HD's movie player (libsail) stops taking frames above 60 Hz: the intro stayed black.
 		u32 video_vblank_rate = 0;
+		// While VR renders, ZCULL reports run as with ZCULL Accuracy "Approximate" (any visible pixel counts as
+		// fully visible) instead of waiting for exact counts. Dragon's Dogma waits for its occlusion queries
+		// several times a frame; in stereo each wait is for both eyes' GPU work (~40% of the RSX thread at 4K per eye).
+		bool zcull_approximate = false;
 		// In stereo, memory copies (NV0039) into a display buffer are skipped. Killzone HD saves each finished frame to
 		// main memory and copies another memory image back into the display buffer; with Read Color Buffers the left
 		// eye was then reloaded from memory at 1x while the host-only right eye kept the scaled frame.
@@ -458,7 +465,12 @@ namespace rsx::vr
 	class camera_probe
 	{
 	public:
-		static camera_probe& get();
+		static camera_probe& get()
+		{
+			// Inline: called many times per draw (out of line it was ~1% of the RSX thread).
+			static camera_probe instance;
+			return instance;
+		}
 
 		// Hot-path gate. False unless a perturbation is currently configured.
 		bool enabled() const { return m_active.load(); }
@@ -585,6 +597,7 @@ namespace rsx::vr
 
 		std::string m_config_path;
 		u64 m_config_stamp = 0;
+		u64 m_config_poll_us = 0; // last probe-file check
 		// Live reload: the running title's profile files (time and size), checked twice a second.
 		u64 m_profile_file_stamp = 0;
 		u64 m_profile_file_check_ms = 0;

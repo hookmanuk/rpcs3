@@ -110,6 +110,7 @@ namespace vk
 		u64 spill_request_tag = 0;      // timestamp when spilling was requested
 		bool is_bound = false;          // set when the surface is bound for rendering
 		u32 vr_pose = 0;                // VR fork: id of the head pose its 3D content was drawn with, 0 if none
+		bool vr_has_3d = false;         // VR fork: holds camera-draw (3D) content, directly or sampled from it; a full colour clear resets it
 
 		using drawable_surface_t::drawable_surface_t;
 

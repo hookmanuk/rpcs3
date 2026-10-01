@@ -25,6 +25,7 @@
   },
 
   "screen_space": {
+    "frames_without_3d_as_screen": false,
     "orthographic_block": 256,
     "bare_projection": true
   },
