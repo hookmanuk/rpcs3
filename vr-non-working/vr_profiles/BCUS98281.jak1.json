@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98281",
+  "app_version": "01.00",
+  "name": "Jak and Daxter Collection",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [0],
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+  "camera_target_aspect": 1.42222,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0292845,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  }
+}
