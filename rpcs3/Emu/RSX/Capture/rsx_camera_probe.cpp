@@ -1926,6 +1926,13 @@ namespace rsx::vr
 			const bool bare_projection = camera_space &&
 				(depth_offset ? profile.screen_space_depth_offset_projection :
 					(profile.screen_space_bare_projection || (profile.screen_space_offaspect_projection && off_aspect)));
+			if (bare_projection && profile.screen_space_hud_skips_passes && m_draw_samples_colour_target)
+			{
+				// A full-screen pass drawn with the projection (The Darkness composites its 1024x576 scene into
+				// the display buffer this way): it samples per-eye targets in screen space, so leave it as drawn.
+				block.release();
+				return false;
+			}
 			if (bare_projection)
 			{
 				// Still the game's projection, so it keeps the FOV cache valid on

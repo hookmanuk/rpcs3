@@ -9,6 +9,7 @@
   "matrix_layout": "column_vectors",
   "camera_blocks": [0],
   "camera_slots_read_directly": true,
+  "game_camera_programs": ["efdffb82a28ba329"],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
@@ -24,6 +25,7 @@
 
   "screen_space": {
     "orthographic_block": 31,
-    "bare_projection": true
+    "bare_projection": true,
+    "hud_skips_passes": true
   }
 }
