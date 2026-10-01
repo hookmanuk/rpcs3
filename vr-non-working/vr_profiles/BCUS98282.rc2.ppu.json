@@ -5,9 +5,9 @@
   "name": "Ratchet & Clank Collection",
   "max_fps": 0,
   "default_fps": 0,
-  "game_frame_time_f32": ["0x770304", "0x770314", "0x112c078", "0x112c080"],
-  "game_frame_time_sq_f32": ["0x770308"],
-  "game_frame_time_cube_f32": ["0x77030c"],
+  "game_frame_time_f32": ["0x1329040", "0x1329050"],
+  "game_frame_time_sq_f32": ["0x1329044"],
+  "game_frame_time_cube_f32": ["0x1329048"],
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [0],
@@ -27,7 +27,6 @@
   "screen_space": {
     "orthographic_block": 4,
     "passthrough_hud": true,
-    "hud_programs": ["007f5efab1d12ef7"],
-    "boxed_camera_programs": ["ef49d731f4b4551b", "d032c3b0051293db"]
+    "hud_programs": ["007f5efab1d12ef7"]
   }
 }
