@@ -1368,10 +1368,41 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			m_vr_trace_cam_count++;
 		}
 	}
+	else if (vr_render && vr_camera_draw && vk::xr::fake_hmd())
+	{
+		// The fake headset (RPCS3_VR_FAKE_HMD) keeps the camera targets the passthrough HUD tests, without the
+		// pose stamping (which slowed it down by up to 90%).
+		const u32 address = m_framebuffer_layout.color_addresses[0];
+		if (address && (m_vr_camera_targets.empty() || m_vr_camera_targets.back() != address))
+		{
+			std::erase(m_vr_camera_targets, address);
+			m_vr_camera_targets.push_back(address);
+			if (m_vr_camera_targets.size() > 8)
+			{
+				m_vr_camera_targets.erase(m_vr_camera_targets.begin());
+			}
+		}
+	}
 
 	// HUD/menu drawn without a matrix: its own vertex context per eye (restored below).
 	const bool vr_hud = vr_render && !vr_camera_draw && (vk::xr::is_running() || vk::xr::fake_hmd()) &&
 		(rsx::vr::camera_probe::get().hud_env_requested() || vr_is_passthrough_hud());
+	// Dev: probe why=<vertex hash> logs each distinct classification of that program's draws.
+	if (const u64 why = rsx::vr::camera_probe::get().why_program(); why && vr_render &&
+		program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == why)
+	{
+		const u32 kinds = vr_sampled_textures();
+		const u32 target = m_framebuffer_layout.color_addresses[0];
+		const bool in_scene = std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end();
+		const std::string key = fmt::format("camera %d hud %d env %d passthrough %d textures %u target 0x%x %ux%u in_scene %d box %d",
+			vr_camera_draw, vr_hud, rsx::vr::camera_probe::get().hud_env_requested(), vr_is_passthrough_hud(), kinds, target,
+			m_framebuffer_layout.width, m_framebuffer_layout.height, in_scene, rsx::vr::camera_probe::get().box_mapped());
+		static std::set<std::string> s_seen;
+		if (s_seen.insert(key).second)
+		{
+			rsx_log.notice("VR why %016llx: %s", why, key);
+		}
+	}
 	const VkDescriptorBufferInfoEx vr_saved_env_info = m_vertex_env_buffer_info;
 	const u64 vr_saved_env_offset = m_vertex_env_dynamic_offset;
 	// Sprites the game projected itself (ICO's flames): through the camera's eye transform.
@@ -2457,8 +2488,9 @@ bool VKGSRender::vr_is_passthrough_hud()
 		return false;
 	}
 
+	// A small render target is HUD art too (Dragon's Dogma's minimap, drawn into a 256x256 target first).
 	const u32 kinds = vr_sampled_textures();
-	return (kinds & vr_texture_ordinary) && !(kinds & vr_texture_colour_target);
+	return (kinds & (vr_texture_ordinary | vr_texture_colour_target)) && !(kinds & vr_texture_view_target);
 }
 
 // Profile screen_space.unboxed_draws (vertex program ucode hash + texture 0 size), or the dev probe key

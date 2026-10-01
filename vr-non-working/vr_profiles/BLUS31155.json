@@ -26,6 +26,8 @@
   },
 
   "screen_space": {
-    "orthographic_block": 266
+    "orthographic_block": 266,
+    "passthrough_hud": true,
+    "hud_programs": ["38bca07d9ce9033e", "a6629f97bf957a04"]
   }
 }

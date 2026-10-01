@@ -1558,6 +1558,7 @@ namespace rsx::vr
 		m_have_stereo = false;
 		m_render_enabled = false;
 		m_hidden_programs.clear();
+		m_why_program = 0;
 		m_game_camera_programs.clear();
 		m_game_camera_nocolor_programs.clear();
 		m_dev_flags = 0;
@@ -1719,6 +1720,7 @@ namespace rsx::vr
 					start = plus == umax ? v.size() : plus + 1;
 				}
 			}
+			else if (k == "why") m_why_program = std::strtoull(v.c_str(), nullptr, 16);
 			else if (k == "gamecam")
 			{
 				for (const auto& id : fmt::split(v, {"+"}))

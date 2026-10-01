@@ -463,6 +463,7 @@ namespace rsx::vr
 		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
+		u64 why_program() const { return m_why_program; } // probe why=<vertex hash>: log that program's VR classification
 		// Probe gamecam=<hash>[+<hash>...]: these vertex programs keep the game camera in the right eye (development).
 		const std::vector<u64>& game_camera_programs() const { return m_game_camera_programs; }
 		// gamecam=<hash>@nocolor: only that program's draws with every colour write off (depth/stencil passes).
@@ -609,6 +610,7 @@ namespace rsx::vr
 		bool m_have_stereo = false;
 		bool m_render_enabled = false;
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
+		u64 m_why_program = 0;
 		std::vector<u64> m_game_camera_programs;
 		std::vector<u64> m_game_camera_nocolor_programs;
 		u32 m_dev_flags = 0;
