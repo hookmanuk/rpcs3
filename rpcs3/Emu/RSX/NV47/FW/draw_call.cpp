@@ -7,6 +7,7 @@
 #include "Emu/RSX/Common/BufferUtils.h"
 #include "Emu/RSX/NV47/HW/context.h"
 #include "Emu/RSX/NV47/HW/nv4097.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 
 // Always import this after other HW definitions
 #include "Emu/RSX/NV47/HW/context_accessors.define.h"
@@ -100,6 +101,14 @@ namespace rsx
 		}
 
 		if (draw_command_barriers.empty())
+		{
+			return false;
+		}
+
+		// VR fork: stereo rendering applies the eye transform and the HUD box per subdraw, from
+		// that subdraw's transform constants; a host-instanced clause skips it (Anarchy Reigns'
+		// segmented health bar stayed at its screen position, outside the HUD box).
+		if (rsx::vr::camera_probe::get().render_enabled())
 		{
 			return false;
 		}

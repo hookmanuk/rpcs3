@@ -1,0 +1,15 @@
+Version: 1.2
+
+PPU-02acc7aec591e5ecc439c73c2431196f0d5ca3df:
+  "Frame rate follows VR (use instead of 60 FPS)":
+    Games:
+      "Anarchy Reigns (Max Anarchy)":
+        BLUS30632: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Replaces the community 60 FPS patch (turn that off). The game steps its simulation by a fixed frame time (1/30) that 0x43ca3c copies into each character's controller (+0xe5c). This loads it from the word at 0x2778ff0 instead (just past the data segment, inside its last page), which the VR profile sets to 1/fps (game_frame_time_f32). The patch seeds it with 1/60, so without the profile it is the 60 FPS patch (Vblank 120)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x02778ff0, 0x3c888889 ] # 1/60: the frame time word, until the VR profile sets 1/fps
+      - [ be32, 0x0043cbb8, 0x3c600278 ] # lis r3, 0x278            (was lis r3, 0x3d08: 1/30)
+      - [ be32, 0x0043cbc8, 0x80638ff0 ] # lwz r3, -0x7010(r3)      (was ori r3, r3, 0x8889)

@@ -155,8 +155,9 @@ private:
 	bool vr_reprojects_older_frames() const;
 	// Profile screen_space.passthrough_hud: this draw is HUD/menu drawn without a matrix.
 	bool vr_is_passthrough_hud();
-	// Kinds of texture the fragment program samples: ordinary (uploaded) textures, colour render targets.
-	enum : u32 { vr_texture_ordinary = 1, vr_texture_colour_target = 2 };
+	// Kinds of texture the fragment program samples: ordinary (uploaded) textures, colour render targets,
+	// and among those a view-shaped one (the scene, the output, a display buffer: not a small mask or atlas).
+	enum : u32 { vr_texture_ordinary = 1, vr_texture_colour_target = 2, vr_texture_view_target = 4 };
 	u32 vr_sampled_textures();
 	bool vr_unboxed_draw();
 	f32 vr_hud_draw_scale();

@@ -1298,7 +1298,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	if (vr_render)
 	{
 		auto& probe = rsx::vr::camera_probe::get();
-		probe.set_draw_samples_colour_target((vr_sampled_textures() & vr_texture_colour_target) || vr_unboxed_draw());
+		// Only a view-shaped target makes a pass: Anarchy Reigns' health gauge samples a 256x256 mask the HUD
+		// draws first, and with hud_skips_passes it stayed at its screen position outside the box.
+		probe.set_draw_samples_colour_target((vr_sampled_textures() & vr_texture_view_target) || vr_unboxed_draw());
 		probe.set_draw_hud_scale(vr_hud_draw_scale());
 		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
 		// screen too: Gran Turismo 5 masks its track map with one.
@@ -1368,7 +1370,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	}
 
 	// HUD/menu drawn without a matrix: its own vertex context per eye (restored below).
-	const bool vr_hud = vr_render && !vr_camera_draw && vk::xr::is_running() &&
+	const bool vr_hud = vr_render && !vr_camera_draw && (vk::xr::is_running() || vk::xr::fake_hmd()) &&
 		(rsx::vr::camera_probe::get().hud_env_requested() || vr_is_passthrough_hud());
 	const VkDescriptorBufferInfoEx vr_saved_env_info = m_vertex_env_buffer_info;
 	const u64 vr_saved_env_offset = m_vertex_env_dynamic_offset;
@@ -2565,6 +2567,19 @@ u32 VKGSRender::vr_sampled_textures()
 					continue;
 				}
 				kinds |= vr_texture_colour_target;
+				// View-shaped: a camera target, a display buffer, or the output's or a camera view's aspect.
+				const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+				const u32 w = rtt ? rtt->get_surface_width<rsx::surface_metrics::pixels>() : 0;
+				const u32 h = rtt ? rtt->get_surface_height<rsx::surface_metrics::pixels>() : 0;
+				const f32 out_aspect = out.height ? static_cast<f32>(out.width) / out.height : 0.f;
+				if (!rtt || !h || !out_aspect ||
+					std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), rtt->base_addr) != m_vr_camera_targets.end() ||
+					vr_display_buffer(*this, rtt->base_addr, w, h) ||
+					std::fabs((static_cast<f32>(w) / h) / out_aspect - 1.f) <= 0.05f ||
+					(profile && profile->is_view_target(w, h, out_aspect)))
+				{
+					kinds |= vr_texture_view_target;
+				}
 			}
 			continue;
 		}
@@ -2578,7 +2593,7 @@ u32 VKGSRender::vr_sampled_textures()
 		{
 			display_read |= buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == tex_address;
 		}
-		kinds |= display_read ? vr_texture_colour_target : vr_texture_ordinary;
+		kinds |= display_read ? vr_texture_colour_target | vr_texture_view_target : vr_texture_ordinary;
 	}
 	return kinds;
 }

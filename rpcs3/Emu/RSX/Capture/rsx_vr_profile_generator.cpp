@@ -46,7 +46,8 @@ namespace rsx::vr
 		constexpr f64 view_aspect_tolerance = 0.05;  // render targets that count as camera views
 		constexpr f64 min_scene_coverage = 0.8;      // below: clip_space_scene_draws
 
-		constexpr u8 texture_ordinary = 1, texture_colour_target = 2;
+		// As VKGSRender's kinds: texture_view_target marks a view-shaped colour target (not a small mask or atlas).
+		constexpr u8 texture_ordinary = 1, texture_colour_target = 2, texture_view_target = 4;
 
 		// A 4-slot block as DP4 rows: clip[i] = dot(row_i, (v, 1)).
 		using mat4 = std::array<std::array<f64, 4>, 4>;
@@ -171,10 +172,14 @@ namespace rsx::vr
 			return a > 1e-8 && std::fabs((b / a) / output_aspect - 1.0) <= tolerance;
 		}
 
-		// A plausible camera: perspective, rigid, and square pixels at the output aspect.
+		// A plausible camera: perspective, rigid, square pixels at the output aspect, and a
+		// horizontal field of view over 3.8 degrees (A <= 30). Anarchy Reigns' 2D HUD block
+		// c[54] (x 2/1280, y -2/720, z -1/32768) read as x, y, w rows passes everything else as a
+		// 2-degree camera (A 51) and outnumbered the real one.
 		bool is_camera(const mat4& m, f64 output_aspect)
 		{
-			return is_perspective(m) && rigidity(m) <= rigid_tolerance && aspect_matches(m, output_aspect, aspect_tolerance);
+			return is_perspective(m) && rigidity(m) <= rigid_tolerance && aspect_matches(m, output_aspect, aspect_tolerance) &&
+				projection(m).first <= 30.0;
 		}
 
 		// The eye point in the block's input space: clip x = y = w = 0.
@@ -715,6 +720,7 @@ namespace rsx::vr
 		u32 eye_points = 0;
 		u32 static_eye_points = 0;
 		u32 covered_draws = 0;
+		std::map<u32, u32> bound_blocks; // camera block -> draws that bind it (the first listed block a draw reads)
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		for (const draw_sample* s : views)
 		{
@@ -743,6 +749,7 @@ namespace rsx::vr
 			}
 			prog.first++;
 			covered_draws++;
+			bound_blocks[cam_base]++;
 
 			if (is_depth_offset_projection(cam->m))
 			{
@@ -824,11 +831,19 @@ namespace rsx::vr
 			}
 		}
 
-		// Every camera draw a bare projection: the game keeps the view in another
-		// block (ICO), so the projection is the camera, not screen space.
-		if (scale_a_by_width.empty() && !bare_scale_a_by_width.empty())
+		// Every camera draw (or most) a bare projection: the game keeps the view in another
+		// block (ICO; Anarchy Reigns: model-view c[20], projection c[4], and a few object-scaled
+		// MVPs in c[24] whose near plane is in object units), so the projection is the camera.
+		usz rigid_count = 0, bare_count = 0;
+		for (const auto& [width, values] : scale_a_by_width) rigid_count += values.size();
+		for (const auto& [width, values] : bare_scale_a_by_width) bare_count += values.size();
+		if (bare_count > rigid_count)
 		{
-			vr_gen_log.notice("Every camera draw is a bare projection: the view is applied elsewhere, so the projection is the camera.");
+			if (rigid_count)
+				vr_gen_log.notice("%u of %u camera draws are bare projections: the view is applied elsewhere, so the projection is the camera.",
+					static_cast<u32>(bare_count), static_cast<u32>(bare_count + rigid_count));
+			else
+				vr_gen_log.notice("Every camera draw is a bare projection: the view is applied elsewhere, so the projection is the camera.");
 			scale_a_by_width = std::move(bare_scale_a_by_width);
 			near_planes = std::move(bare_near_planes);
 			bare_projection = false;
@@ -911,8 +926,21 @@ namespace rsx::vr
 		// full-frame draw reading it into the HUD box, so full-screen passes must not read
 		// it: HUD draws sample ordinary textures only, post-processing samples colour render
 		// targets (Demon's Souls draws both with c[0]; its scene composite landed in the box).
-		std::map<u32, u32> hud_hits, pass_hits;
-		for (const draw_sample* s : views)
+		// The HUD can be drawn at the output size while the scene renders at another aspect (Anarchy
+		// Reigns: scene 1024x720, HUD c[54] on the 1280x720 targets), so both kinds of target count.
+		std::vector<const draw_sample*> hud_views = views;
+		if (view_aspect != output_aspect)
+		{
+			for (const auto& s : samples)
+			{
+				if (s.program != umax && s.height && std::fabs((static_cast<f64>(s.width) / s.height) / output_aspect - 1.0) <= view_aspect_tolerance)
+				{
+					hud_views.push_back(&s);
+				}
+			}
+		}
+		std::map<u32, u32> hud_hits, pass_hits, mask_hits;
+		for (const draw_sample* s : hud_views)
 		{
 			if (s->full_bank) continue;
 			const slot_reader r{ s->ids, s->values, false };
@@ -925,8 +953,10 @@ namespace rsx::vr
 				if (!b || (b->z_missing && layout != layout_rows) || is_perspective(b->m)) continue;
 				const f64 sx = std::fabs(b->m[0][0]), sy = std::fabs(b->m[1][1]);
 				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01)) continue;
-				if (s->textures & texture_colour_target) pass_hits[base]++;
-				else if (s->textures & texture_ordinary) hud_hits[base]++;
+				// The renderer boxes a HUD draw sampling a small render target (Anarchy Reigns' gauge mask): HUD art.
+				if (s->textures & texture_view_target) pass_hits[base]++;
+				else if (s->textures & (texture_ordinary | texture_colour_target)) hud_hits[base]++;
+				if ((s->textures & texture_colour_target) && !(s->textures & texture_view_target)) mask_hits[base]++;
 			}
 		}
 		u32 hud_block = umax;
@@ -943,6 +973,14 @@ namespace rsx::vr
 		if (hud_skips_passes)
 		{
 			vr_gen_log.notice("HUD block c[%u] (%u HUD draws) is also read by %u full-screen passes: hud_skips_passes.", hud_block, hud_best, pass_hits[hud_block]);
+		}
+		// HUD draws sampling a small render target the HUD drew first (Anarchy Reigns' gauge mask) may look it
+		// up by screen position from the clip position, so the box goes after the vertex shader, leaving the
+		// game's own clip position (and so the lookup) as drawn.
+		const bool hud_box_after_shader = hud_block != umax && mask_hits[hud_block] >= 10; // one gauge: about a draw a frame
+		if (hud_box_after_shader)
+		{
+			vr_gen_log.notice("%u HUD draws sample a small render target (a mask drawn by the HUD): hud_box_after_shader.", mask_hits[hud_block]);
 		}
 
 		// 4b. HUD drawn without a matrix (positions already in screen space: ICO's pause menu,
@@ -1051,6 +1089,18 @@ namespace rsx::vr
 			vr_gen_log.notice("Targets %u wide use %.3fx the projection: own stereo rule.", width, ratio);
 		}
 
+		// A block no sampled draw binds does nothing: every draw reading it reads an earlier listed
+		// block first (Anarchy Reigns: the view-projections c[8] and c[36] beside the projection c[4],
+		// and c[19], a window across a world and a view matrix that passed the camera test).
+		for (const u32 b : std::vector<u32>(blocks))
+		{
+			if (bound_blocks.contains(b)) continue;
+			vr_gen_log.notice("c[%u] is never bound (its draws all read an earlier camera block): left out.", b);
+			std::erase(blocks, b);
+			std::erase(row_blocks, b);
+			std::erase(nonrigid_blocks, b);
+		}
+
 		std::string blocks_text;
 		for (const u32 b : blocks) blocks_text += fmt::format("%s%u", blocks_text.empty() ? "" : ", ", b);
 
@@ -1145,6 +1195,7 @@ namespace rsx::vr
 			}
 			if (hud_block != umax) entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
 			if (hud_skips_passes) entries.push_back("    \"hud_skips_passes\": true");
+			if (hud_box_after_shader) entries.push_back("    \"hud_box_after_shader\": true");
 			if (bare_projection) entries.push_back("    \"bare_projection\": true");
 			if (depth_offset_projection) entries.push_back("    \"depth_offset_projection\": true");
 			if (offaspect_projection) entries.push_back("    \"offaspect_projection\": true");

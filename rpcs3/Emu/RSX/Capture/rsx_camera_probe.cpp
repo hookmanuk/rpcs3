@@ -2268,8 +2268,12 @@ namespace rsx::vr
 
 		const auto& avconf = g_fxo->get<rsx::avconf>();
 		const size2u eye = avconf.video_frame_size();
+		// The HUD may be drawn at the output's aspect while the scene renders at another one
+		// (Anarchy Reigns: scene 1024x720, HUD on the 1280x720 targets after the upscale).
+		const bool output_target = surface_w && surface_h && eye.width && eye.height &&
+			std::fabs((static_cast<f32>(surface_w) / surface_h) / (static_cast<f32>(eye.width) / eye.height) - 1.f) <= profile.output_aspect_tolerance;
 		if (!surface_w || !surface_h || !eye.width || !eye.height ||
-			!profile.is_view_target(surface_w, surface_h, static_cast<f32>(eye.width) / eye.height))
+			!(output_target || profile.is_view_target(surface_w, surface_h, static_cast<f32>(eye.width) / eye.height)))
 		{
 			return;
 		}
