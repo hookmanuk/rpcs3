@@ -6,6 +6,10 @@
   "max_fps": 0,
   "default_fps": 0,
 
+  "hidden_draws": [
+    { "name": "Screen-space glare (lens-flare quads tested against scene depth)", "program": "07b162cff7a683bf", "texture": "1024x720", "hidden": true }
+  ],
+
   "matrix_layout": "column_vectors",
   "camera_blocks": [0],
   "camera_slots_read_directly": true,
