@@ -1248,7 +1248,17 @@ static void ppu_trace_break(ppu_thread& ppu, ppu_opcode_t, be_t<u32>* this_op, p
 		}
 		if (s_seen.insert(key).second || hits % 300 == 0)
 		{
-			ppu_log.success("TRACE %s [%s, r3=0x%llx r4=0x%llx, hit %u]", key, ppu.get_name(), ppu.gpr[3], ppu.gpr[4], hits);
+			// RPCS3_PPU_TRACE_REGS=r18,f13,...: also log these registers.
+			static const std::string s_regs = [] { const char* v = std::getenv("RPCS3_PPU_TRACE_REGS"); return v ? std::string(v) : std::string(); }();
+			std::string regs;
+			for (const auto& r : fmt::split(s_regs, {","}))
+			{
+				if (r.size() < 2) continue;
+				const u32 n = static_cast<u32>(std::strtoul(r.c_str() + 1, nullptr, 10)) % 32;
+				if (r[0] == 'f') fmt::append(regs, " f%u=%g", n, ppu.fpr[n]);
+				else fmt::append(regs, " r%u=0x%llx", n, ppu.gpr[n]);
+			}
+			ppu_log.success("TRACE %s [%s, r3=0x%llx r4=0x%llx%s, hit %u]", key, ppu.get_name(), ppu.gpr[3], ppu.gpr[4], regs, hits);
 		}
 	}
 
