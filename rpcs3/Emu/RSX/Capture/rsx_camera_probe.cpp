@@ -793,6 +793,10 @@ namespace rsx::vr
 		{
 			profile->camera_slots_read_directly = direct == "true";
 		}
+		if (std::string scissor; read(root, "camera_scissor_full", scissor, false))
+		{
+			profile->camera_scissor_full = scissor == "true";
+		}
 		if (const YAML::Node programs = child(root, "game_camera_programs"); programs && programs.IsSequence())
 		{
 			for (const auto& program : programs)
@@ -961,7 +965,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "camera_scissor_full", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1931,6 +1935,31 @@ namespace rsx::vr
 		// light volumes are exact bare projections, so the two are separate options.
 		// When the profile says so, it is part of the screen and goes into the same
 		// fixed box as the HUD instead of following the head.
+		// A bare-projection quad that samples a render target is a pass (The Darkness: its post-processing and HDR
+		// luminance chain, which sample per-eye targets in screen space): left as drawn in desktop stereo too.
+		// Sheared, the luminance passes read and wrote shifted texels and the exposure blew the image out red.
+		// The same for a bare-projection quad through a viewport much smaller than its target: a utility pass
+		// (The Darkness builds its colour-grading LUT, 324x18, in a corner of the scene buffer; shifted, the LUT
+		// slices were written a few texels off and the tone map turned the image pink).
+		const bool sub_viewport = std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f * 2.f < rsx::method_registers.surface_clip_width() ||
+			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f * 2.f < rsx::method_registers.surface_clip_height();
+		// In desktop stereo every bare-projection draw without a depth test that can reject is screen-space work
+		// (no HUD box there): the LUT build draws its quads with depth func ALWAYS.
+		if (!m_vr_view && profile.screen_space_bare_projection &&
+			((profile.screen_space_hud_skips_passes && m_draw_samples_any_colour_target) || sub_viewport || !m_draw_depth_test))
+		{
+			constexpr f32 eps = 1e-5f;
+			if (std::fabs(rows[0][1]) < eps && std::fabs(rows[0][2]) < eps && std::fabs(rows[0][3]) < eps &&
+				std::fabs(rows[1][0]) < eps && std::fabs(rows[1][2]) < eps && std::fabs(rows[1][3]) < eps &&
+				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
+				std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
+				std::fabs(rows[2][3]) > eps)
+			{
+				block.release();
+				return false;
+			}
+		}
+
 		if (output_aspect_match && m_vr_view && m_vr_hmd_fov &&
 			(profile.screen_space_bare_projection || profile.screen_space_depth_offset_projection || profile.screen_space_offaspect_projection))
 		{
@@ -1952,7 +1981,9 @@ namespace rsx::vr
 			const bool bare_projection = camera_space &&
 				(depth_offset ? profile.screen_space_depth_offset_projection :
 					(profile.screen_space_bare_projection || (profile.screen_space_offaspect_projection && off_aspect)));
-			if (bare_projection && profile.screen_space_hud_skips_passes && m_draw_samples_colour_target)
+			// With hud_display_buffers_only the HUD is drawn into a display buffer: a bare projection elsewhere is a pass.
+			if (bare_projection && ((profile.screen_space_hud_skips_passes && m_draw_samples_any_colour_target) || (sub_viewport && !depth_offset) ||
+				(profile.screen_space_hud_display_buffers_only && !m_draw_into_display_buffer && !m_draw_depth_test)))
 			{
 				// A full-screen pass drawn with the projection (The Darkness composites its 1024x576 scene into
 				// the display buffer this way): it samples per-eye targets in screen space, so leave it as drawn.

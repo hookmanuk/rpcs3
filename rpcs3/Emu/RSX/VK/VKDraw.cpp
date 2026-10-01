@@ -1300,7 +1300,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		auto& probe = rsx::vr::camera_probe::get();
 		// Only a view-shaped target makes a pass: Anarchy Reigns' health gauge samples a 256x256 mask the HUD
 		// draws first, and with hud_skips_passes it stayed at its screen position outside the box.
-		probe.set_draw_samples_colour_target((vr_sampled_textures() & vr_texture_view_target) || vr_unboxed_draw());
+		const u32 vr_kinds = vr_sampled_textures();
+		probe.set_draw_samples_colour_target((vr_kinds & vr_texture_view_target) || vr_unboxed_draw());
+		probe.set_draw_samples_any_colour_target((vr_kinds & vr_texture_colour_target) || vr_unboxed_draw());
 		probe.set_draw_hud_scale(vr_hud_draw_scale());
 		// A depth-only draw (no colour target) into the display buffers' depth surface is part of the
 		// screen too: Gran Turismo 5 masks its track map with one.
@@ -1398,7 +1400,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			vr_camera_draw, vr_hud, rsx::vr::camera_probe::get().hud_env_requested(), vr_is_passthrough_hud(), kinds, target,
 			m_framebuffer_layout.width, m_framebuffer_layout.height, in_scene, rsx::vr::camera_probe::get().box_mapped());
 		static std::set<std::string> s_seen;
-		if (s_seen.insert(key).second)
+		if (s_seen.insert(fmt::format("%016llx %s", why, key)).second)
 		{
 			rsx_log.notice("VR why %016llx: %s", why, key);
 		}
@@ -1721,7 +1723,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	};
 
 	// HUD-box draws: the game's scissor follows the HUD into the box (per eye).
-	const bool vr_box_scissor = vr_render && vr_apply_box_scissor();
+	const bool vr_box_scissor = vr_render && (vr_apply_box_scissor() || vr_apply_camera_scissor(vr_camera_draw));
 	if (vr_clear_shown)
 	{
 		vr_clear_shown_region();
@@ -1761,7 +1763,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			update_vertex_env(sub_index * 2 + 1, upload_info);
 			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 			update_draw_state();
-			m_vr_batch_scissor_dirty = vr_apply_box_scissor(); // then the next batched draw reloads the scissor
+			m_vr_batch_scissor_dirty = vr_apply_box_scissor() || vr_apply_camera_scissor(vr_camera_draw); // then the next batched draw reloads the scissor
 			if (vr_clear_shown)
 			{
 				vr_clear_shown_region();
@@ -1817,7 +1819,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		{
 			vr_clear_shown_region();
 		}
-		if (vr_apply_box_scissor())
+		if (vr_apply_box_scissor() || vr_apply_camera_scissor(vr_camera_draw))
 		{
 			emit_vulkan_draw();
 			vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
@@ -1955,7 +1957,8 @@ void VKGSRender::end()
 	}
 
 	// RPCS3_VR_RTDUMP with prog=<hash>: dump the requested surfaces of both eyes just before this program draws.
-	if (m_vr_rtdump_program && program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == m_vr_rtdump_program)
+	if (m_vr_rtdump_program && m_vr_rtdump_armed && program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == m_vr_rtdump_program &&
+		!(m_vr_rtdump_skip && m_vr_rtdump_skip--))
 	{
 		m_vr_rtdump_program = 0;
 		vr_rtdump(m_vr_rtdump_addresses, fmt::format("before program %x", program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program)));

@@ -160,6 +160,9 @@ private:
 	enum : u32 { vr_texture_ordinary = 1, vr_texture_colour_target = 2, vr_texture_view_target = 4 };
 	u32 vr_sampled_textures();
 	bool vr_unboxed_draw();
+	// Profile camera_scissor_full (or probe dev=0x400): camera draws use the viewport as scissor.
+	bool vr_camera_scissor_full() const;
+	bool vr_apply_camera_scissor(bool camera_draw);
 	f32 vr_hud_draw_scale();
 	// Point the vertex context at a copy whose viewport matrix also maps the draw
 	// into this eye's HUD box, or, for a profile pre-projected program (hash), from
@@ -302,7 +305,9 @@ private:
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
 	// RPCS3_VR_RTDUMP: write both eyes' surfaces at these addresses (development).
 	void vr_rtdump(const std::vector<u32>& addresses, const std::string& tag);
-	u64 m_vr_rtdump_program = 0;            // "prog=<hash>" in the request: dump before this program's next draw
+	u64 m_vr_rtdump_program = 0;            // "prog=<hash>[#n]" in the request: dump before this program's next draw
+	u32 m_vr_rtdump_skip = 0;               // (#n: the n-th draw of it from the next frame on, counting from 1)
+	bool m_vr_rtdump_armed = false;         // the next frame has started
 	std::vector<u32> m_vr_rtdump_addresses;
 	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate);
 

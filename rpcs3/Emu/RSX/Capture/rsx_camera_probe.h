@@ -149,6 +149,9 @@ namespace rsx::vr
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
 		// directly (the program's constant_ids), as the profile generator samples them.
 		bool camera_slots_read_directly = false;
+		// Camera draws use the viewport as scissor, and scissored stencil-only clears clear the whole target:
+		// the game's scissor is a rectangle it computed for its own view (The Darkness: each light's bounds).
+		bool camera_scissor_full = false;
 		// Vertex program ucode hashes whose draws keep the game camera in both eyes (no head transform or
 		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn
 		// without colour). Probe gamecam= tries candidates live.
@@ -474,6 +477,8 @@ namespace rsx::vr
 		bool unboxed_fragment_program(u32 id) const { return std::find(m_unbox_fp.begin(), m_unbox_fp.end(), id) != m_unbox_fp.end(); }
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
+		// Any colour render target, also a small one (a luminance chain, a mask): see m_draw_samples_any_colour_target.
+		void set_draw_samples_any_colour_target(bool v) const { m_draw_samples_any_colour_target = v; }
 		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
 		// The vertex program ucode hash of the draw about to be bound (only set while the profile needs it).
 		void set_draw_program(u64 v) const { m_draw_program = v; }
@@ -617,6 +622,9 @@ namespace rsx::vr
 		std::vector<u32> m_unbox_fp;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
+		// A bare-projection quad sampling any colour render target is a pass (The Darkness' HDR luminance chain
+		// reads 324x18 targets); the HUD ortho path counts only view-shaped ones (m_draw_samples_colour_target).
+		mutable bool m_draw_samples_any_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;
 		mutable u64 m_draw_program = 0;
 		mutable bool m_hud_env_request = false;

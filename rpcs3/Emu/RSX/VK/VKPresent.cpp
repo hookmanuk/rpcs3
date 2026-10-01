@@ -461,6 +461,11 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// screenshots. The file may list other surface addresses (hex, one per line) to dump instead, as
 	// <file>.<n>.<address>.left / .right.
 	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
+	// A prog=<hash>#n request counts that program's draws from the start of a frame.
+	if (m_vr_rtdump_program && !m_vr_rtdump_armed)
+	{
+		m_vr_rtdump_armed = true;
+	}
 	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
 	{
 		std::string request;
@@ -471,7 +476,13 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		for (const std::string& line : fmt::split(request, {"\n", "\r", " ", ","}))
 		{
 			// prog=<vertex ucode hash>: dump just before that program's next draw instead of now.
-			if (line.starts_with("prog=")) program = std::strtoull(line.c_str() + 5, nullptr, 16);
+			if (line.starts_with("prog="))
+			{
+				program = std::strtoull(line.c_str() + 5, nullptr, 16);
+				const usz hash = line.find('#');
+				m_vr_rtdump_skip = hash != umax ? std::max(1u, static_cast<u32>(std::strtoul(line.c_str() + hash + 1, nullptr, 10))) - 1 : 0;
+				m_vr_rtdump_armed = hash == umax;
+			}
 			else if (const u32 a = static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16))) addresses.push_back(a);
 		}
 		if (program)
@@ -1520,14 +1531,16 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 	std::string suffix;
 	const auto dump = [&](vk::render_target* rt, const char* eye)
 	{
-		// 4-byte colour, or the depth aspect of a depth surface (D24: 24-bit depth in a 32-bit word, D32F: float).
+		// 4- or 8-byte colour (8: RGBA16F, raw), or the depth aspect of a depth surface (D24: 24-bit depth in a 32-bit
+		// word, D32F: float).
 		const bool depth = rt && (rt->aspect() & VK_IMAGE_ASPECT_DEPTH_BIT);
-		if (!rt || (!depth && (vk::get_format_texel_width(rt->format()) != 4 || !(rt->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))))
+		const u32 texel = depth ? 4 : (rt ? vk::get_format_texel_width(rt->format()) : 0);
+		if (!rt || (!depth && ((texel != 4 && texel != 8) || !(rt->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))))
 		{
 			return;
 		}
 		const u32 w = rt->width(), h = rt->height();
-		const usz size = usz{ w } * h * 4;
+		const usz size = usz{ w } * h * texel;
 		vk::buffer buffer(*m_device, utils::align(size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
 		VkBufferImageCopy region{};
