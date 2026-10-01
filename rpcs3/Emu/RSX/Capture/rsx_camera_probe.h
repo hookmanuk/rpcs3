@@ -462,6 +462,8 @@ namespace rsx::vr
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
 		// Probe gamecam=<hash>[+<hash>...]: these vertex programs keep the game camera in the right eye (development).
 		const std::vector<u64>& game_camera_programs() const { return m_game_camera_programs; }
+		// gamecam=<hash>@nocolor: only that program's draws with every colour write off (depth/stencil passes).
+		const std::vector<u64>& game_camera_nocolor_programs() const { return m_game_camera_nocolor_programs; }
 		// Probe "dev=<bits>": renderer switches for live A/B measurements (see their users). 0 unless set.
 		u32 dev_flags() const { return m_dev_flags; }
 		// Probe "unboxfp=<id>[+<id>...]": fragment program session ids (inspector fp_session_id) left out of the HUD box.
@@ -605,6 +607,7 @@ namespace rsx::vr
 		bool m_render_enabled = false;
 		std::vector<std::pair<u64, u32>> m_hidden_programs;
 		std::vector<u64> m_game_camera_programs;
+		std::vector<u64> m_game_camera_nocolor_programs;
 		u32 m_dev_flags = 0;
 		std::vector<u32> m_unbox_fp;
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's

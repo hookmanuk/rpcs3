@@ -1536,6 +1536,7 @@ namespace rsx::vr
 		m_render_enabled = false;
 		m_hidden_programs.clear();
 		m_game_camera_programs.clear();
+		m_game_camera_nocolor_programs.clear();
 		m_dev_flags = 0;
 		m_unbox_fp.clear();
 		m_render_camera_right = {};
@@ -1699,7 +1700,7 @@ namespace rsx::vr
 			{
 				for (const auto& id : fmt::split(v, {"+"}))
 				{
-					m_game_camera_programs.push_back(std::strtoull(id.c_str(), nullptr, 16));
+					(id.ends_with("@nocolor") ? m_game_camera_nocolor_programs : m_game_camera_programs).push_back(std::strtoull(id.c_str(), nullptr, 16));
 				}
 			}
 			else if (k == "title") m_title = v;

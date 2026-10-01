@@ -2802,11 +2802,15 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 		? &m_vertex_prog->constant_ids : nullptr);
 	// Programs kept on the game camera: the profile's game_camera_programs, or probe gamecam= (development).
 	const auto& probe_game_camera = rsx::vr::camera_probe::get().game_camera_programs();
+	const auto& probe_game_camera_nocolor = rsx::vr::camera_probe::get().game_camera_nocolor_programs();
 	bool keep_game_camera = false;
-	if (!probe_game_camera.empty() || (vr_profile && !vr_profile->game_camera_programs.empty()))
+	if (!probe_game_camera.empty() || !probe_game_camera_nocolor.empty() || (vr_profile && !vr_profile->game_camera_programs.empty()))
 	{
 		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		const bool no_colour = std::none_of(std::begin(m_framebuffer_layout.color_write_enabled), std::end(m_framebuffer_layout.color_write_enabled), [](bool b) { return b; }) ||
+			!rsx::method_registers.color_write_enabled(0);
 		keep_game_camera = std::find(probe_game_camera.begin(), probe_game_camera.end(), hash) != probe_game_camera.end() ||
+			(no_colour && std::find(probe_game_camera_nocolor.begin(), probe_game_camera_nocolor.end(), hash) != probe_game_camera_nocolor.end()) ||
 			(vr_profile && std::find(vr_profile->game_camera_programs.begin(), vr_profile->game_camera_programs.end(), hash) != vr_profile->game_camera_programs.end());
 	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
