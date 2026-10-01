@@ -206,6 +206,7 @@ the source repository, with instructions for trying them.
 | The Darkness | BLUS30035 | Not usable yet: in VR the lighting breaks (red light over surfaces, dark bands). The community patch *60 FPS* works and keeps real-time speed. |
 | Dynasty Warriors 6 Empires | BLUS30306 | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
 | Jak and Daxter Collection | BCUS98281 | Jak 1 and Jak II: run at the headset rate with no patch (real-time), checked on the desktop only. Jak 3 not yet profiled. |
+| Asura's Wrath | BLUS30721 | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. 90 FPS at real-time speed on the desktop; button-mashing QTEs may be harder at 90. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | Work in progress: some menu clipping when you lean back, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
 
 ---
