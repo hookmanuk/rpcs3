@@ -273,7 +273,13 @@ namespace vk
 		{
 			//NOTE: Like stencil, depth write is meaningless without depth test
 			properties.state.set_depth_mask(REGS(ctx)->depth_write_enabled());
-			properties.state.enable_depth_test(vk::get_compare_func(REGS(ctx)->depth_func()));
+			// Probe dev bit 0x100 (development): depth EQUAL becomes LEQUAL for draws that write colour.
+			auto depth_func = REGS(ctx)->depth_func();
+			if (depth_func == rsx::comparison_function::equal && (rsx::vr::camera_probe::get().dev_flags() & 0x100) && REGS(ctx)->color_write_enabled(0))
+			{
+				depth_func = rsx::comparison_function::less_or_equal;
+			}
+			properties.state.enable_depth_test(vk::get_compare_func(depth_func));
 		}
 
 		if (REGS(ctx)->cull_face_enabled())
@@ -338,7 +344,8 @@ namespace vk
 			}
 		}
 
-		if (REGS(ctx)->stencil_test_enabled())
+		// Probe dev bit 0x200 (development): no stencil test for draws that write colour.
+		if (REGS(ctx)->stencil_test_enabled() && !((rsx::vr::camera_probe::get().dev_flags() & 0x200) && REGS(ctx)->color_write_enabled(0)))
 		{
 			if (!REGS(ctx)->two_sided_stencil_test_enabled())
 			{
