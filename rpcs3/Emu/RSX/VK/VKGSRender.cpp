@@ -1460,15 +1460,6 @@ void VKGSRender::clear_surface(u32 mask)
 			vr_right_clear = areai{ rx, ry, rx + scissor_w, ry + scissor_h };
 		}
 	}
-	// A scissored stencil-only clear (a light's bounding rectangle) where camera draws widen their scissor
-	// (vr_camera_scissor_full): widened too, so the light's stencil volumes, which the eye transform moves
-	// out of the game's rectangle, start from a clean stencil (The Darkness).
-	if (!full_frame && vr_camera_scissor_full() && (mask & RSX_GCM_CLEAR_ANY_MASK) == RSX_GCM_CLEAR_STENCIL_BIT && !vr_right_clear)
-	{
-		scissor_x = scissor_y = 0;
-		scissor_w = fb_width;
-		scissor_h = fb_height;
-	}
 	VkClearRect region = { { { scissor_x, scissor_y }, { scissor_w, scissor_h } }, 0, 1 };
 	bool update_color = false, update_z = false;
 	auto surface_depth_format = rsx::method_registers.surface_depth_fmt();
@@ -2733,39 +2724,6 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 		}
 		std::memcpy(static_cast<u8*>(buffer) + index * 16, value, sizeof(value));
 	}
-}
-
-bool VKGSRender::vr_camera_scissor_full() const
-{
-	const auto& probe = rsx::vr::camera_probe::get();
-	if (!probe.render_enabled())
-	{
-		return false;
-	}
-	const auto* profile = probe.profile();
-	return (profile && profile->camera_scissor_full) || (probe.dev_flags() & 0x400);
-}
-
-bool VKGSRender::vr_apply_camera_scissor(bool camera_draw)
-{
-	// The game's scissor bounds what it computed for its own view (The Darkness: each light's screen
-	// rectangle). The eye transform moves the geometry out of it, so camera draws use the viewport.
-	if (!camera_draw || !vr_camera_scissor_full())
-	{
-		return false;
-	}
-	VkRect2D scissor;
-	scissor.offset.x = static_cast<s32>(std::max(0.f, std::floor(m_viewport.x)));
-	scissor.offset.y = static_cast<s32>(std::max(0.f, std::floor(std::min(m_viewport.y, m_viewport.y + m_viewport.height))));
-	scissor.extent.width = static_cast<u32>(std::ceil(m_viewport.width));
-	scissor.extent.height = static_cast<u32>(std::ceil(std::fabs(m_viewport.height)));
-	if (scissor.offset.x == m_scissor.offset.x && scissor.offset.y == m_scissor.offset.y &&
-		scissor.extent.width == m_scissor.extent.width && scissor.extent.height == m_scissor.extent.height)
-	{
-		return false;
-	}
-	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &scissor);
-	return true;
 }
 
 bool VKGSRender::vr_apply_box_scissor()

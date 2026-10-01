@@ -149,9 +149,6 @@ namespace rsx::vr
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
 		// directly (the program's constant_ids), as the profile generator samples them.
 		bool camera_slots_read_directly = false;
-		// Camera draws use the viewport as scissor, and scissored stencil-only clears clear the whole target:
-		// the game's scissor is a rectangle it computed for its own view (The Darkness: each light's bounds).
-		bool camera_scissor_full = false;
 		// Textures read at `from` (a main-memory copy the SPUs process, which has only the left eye) are read
 		// from the render target at `to` instead, per eye (Puppeteer: scene 0xc0750000 -> SPU post -> 0x399c0000).
 		std::vector<std::pair<u32, u32>> texture_redirects;
