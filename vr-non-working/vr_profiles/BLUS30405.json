@@ -28,6 +28,7 @@
 
   "screen_space": {
     "frames_without_3d_as_screen": true,
-    "orthographic_block": 0
+    "orthographic_block": 0,
+    "screen_frame_draws": [ { "program": "2f7541c34fd0c5d7", "texture": "1280x736" } ]
   }
 }
