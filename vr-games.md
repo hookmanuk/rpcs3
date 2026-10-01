@@ -50,13 +50,13 @@ measured yet.
 | Game | ID | Suggested Framerate | Sustained in VR |
 |---|---|---|---|
 | WipEout HD Fury | BCES00664 | Headset refresh rate | 90 Hz |
-| Pure | BLUS30182 | Headset refresh rate | - |
-| ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) | - |
+| Pure | BLUS30182 | Headset refresh rate | 90 Hz |
+| ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) | 30 FPS (the game's limit) |
 | Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) | 90 Hz |
-| Ridge Racer 7 | BCAS20001 | Headset refresh rate | - |
+| Ridge Racer 7 | BCAS20001 | Headset refresh rate | 90 Hz |
 | Demon's Souls | BLUS30443 | Headset refresh rate | 120 Hz |
 | Bayonetta | BLUS30367 | Headset refresh rate | 120 Hz |
-| Killzone HD | BCES01743 | 90 FPS | - |
+| Killzone HD | BCES01743 | 90 FPS | 90 Hz |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -213,7 +213,7 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | The Darkness | BLUS30035 | below 72 (~48) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
 | Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
 | Jak and Daxter Collection | BCUS98281 | Jak 1 72 Hz; Jak II below 72 (~69); Jak 3 ~43 | Jak 1 and Jak II run at the headset rate with no patch (real-time); Jak 1's lens flares are hidden in VR. Jak 3 is too slow (~43 FPS) and has no profile. Checked on the desktop only. |
-| Asura's Wrath | BLUS30721 | - | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. 90 FPS at real-time speed on the desktop (at 100% resolution scale; not yet measured at 4K per eye); button-mashing QTEs may be harder at 90. Not tested in a headset. |
+| Asura's Wrath | BLUS30721 | 120 Hz | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. Real-time speed at 90 FPS (Vblank 180); button-mashing QTEs may be harder at higher rates. Episode 1 checked on the desktop only; not tested in a headset. |
 | Anarchy Reigns | BLUS30632 | 90 Hz | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
 | Dante's Inferno | BLUS30405 | 120 Hz | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
