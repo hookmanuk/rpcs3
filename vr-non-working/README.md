@@ -20,6 +20,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Ratchet & Clank Collection (R&C 1 tested) | BCUS98282 | `vr_profiles/BCUS98282.json` | |
 | Tales of Xillia | BLUS31006 | `vr_profiles/BLUS31006.json` | community *60 FPS* + `patches/BLUS31006_patch.yml` (*Frame rate follows VR*, on by default) |
 | The Darkness | BLUS30035 | `vr_profiles/BLUS30035.json` (stereo lighting broken) | community *60 FPS* patch |
+| Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).
