@@ -26,6 +26,7 @@
   "screen_space": {
     "orthographic_block": 31,
     "bare_projection": true,
-    "hud_skips_passes": true
+    "hud_skips_passes": true,
+    "unboxed_draws": [ { "program": "7053e6a262fcd712", "texture": "324x18" } ]
   }
 }
