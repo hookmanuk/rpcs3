@@ -9,6 +9,11 @@
   "game_frame_time_f32": ["0x98ebec"],
   "texture_redirects": [ { "from": "0x399c0000", "to": "0xc0750000" } ],
 
+  "hidden_draws": [
+    { "name": "Light flare sprites, placed at the light position on the flat screen (head-locked in VR)", "program": "03dd68c4dfe94371", "texture": "160x120", "hidden": true },
+    { "name": "Light glint sprites (the intro's orb), placed on the flat screen too", "program": "03dd68c4dfe94371", "texture": "208x252", "hidden": true }
+  ],
+
   "matrix_layout": "column_vectors",
   "camera_blocks": [256, 264, 0],
   "output_aspect_tolerance": 0.02,
