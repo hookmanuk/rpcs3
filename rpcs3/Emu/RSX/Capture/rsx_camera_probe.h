@@ -257,6 +257,10 @@ namespace rsx::vr
 		// Camera draws through a viewport smaller than their view target go into the HUD box with the
 		// game's camera (Gran Turismo 5's rear-view mirror). Needs hud_box_after_shader.
 		bool screen_space_subviewport_cameras_in_box = false;
+		// Vertex program ucode hashes whose camera (perspective) draws are part of the 2D screen: they go into
+		// the HUD box with the game's camera, after the shader. Ratchet & Clank's pause-menu panels are 3D
+		// meshes drawn with their own perspective camera.
+		std::vector<u64> screen_space_boxed_camera_programs;
 
 		// Vertex constants holding texture-coordinate offsets (a pass's filter taps), divided
 		// by the resolution scale so the filter keeps its footprint in rendered pixels. Ridge
@@ -328,6 +332,9 @@ namespace rsx::vr
 		// game frame rate (effective vblank rate / vblanks_per_frame), so a frame-locked game
 		// keeps real-time speed at any VR frame rate. Same address forms as above.
 		std::vector<guest_address> game_frame_time_f32;
+		// The frame time squared and cubed (Ratchet & Clank keeps 1/60, 1/3600 and 1/216000 side by side).
+		std::vector<guest_address> game_frame_time_sq_f32;
+		std::vector<guest_address> game_frame_time_cube_f32;
 		std::vector<guest_address> game_frame_ms_u32;
 		// u32s holding the game frame rate itself (Ridge Racer 7's VR patch advances its
 		// 60 Hz frame counters by 60/fps per frame from it).
@@ -462,6 +469,8 @@ namespace rsx::vr
 		// The draw about to be bound samples a colour render target (post-processing).
 		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
 		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
+		// The vertex program ucode hash of the draw about to be bound (only set while the profile needs it).
+		void set_draw_program(u64 v) const { m_draw_program = v; }
 		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
 		bool hud_env_requested() const { return m_hud_env_request; }
 		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
@@ -601,6 +610,7 @@ namespace rsx::vr
 		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;
+		mutable u64 m_draw_program = 0;
 		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
 		mutable f32 m_draw_hud_scale = 1.f;

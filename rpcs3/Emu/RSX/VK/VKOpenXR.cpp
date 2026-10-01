@@ -1598,6 +1598,7 @@ namespace vk::xr
 	}
 
 	bool projection_mode() { return g_xr.projection; }
+	bool fake_hmd() { static const bool s_fake = !read_env("RPCS3_VR_FAKE_HMD").empty(); return s_fake && !is_running(); }
 	f32 eye_scale() { return g_xr.eye_scale; }
 	f32 fov_scale() { return g_xr.fov_scale; }
 	bool hmd_fov() { return g_xr.hmd_fov; }
@@ -1754,7 +1755,33 @@ namespace vk::xr
 		const XrTime last_display = g_xr.last_display_time.load();
 		if (!is_running() || !g_xr.view_space || !last_display)
 		{
-			return 0;
+			// VR fork dev hook: RPCS3_VR_FAKE_HMD=<field of view in degrees> without a headset session renders the
+			// headset view (head transform, HUD box, headset FOV) into the desktop side-by-side window: a fixed
+			// forward pose with a symmetric FOV, for testing HUD and menu handling. RPCS3_VR_WOBBLE and
+			// RPCS3_VR_HEAD_OFFSET move it.
+			static const f32 s_fake_fov = [] { const std::string v = read_env("RPCS3_VR_FAKE_HMD"); return v.empty() ? 0.f : static_cast<f32>(std::atof(v.c_str())); }();
+			if (s_fake_fov <= 0.f || s_fake_fov >= 170.f)
+			{
+				return 0;
+			}
+			const f32 half = s_fake_fov * 0.5f * 0.01745329f;
+			const f32 margin = std::min(margin_deg * 0.01745329f, 80.f * 0.01745329f - half);
+			const u32 id = ++g_xr.render_pose_count;
+			auto& pose = g_xr.render_poses[id % std::size(g_xr.render_poses)];
+			pose.id = id;
+			pose.orientation = { 0.f, 0.f, 0.f, 1.f };
+			for (u32 i = 0; i < 2; ++i)
+			{
+				pose.eye_position[i] = { i ? 0.0315f : -0.0315f, 0.f, 0.f };
+				pose.eye_fov[i] = { -half - margin, half + margin, half + margin, -half - margin };
+				const f32 t = std::tan(half), r = std::tan(half + margin);
+				eye_fov[i][0] = -t; eye_fov[i][1] = t; eye_fov[i][2] = t; eye_fov[i][3] = -t;
+				render_fov[i][0] = -r; render_fov[i][1] = r; render_fov[i][2] = r; render_fov[i][3] = -r;
+			}
+			position_xyz[0] = position_xyz[1] = position_xyz[2] = 0.f;
+			quat_xyzw[0] = quat_xyzw[1] = quat_xyzw[2] = 0.f;
+			quat_xyzw[3] = 1.f;
+			return id;
 		}
 
 		// The next game frame is published at the next guest flip and shown on the

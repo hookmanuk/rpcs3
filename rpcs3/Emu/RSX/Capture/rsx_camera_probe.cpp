@@ -739,6 +739,17 @@ namespace rsx::vr
 		{
 			profile->screen_space_output_pixel_draws_not_hud = fills == "true";
 		}
+		if (const YAML::Node programs = child(screen_space, "boxed_camera_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end) fail("screen_space.boxed_camera_programs: '" + text + "' is not a hex program hash");
+				profile->screen_space_boxed_camera_programs.push_back(hash);
+			}
+		}
 		if (std::string sub; read(screen_space, "subviewport_cameras_in_box", sub, false))
 		{
 			profile->screen_space_subviewport_cameras_in_box = sub == "true";
@@ -871,6 +882,8 @@ namespace rsx::vr
 		};
 		read_guest_addresses("game_refresh_rate_f32", profile->game_refresh_rate_f32);
 		read_guest_addresses("game_frame_time_f32", profile->game_frame_time_f32);
+		read_guest_addresses("game_frame_time_sq_f32", profile->game_frame_time_sq_f32);
+		read_guest_addresses("game_frame_time_cube_f32", profile->game_frame_time_cube_f32);
 		read_guest_addresses("game_frame_ms_u32", profile->game_frame_ms_u32);
 		read_guest_addresses("game_fps_u32", profile->game_fps_u32);
 		if (const YAML::Node rules = child(root, "resolution_scaled_constants"); rules && rules.IsSequence())
@@ -947,11 +960,11 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "scaled_draws" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_camera_programs", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "scaled_draws" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1212,6 +1225,7 @@ namespace rsx::vr
 	{
 		const title_profile* profile = camera_probe::get().profile();
 		if (!profile || (profile->game_refresh_rate_f32.empty() && profile->game_frame_time_f32.empty() && profile->game_frame_ms_u32.empty() &&
+			profile->game_frame_time_sq_f32.empty() && profile->game_frame_time_cube_f32.empty() &&
 			profile->game_fps_u32.empty()))
 		{
 			return;
@@ -1288,6 +1302,26 @@ namespace rsx::vr
 				}
 			}
 		}
+		// Powers of the frame time, over values in the matching range (1/500 to 1/10 s, squared or cubed).
+		const auto write_power = [&](const std::vector<title_profile::guest_address>& targets, u32 power)
+		{
+			const f32 wanted = power == 2 ? frame_time * frame_time : frame_time * frame_time * frame_time;
+			const f32 low = power == 2 ? 0.002f * 0.002f : 0.002f * 0.002f * 0.002f;
+			const f32 high = power == 2 ? 0.01f : 0.001f;
+			for (const auto& target : targets)
+			{
+				if (const u32 address = resolve(target))
+				{
+					be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+					if (const f32 current = value; current >= low && current <= high && current != wanted)
+					{
+						value = wanted;
+					}
+				}
+			}
+		};
+		write_power(profile->game_frame_time_sq_f32, 2);
+		write_power(profile->game_frame_time_cube_f32, 3);
 		const u32 frame_ms = static_cast<u32>(std::lround(1000.f / fps));
 		for (const auto& target : profile->game_frame_ms_u32)
 		{
@@ -1749,6 +1783,16 @@ namespace rsx::vr
 			profile.is_view_target(surface_w, surface_h, static_cast<f32>(output_eye.width) / output_eye.height) &&
 			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f < rsx::method_registers.surface_clip_width() * 0.9f &&
 			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f < rsx::method_registers.surface_clip_height() * 0.9f)
+		{
+			block.release();
+			m_hud_env_request = true;
+			return false;
+		}
+
+		// Profile boxed_camera_programs: 3D screen elements (menu panels) drawn with their own camera.
+		if (!profile.screen_space_boxed_camera_programs.empty() && m_vr_view && m_vr_hmd_fov && m_vr_proj_valid &&
+			std::find(profile.screen_space_boxed_camera_programs.begin(), profile.screen_space_boxed_camera_programs.end(), m_draw_program) !=
+				profile.screen_space_boxed_camera_programs.end())
 		{
 			block.release();
 			m_hud_env_request = true;

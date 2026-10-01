@@ -712,7 +712,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	// waits on the headset's clock (that stalled guest command processing and
 	// dropped frames in busy scenes); it records a copy into a free eye buffer,
 	// submits, and tags the pair with the pose its draws were rotated by.
-	if (vk::xr::is_running())
+	if (vk::xr::is_running() || vk::xr::fake_hmd())
 	{
 		// Videos some games show without flipping (Demon's Souls: decoded into the display
 		// buffer, shown only by RPCS3's UI refresh) count as frames without camera draws, so

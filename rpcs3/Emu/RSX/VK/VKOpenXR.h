@@ -86,6 +86,7 @@ namespace vk::xr
 
 	// Projection mode (default; RPCS3_OPENXR_MODE=quad selects the virtual screen).
 	bool projection_mode();
+	bool fake_hmd(); // RPCS3_VR_FAKE_HMD: headset view rendered on the desktop without a session (development)
 	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
 	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, game-FOV mode only
 	bool hmd_fov();   // RPCS3_OPENXR_FOV=game keeps the game's FOV; default renders the headset's
