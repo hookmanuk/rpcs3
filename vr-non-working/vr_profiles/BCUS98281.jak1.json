@@ -3,8 +3,8 @@
   "title_id": "BCUS98281",
   "app_version": "01.00",
   "name": "Jak and Daxter Collection",
-  "max_fps": 0,
-  "default_fps": 0,
+  "max_fps": 60,
+  "default_fps": 60,
 
   "hidden_draws": [
     { "name": "Screen-space glare (lens-flare quads tested against scene depth)", "program": "07b162cff7a683bf", "texture": "1024x720", "hidden": true }
