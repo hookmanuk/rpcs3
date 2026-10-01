@@ -27,6 +27,7 @@
   },
 
   "screen_space": {
+    "frames_without_3d_as_screen": true,
     "orthographic_block": 0
   }
 }
