@@ -152,6 +152,9 @@ namespace rsx::vr
 		// Camera draws use the viewport as scissor, and scissored stencil-only clears clear the whole target:
 		// the game's scissor is a rectangle it computed for its own view (The Darkness: each light's bounds).
 		bool camera_scissor_full = false;
+		// Textures read at `from` (a main-memory copy the SPUs process, which has only the left eye) are read
+		// from the render target at `to` instead, per eye (Puppeteer: scene 0xc0750000 -> SPU post -> 0x399c0000).
+		std::vector<std::pair<u32, u32>> texture_redirects;
 		// Vertex program ucode hashes whose draws keep the game camera in both eyes (no head transform or
 		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn
 		// without colour). Probe gamecam= tries candidates live.

@@ -21,7 +21,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Tales of Xillia | BLUS31006 | `vr_profiles/BLUS31006.json` | community *60 FPS* + `patches/BLUS31006_patch.yml` (*Frame rate follows VR*, on by default) |
 | The Darkness | BLUS30035 | `vr_profiles/BLUS30035.json` (stereo lighting broken) | community *60 FPS* patch |
 | Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
-| Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (30/45 FPS) | |
+| Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (90 FPS real-time; stereo via `texture_redirects`) | |
 | Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json`, `BCUS98281.jak2.json` | |
 | Asura's Wrath | BLUS30721 | `vr_profiles/BLUS30721.json` | community *Unlock FPS*, *Disable Motion Blur*, *Disable Depth of Field* |
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |

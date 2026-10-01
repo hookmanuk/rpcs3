@@ -329,7 +329,32 @@ void VKGSRender::load_texture_env()
 			continue;
 		}
 
+		// Profile texture_redirects: read the render target instead of its main-memory copy (both eyes).
+		u32 redirect_saved[2] = {};
+		bool redirected = false;
+		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && !profile->texture_redirects.empty() &&
+			rsx::vr::camera_probe::get().render_enabled())
+		{
+			const u32 address = rsx::get_address(tex.offset(), tex.location());
+			for (const auto& [from, to] : profile->texture_redirects)
+			{
+				if (address != from) continue;
+				auto& regs = rsx::method_registers.registers;
+				redirect_saved[0] = regs[NV4097_SET_TEXTURE_OFFSET + i * 8];
+				redirect_saved[1] = regs[NV4097_SET_TEXTURE_FORMAT + i * 8];
+				regs[NV4097_SET_TEXTURE_OFFSET + i * 8] = to - rsx::constants::local_mem_base;
+				regs[NV4097_SET_TEXTURE_FORMAT + i * 8] = (redirect_saved[1] & ~3u) | (CELL_GCM_LOCATION_LOCAL + 1);
+				redirected = true;
+				m_textures_dirty[i] = true; // re-checked every draw: the cached sampler names the target, not `from`
+				break;
+			}
+		}
 		*sampler_state = m_texture_cache.upload_texture(*m_current_command_buffer, tex, m_rtts);
+		if (redirected)
+		{
+			rsx::method_registers.registers[NV4097_SET_TEXTURE_OFFSET + i * 8] = redirect_saved[0];
+			rsx::method_registers.registers[NV4097_SET_TEXTURE_FORMAT + i * 8] = redirect_saved[1];
+		}
 		if (!sampler_state->validate())
 		{
 			continue;

@@ -797,6 +797,23 @@ namespace rsx::vr
 		{
 			profile->camera_scissor_full = scissor == "true";
 		}
+		if (const YAML::Node redirects = child(root, "texture_redirects"); redirects && redirects.IsSequence())
+		{
+			for (const YAML::Node& node : redirects)
+			{
+				std::string from, to;
+				read(node, "from", from);
+				read(node, "to", to);
+				const u32 a = static_cast<u32>(std::strtoul(from.c_str(), nullptr, 16));
+				const u32 b = static_cast<u32>(std::strtoul(to.c_str(), nullptr, 16));
+				if (!a || b < 0xc0000000u)
+				{
+					fail("texture_redirects: expected {\"from\": \"<guest address>\", \"to\": \"<render target address in local memory, 0xc...>\"}");
+					continue;
+				}
+				profile->texture_redirects.emplace_back(a, b);
+			}
+		}
 		if (const YAML::Node programs = child(root, "game_camera_programs"); programs && programs.IsSequence())
 		{
 			for (const auto& program : programs)
@@ -965,7 +982,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "camera_scissor_full", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "camera_scissor_full", "texture_redirects", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });

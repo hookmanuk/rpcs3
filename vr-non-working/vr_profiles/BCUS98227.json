@@ -3,10 +3,11 @@
   "title_id": "BCUS98227",
   "app_version": "01.00",
   "name": "Puppeteer™",
-  "max_fps": 30,
-  "default_fps": 30,
+  "max_fps": 0,
+  "default_fps": 0,
   "vblanks_per_frame": 2,
   "game_frame_time_f32": ["0x98ebec"],
+  "texture_redirects": [ { "from": "0x399c0000", "to": "0xc0750000" } ],
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [256, 264, 0],
