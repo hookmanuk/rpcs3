@@ -3736,6 +3736,38 @@ namespace rsx
 			return;
 		}
 
+		// VR fork dev hook: RPCS3_VR_FRAMESTATS=<seconds> logs the game's frame times over each window of that
+		// length: frames, average FPS, 1% low and 0.1% low (the FPS of the 99th / 99.9th percentile frame time).
+		// Only runs when the variable is set.
+		if (static const u32 s_window = [] { const char* v = std::getenv("RPCS3_VR_FRAMESTATS"); return v ? static_cast<u32>(std::max(1, std::atoi(v))) : 0u; }(); s_window)
+		{
+			static std::vector<f32> s_times;
+			static u64 s_last = 0, s_start = 0;
+			const u64 now = get_system_time();
+			if (s_last)
+			{
+				s_times.push_back((now - s_last) / 1000.f);
+			}
+			else
+			{
+				s_start = now;
+			}
+			s_last = now;
+			if (now - s_start >= s_window * 1'000'000ull && s_times.size() >= 10)
+			{
+				std::vector<f32> sorted = s_times;
+				std::sort(sorted.begin(), sorted.end());
+				f64 sum = 0.;
+				for (const f32 t : sorted) sum += t;
+				const f32 p99 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 99 / 100)];
+				const f32 p999 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 999 / 1000)];
+				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms)",
+					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back());
+				s_times.clear();
+				s_start = now;
+			}
+		}
+
 		if (!m_queued_flip.pop(buffer))
 		{
 			// Frame was not queued before flipping
