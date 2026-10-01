@@ -42,16 +42,21 @@ To raise the resolution or change the VR settings for a game, see [vr-settings.m
 
 ## Playable
 
-| Game | ID | Suggested Framerate |
-|---|---|---|
-| WipEout HD Fury | BCES00664 | Headset refresh rate |
-| Pure | BLUS30182 | Headset refresh rate |
-| ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) |
-| Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) |
-| Ridge Racer 7 | BCAS20001 | Headset refresh rate |
-| Demon's Souls | BLUS30443 | Headset refresh rate |
-| Bayonetta | BLUS30367 | Headset refresh rate |
-| Killzone HD | BCES01743 | 90 FPS |
+**Sustained in VR** is the highest headset refresh rate (72, 90 or 120 Hz) the game held in a test scene with
+under 1% missed frames, rendered at **4K per eye (Resolution Scale 300%) on a Ryzen 7 9800X3D with an RTX 5090**.
+72 Hz is the minimum we count as fully VR compatible. Slower PCs or other settings will differ; "-" means not
+measured yet.
+
+| Game | ID | Suggested Framerate | Sustained in VR |
+|---|---|---|---|
+| WipEout HD Fury | BCES00664 | Headset refresh rate | 90 Hz |
+| Pure | BLUS30182 | Headset refresh rate | - |
+| ICO | BCUS98259 | 30 FPS (Needs Driver Smoothing) | - |
+| Shadow of the Colossus | BCUS98259 | 60 FPS (no maximum) | 90 Hz |
+| Ridge Racer 7 | BCAS20001 | Headset refresh rate | - |
+| Demon's Souls | BLUS30443 | Headset refresh rate | 120 Hz |
+| Bayonetta | BLUS30367 | Headset refresh rate | 120 Hz |
+| Killzone HD | BCES01743 | 90 FPS | - |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -190,26 +195,29 @@ These have VR profiles that work on the desktop, but have not been played throug
 have known problems. Their profiles and patches are **not shipped**: they are kept in `vr-non-working/` in
 the source repository, with instructions for trying them.
 
-| Game | ID | State |
-|---|---|---|
-| Blur | BLUS30295 | 45-50 FPS in stereo. Needs `Write Color Buffers` on (black screen otherwise). Car shadow may lag on big head turns; mirror motion blur in one eye. |
-| Need for Speed Most Wanted | BLUS31010 | Frame-rate patches are fixed per rate (60/72/80/90/120): pick the one matching your headset and set Vblank Rate to match. In-race speed at 90 FPS not yet confirmed. |
-| inFamous 2 | BCUS98125 | 52-72 FPS in stereo. A layer processed on the SPUs is only correct in the left eye (slight ghost in the right). |
-| Metal Gear Solid 4 | BLUS30109 | ~35 FPS in stereo in Act 1. Once hung ~8 minutes into Act 1. Set `LLVM Precompilation` off (first boot otherwise compiles for 20+ minutes). |
-| inFamous | BCUS98119 | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
-| Split/Second | BLUS30300 | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
-| God of War III | BCUS98111 | Early experimental profile. Not tested in a headset. |
-| MotorStorm: Pacific Rift | BCUS98155 | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
-| Dragon's Dogma: Dark Arisen | BLUS31155 | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. 90 FPS in stereo in the prologue; the open world is untested. NPC name tags stay in the HUD box. Not tested in a headset. |
-| Ratchet & Clank Collection | BCUS98282 | Ratchet & Clank 1 only: runs at its native 60 FPS (the game speeds up at higher rates), the headset reprojects. Pause-menu frames turn with your head. Not tested in a headset. |
-| Tales of Xillia | BLUS31006 | Enable the community patch *60 FPS*; the VR build's *Frame rate follows VR* (on by default) keeps the game at real-time speed at the headset rate (walking speed measured equal at 60 and 90). Field exploration checked on the desktop only; battles not checked. |
-| The Darkness | BLUS30035 | Not usable yet: in VR the lighting breaks (red light over surfaces, dark bands). The community patch *60 FPS* works and keeps real-time speed. |
-| Dynasty Warriors 6 Empires | BLUS30306 | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
-| Jak and Daxter Collection | BCUS98281 | Jak 1 and Jak II: run at the headset rate with no patch (real-time), checked on the desktop only. Jak 3 not yet profiled. |
-| Asura's Wrath | BLUS30721 | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. 90 FPS at real-time speed on the desktop; button-mashing QTEs may be harder at 90. Not tested in a headset. |
-| Anarchy Reigns | BLUS30632 | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
-| Dante's Inferno | BLUS30405 | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
-| Gran Turismo 5 | BCUS98114 | Work in progress: some menu clipping when you lean back, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
+Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
+
+| Game | ID | Sustained in VR | State |
+|---|---|---|---|
+| Blur | BLUS30295 | - | 45-50 FPS in stereo. Needs `Write Color Buffers` on (black screen otherwise). Car shadow may lag on big head turns; mirror motion blur in one eye. |
+| Need for Speed Most Wanted | BLUS31010 | - | Frame-rate patches are fixed per rate (60/72/80/90/120): pick the one matching your headset and set Vblank Rate to match. In-race speed at 90 FPS not yet confirmed. |
+| inFamous 2 | BCUS98125 | - | 52-72 FPS in stereo. A layer processed on the SPUs is only correct in the left eye (slight ghost in the right). |
+| Metal Gear Solid 4 | BLUS30109 | - | ~35 FPS in stereo in Act 1. Once hung ~8 minutes into Act 1. Set `LLVM Precompilation` off (first boot otherwise compiles for 20+ minutes). |
+| inFamous | BCUS98119 | - | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
+| Split/Second | BLUS30300 | - | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
+| God of War III | BCUS98111 | - | Early experimental profile. Not tested in a headset. |
+| MotorStorm: Pacific Rift | BCUS98155 | - | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
+| Dragon's Dogma: Dark Arisen | BLUS31155 | below 72 (~68, prologue) | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. Only the prologue has been tested; the open world is untested. |
+| Ratchet & Clank Collection | BCUS98282 | below 72 in heavy scenes (R&C 1 ~67, R&C 3 ~70) | All three games run at real-time speed at the headset rate (the profiles set their frame-time values; no patch). Heavy scenes do not hold 72 Hz at 4K per eye yet. Ratchet & Clank 1's pause-menu frames turn with your head. Not tested in a headset. |
+| Tales of Xillia | BLUS31006 | 90 Hz | Enable the community patch *60 FPS*; the VR build's *Frame rate follows VR* (on by default) keeps the game at real-time speed at the headset rate (walking speed measured equal at 60 and 90). Field exploration checked on the desktop only; battles not checked. |
+| The Darkness | BLUS30035 | below 72 (~48) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
+| Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
+| Jak and Daxter Collection | BCUS98281 | Jak 1 72 Hz; Jak II below 72 (~69); Jak 3 ~43 | Jak 1 and Jak II run at the headset rate with no patch (real-time); Jak 1's lens flares are hidden in VR. Jak 3 is too slow (~43 FPS) and has no profile. Checked on the desktop only. |
+| Asura's Wrath | BLUS30721 | - | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. 90 FPS at real-time speed on the desktop (at 100% resolution scale; not yet measured at 4K per eye); button-mashing QTEs may be harder at 90. Not tested in a headset. |
+| Anarchy Reigns | BLUS30632 | 90 Hz | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
+| Dante's Inferno | BLUS30405 | 120 Hz | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
+| Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
+| Puppeteer | BCUS98227 | 72 Hz | No patch needed: runs at real-time speed at the headset rate (the profile sets the game's frame time). The game post-processes each frame on the SPUs, which only ever sees the left eye: in VR the profile reads the frame from before that step, so its anti-aliasing is skipped. The stage looks small in the headset (the game's narrow theatre camera). Not tested in a headset. |
 
 ---
 
