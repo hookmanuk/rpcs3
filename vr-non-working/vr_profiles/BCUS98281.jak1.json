@@ -25,5 +25,9 @@
     "per_eye_separation": 0.0292845,
     "convergence": 2.56,
     "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 0
   }
 }
