@@ -246,6 +246,10 @@ namespace rsx::vr
 		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
 		struct unboxed_draw { u64 program = 0; u16 width = 0; u16 height = 0; };
 		std::vector<unboxed_draw> screen_space_unboxed_draws;
+		// A frame containing one of these draws (same match as unboxed_draws) is shown whole on the fixed screen, the
+		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
+		// of a 2D fire background), which the headset view pulls apart. List a draw only the menu makes (its logo).
+		std::vector<unboxed_draw> screen_space_screen_frame_draws;
 		// Draws skipped entirely while VR is enabled, same match as unboxed_draws; each entry has a name and an
 		// on/off flag ("hidden") so a player can switch an effect back on (Killzone HD: film grain).
 		std::vector<unboxed_draw> hidden_draws;

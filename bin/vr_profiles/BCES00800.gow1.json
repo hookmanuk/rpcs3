@@ -27,6 +27,7 @@
   },
 
   "screen_space": {
+    "screen_frame_draws": [ { "program": "a3b1455d9ebdd381", "texture": "1024x256" } ],
     "offaspect_projection": true,
     "frames_without_3d_as_screen": true
   }

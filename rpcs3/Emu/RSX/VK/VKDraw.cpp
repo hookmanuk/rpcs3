@@ -1992,6 +1992,21 @@ void VKGSRender::end()
 		}
 	}
 
+	// Profile screen_frame_draws: this frame goes on the fixed screen (see vr_update_view).
+	if (const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
+		profile && !profile->screen_space_screen_frame_draws.empty())
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[0];
+		const u16 width = tex.enabled() ? tex.width() : 0;
+		const u16 height = tex.enabled() ? tex.height() : 0;
+		const auto& list = profile->screen_space_screen_frame_draws;
+		if (std::any_of(list.begin(), list.end(), [&](const auto& d) { return d.width == width && d.height == height; }))
+		{
+			const u64 hash = vr_vertex_program_hash();
+			m_vr_screen_frame_draws += std::any_of(list.begin(), list.end(), [&](const auto& d) { return d.program == hash && d.width == width && d.height == height; });
+		}
+	}
+
 	// RPCS3_VR_RTDUMP with prog=<hash>: dump the requested surfaces of both eyes just before this program draws.
 	if (m_vr_rtdump_program && m_vr_rtdump_armed && program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == m_vr_rtdump_program &&
 		!(m_vr_rtdump_skip && m_vr_rtdump_skip--))

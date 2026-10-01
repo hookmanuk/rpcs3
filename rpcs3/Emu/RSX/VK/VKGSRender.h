@@ -145,6 +145,7 @@ private:
 	void vr_mark_3d_targets(bool camera);    // camera draws, and draws sampling 3D content, mark their targets vr_has_3d
 	bool m_vr_flip_has_3d = true;            // the last displayed buffer held 3D content (vr_has_3d)
 	u32 m_vr_frames_2d = 0;                  // consecutive frames with no camera draws whose displayed buffer held no 3D
+	u32 m_vr_screen_frame_draws = 0;         // draws this frame matching the profile's screen_frame_draws
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
 	// pose (ICO blends last frame's scene and glow into each new frame) sample it
