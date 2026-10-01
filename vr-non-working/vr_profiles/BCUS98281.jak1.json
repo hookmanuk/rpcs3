@@ -17,17 +17,18 @@
   "camera_target_aspect": 1.42222,
 
   "camera_position": {
-    "eye_baseline": 0.064
+    "eye_baseline": 0.128
   },
 
   "stereo": {
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0292845,
     "convergence": 2.56,
-    "eye_offset": "baseline"
+    "eye_offset": "baseline_per_w"
   },
 
   "screen_space": {
-    "orthographic_block": 0
+    "orthographic_block": 0,
+    "unboxed_draws": [ { "program": "fc3fabcf3cb724b2", "texture": "512x360" }, { "program": "fc3fabcf3cb724b2", "texture": "1024x720" }, { "program": "fc3fabcf3cb724b2", "texture": "0x0" } ]
   }
 }

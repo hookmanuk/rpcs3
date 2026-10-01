@@ -191,6 +191,10 @@ namespace rsx::vr
 		// the same shift a much wider eye distance, so the world looked tiny.
 		// stereo.eye_offset: "baseline".
 		bool stereo_eye_offset_from_baseline = false;
+		// eye_offset "baseline_per_w": the baseline offset per unit of the block's clip-w row, so a scale folded into the
+		// block (an object's model matrix) cancels out and eye_baseline is in view units. For games whose camera blocks
+		// are per-object MVPs with different scales (Jak 1).
+		bool stereo_eye_offset_per_w = false;
 
 		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
 		// The HUD block is read in rows whatever matrix_layout says (orthographic_block_layout "row_vectors"),

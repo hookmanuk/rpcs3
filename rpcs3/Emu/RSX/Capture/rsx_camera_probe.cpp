@@ -529,11 +529,12 @@ namespace rsx::vr
 		read_rule(stereo, profile->stereo);
 		if (std::string offset; read(stereo, "eye_offset", offset, false))
 		{
-			if (offset != "baseline" && offset != "shear")
+			if (offset != "baseline" && offset != "baseline_per_w" && offset != "shear")
 			{
-				fail(fmt::format("stereo eye_offset '%s' is not supported (baseline or shear)", offset));
+				fail(fmt::format("stereo eye_offset '%s' is not supported (baseline, baseline_per_w or shear)", offset));
 			}
-			profile->stereo_eye_offset_from_baseline = offset == "baseline";
+			profile->stereo_eye_offset_from_baseline = offset == "baseline" || offset == "baseline_per_w";
+			profile->stereo_eye_offset_per_w = offset == "baseline_per_w";
 		}
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
@@ -2067,7 +2068,16 @@ namespace rsx::vr
 				{
 					// Move the eye by half the baseline along the camera's right: clip.x
 					// changes by that distance times the length of its x row.
-					const f32 clip_x_per_unit = std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
+					f32 clip_x_per_unit = std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
+					if (profile.stereo_eye_offset_per_w)
+					{
+						// The x row is the projection's x scale times any object scale, the w row the w scale (1 for
+						// w = +-z) times the same object scale: their ratio is the object-free x scale.
+						if (const f32 w_len = std::sqrt(rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]); w_len > 1e-12f)
+						{
+							clip_x_per_unit /= w_len;
+						}
+					}
 					rows[3][0] -= eye_sign * profile.eye_baseline * 0.5f * m_vr_eye_scale * clip_x_per_unit;
 				}
 				else
