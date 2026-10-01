@@ -28,6 +28,6 @@
     "orthographic_block": 4,
     "passthrough_hud": true,
     "hud_programs": ["007f5efab1d12ef7"],
-    "boxed_camera_programs": ["ef49d731f4b4551b", "d032c3b0051293db"]
+    "boxed_cameras": [[1, 0, 0, -256]]
   }
 }

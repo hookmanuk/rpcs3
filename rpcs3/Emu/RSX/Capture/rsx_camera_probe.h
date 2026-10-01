@@ -268,10 +268,11 @@ namespace rsx::vr
 		// Camera draws through a viewport smaller than their view target go into the HUD box with the
 		// game's camera (Gran Turismo 5's rear-view mirror). Needs hud_box_after_shader.
 		bool screen_space_subviewport_cameras_in_box = false;
-		// Vertex program ucode hashes whose camera (perspective) draws are part of the 2D screen: they go into
-		// the HUD box with the game's camera, after the shader. Ratchet & Clank's pause-menu panels are 3D
-		// meshes drawn with their own perspective camera.
-		std::vector<u64> screen_space_boxed_camera_programs;
+		// Clip-w rows (input x, y, z, w weights) of cameras whose draws are part of the 2D screen: they go into
+		// the HUD box with the game's camera. Ratchet & Clank's menu panels are 3D meshes drawn with a fixed
+		// axis-aligned menu camera (clip w = x - 256); its world programs also draw the levels, so a program
+		// match boxed the whole level.
+		std::vector<std::array<f32, 4>> screen_space_boxed_cameras;
 
 		// Vertex constants holding texture-coordinate offsets (a pass's filter taps), divided
 		// by the resolution scale so the filter keeps its footprint in rendered pixels. Ridge
@@ -501,7 +502,6 @@ namespace rsx::vr
 		void set_draw_samples_any_colour_target(bool v) const { m_draw_samples_any_colour_target = v; }
 		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
 		// The vertex program ucode hash of the draw about to be bound (only set while the profile needs it).
-		void set_draw_program(u64 v) const { m_draw_program = v; }
 		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
 		bool hud_env_requested() const { return m_hud_env_request; }
 		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
@@ -647,7 +647,6 @@ namespace rsx::vr
 		// reads 324x18 targets); the HUD ortho path counts only view-shaped ones (m_draw_samples_colour_target).
 		mutable bool m_draw_samples_any_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;
-		mutable u64 m_draw_program = 0;
 		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
 		mutable f32 m_draw_hud_scale = 1.f;

@@ -721,15 +721,21 @@ namespace rsx::vr
 		{
 			profile->screen_space_output_pixel_draws_not_hud = fills == "true";
 		}
-		if (const YAML::Node programs = child(screen_space, "boxed_camera_programs"); programs && programs.IsSequence())
+		if (const YAML::Node cameras = child(screen_space, "boxed_cameras"); cameras && cameras.IsSequence())
 		{
-			for (const auto& program : programs)
+			for (const YAML::Node& camera : cameras)
 			{
-				const std::string text = program.as<std::string>();
-				char* end = nullptr;
-				const u64 hash = std::strtoull(text.c_str(), &end, 16);
-				if (text.empty() || !end || *end) fail("screen_space.boxed_camera_programs: '" + text + "' is not a hex program hash");
-				profile->screen_space_boxed_camera_programs.push_back(hash);
+				if (!camera.IsSequence() || camera.size() != 4)
+				{
+					fail("screen_space.boxed_cameras: expected a list of clip-w rows, [x, y, z, w] each");
+					continue;
+				}
+				std::array<f32, 4> w_row{};
+				for (usz i = 0; i < 4; ++i)
+				{
+					w_row[i] = camera[i].as<f32>();
+				}
+				profile->screen_space_boxed_cameras.push_back(w_row);
 			}
 		}
 		if (std::string sub; read(screen_space, "subviewport_cameras_in_box", sub, false))
@@ -968,7 +974,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_camera_programs", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "scaled_draws" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "scaled_draws" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1822,10 +1828,16 @@ namespace rsx::vr
 			return false;
 		}
 
-		// Profile boxed_camera_programs: 3D screen elements (menu panels) drawn with their own camera.
-		if (!profile.screen_space_boxed_camera_programs.empty() && m_vr_view && m_vr_hmd_fov && m_vr_proj_valid &&
-			std::find(profile.screen_space_boxed_camera_programs.begin(), profile.screen_space_boxed_camera_programs.end(), m_draw_program) !=
-				profile.screen_space_boxed_camera_programs.end())
+		// Profile boxed_cameras: 3D screen elements (menu panels) drawn with their own fixed camera.
+		if (!profile.screen_space_boxed_cameras.empty() && m_vr_view && m_vr_hmd_fov && m_vr_proj_valid &&
+			std::any_of(profile.screen_space_boxed_cameras.begin(), profile.screen_space_boxed_cameras.end(), [&](const std::array<f32, 4>& w_row)
+			{
+				for (u32 r = 0; r < 4; ++r)
+				{
+					if (std::fabs(rows[r][3] - w_row[r]) > 1e-3f * std::max(1.f, std::fabs(w_row[r]))) return false;
+				}
+				return true;
+			}))
 		{
 			block.release();
 			m_hud_env_request = true;

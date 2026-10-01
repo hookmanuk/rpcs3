@@ -25,6 +25,11 @@
   },
 
   "screen_space": {
-    "orthographic_block": 200
-  }
+    "orthographic_block": 200,
+    "hud_skips_passes": true
+  },
+
+  "hidden_draws": [
+    { "name": "Cinematic letterbox bars", "program": "fc13d36fbccec49a", "texture": "0x0", "hidden": true }
+  ]
 }
