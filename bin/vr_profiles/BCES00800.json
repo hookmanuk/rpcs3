@@ -23,6 +23,12 @@
 
   "screen_space": {
     "offaspect_projection": true,
-    "frames_without_3d_as_screen": true
+    "frames_without_3d_as_screen": true,
+    "screen_frame_draws": [
+      { "program": "c760d3b1c5ed1efe", "texture": "1920x1200" },
+      { "program": "b08e63826db6768f", "texture": "512x512" },
+      { "program": "a35ef6b214e0c596", "texture": "256x256" },
+      { "program": "195bc177eb2f2dcf", "texture": "1920x1080" }
+    ]
   }
 }

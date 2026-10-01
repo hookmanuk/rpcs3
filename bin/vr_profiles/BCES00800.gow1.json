@@ -16,7 +16,7 @@
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
-    "eye_baseline": 3.20128
+    "eye_baseline": 0.864
   },
 
   "stereo": {
@@ -27,7 +27,10 @@
   },
 
   "screen_space": {
-    "screen_frame_draws": [ { "program": "a3b1455d9ebdd381", "texture": "1024x256" } ],
+    "screen_frame_draws": [
+      { "program": "a3b1455d9ebdd381", "texture": "1024x256" },
+      { "program": "a3b1455d9ebdd381", "texture": "512x512" }
+    ],
     "offaspect_projection": true,
     "frames_without_3d_as_screen": true
   }
