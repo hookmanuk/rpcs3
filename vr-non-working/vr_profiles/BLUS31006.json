@@ -8,7 +8,7 @@
   "game_frame_time_f32": ["0xf11ac8"],
 
   "matrix_layout": "row_vectors",
-  "camera_blocks": [0, 47],
+  "camera_blocks": [0],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
@@ -23,6 +23,7 @@
   },
 
   "screen_space": {
+    "frames_without_3d_as_screen": true,
     "orthographic_block": 0,
     "hud_skips_passes": true,
     "unboxed_draws": [ { "program": "fc3fabcf3cb724b2", "texture": "2560x720" } ]
