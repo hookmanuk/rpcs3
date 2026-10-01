@@ -3761,8 +3761,11 @@ namespace rsx
 				for (const f32 t : sorted) sum += t;
 				const f32 p99 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 99 / 100)];
 				const f32 p999 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 999 / 1000)];
-				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms)",
-					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back());
+				// Missed frames: longer than 1.5x the median frame time (at a fixed rate the median is the frame period).
+				const f32 median = sorted[sorted.size() / 2];
+				const usz late = static_cast<usz>(sorted.end() - std::upper_bound(sorted.begin(), sorted.end(), median * 1.5f));
+				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%",
+					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size());
 				s_times.clear();
 				s_start = now;
 			}
