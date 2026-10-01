@@ -208,6 +208,7 @@ the source repository, with instructions for trying them.
 | Jak and Daxter Collection | BCUS98281 | Jak 1 and Jak II: run at the headset rate with no patch (real-time), checked on the desktop only. Jak 3 not yet profiled. |
 | Asura's Wrath | BLUS30721 | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. 90 FPS at real-time speed on the desktop; button-mashing QTEs may be harder at 90. Not tested in a headset. |
 | Anarchy Reigns | BLUS30632 | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
+| Dante's Inferno | BLUS30405 | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | Work in progress: some menu clipping when you lean back, frame drops at the race start. Frame-rate patch *Frame rate follows VR*. |
 
 ---

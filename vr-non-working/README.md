@@ -25,6 +25,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json`, `BCUS98281.jak2.json` | |
 | Asura's Wrath | BLUS30721 | `vr_profiles/BLUS30721.json` | community *Unlock FPS*, *Disable Motion Blur*, *Disable Depth of Field* |
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |
+| Dante's Inferno (disc 01.00) | BLUS30405 | `vr_profiles/BLUS30405.json` (frame rate from the profile, no patch) | |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

@@ -885,6 +885,7 @@ namespace rsx::vr
 		read_guest_addresses("game_frame_time_sq_f32", profile->game_frame_time_sq_f32);
 		read_guest_addresses("game_frame_time_cube_f32", profile->game_frame_time_cube_f32);
 		read_guest_addresses("game_frame_ms_u32", profile->game_frame_ms_u32);
+		read_guest_addresses("game_frame_ms_f32", profile->game_frame_ms_f32);
 		read_guest_addresses("game_fps_u32", profile->game_fps_u32);
 		if (const YAML::Node rules = child(root, "resolution_scaled_constants"); rules && rules.IsSequence())
 		{
@@ -960,7 +961,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -1225,7 +1226,7 @@ namespace rsx::vr
 	{
 		const title_profile* profile = camera_probe::get().profile();
 		if (!profile || (profile->game_refresh_rate_f32.empty() && profile->game_frame_time_f32.empty() && profile->game_frame_ms_u32.empty() &&
-			profile->game_frame_time_sq_f32.empty() && profile->game_frame_time_cube_f32.empty() &&
+			profile->game_frame_time_sq_f32.empty() && profile->game_frame_time_cube_f32.empty() && profile->game_frame_ms_f32.empty() &&
 			profile->game_fps_u32.empty()))
 		{
 			return;
@@ -1341,6 +1342,28 @@ namespace rsx::vr
 				if (s_logged++ < 4)
 				{
 					vr_probe_log.notice("Game frame milliseconds at 0x%x: %u -> %u (%.2f FPS)", address, current, frame_ms, fps);
+				}
+			}
+		}
+		const f32 frame_ms_f = 1000.f / fps;
+		for (const auto& target : profile->game_frame_ms_f32)
+		{
+			const u32 address = resolve(target);
+			if (!address)
+			{
+				continue;
+			}
+
+			// Only over a value that looks like milliseconds per frame.
+			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+			const f32 current = value;
+			if (current >= 2.f && current <= 100.f && current != frame_ms_f)
+			{
+				value = frame_ms_f;
+				static u32 s_logged = 0;
+				if (s_logged++ < 4)
+				{
+					vr_probe_log.notice("Game frame milliseconds (float) at 0x%x: %.3f -> %.3f (%.2f FPS)", address, current, frame_ms_f, fps);
 				}
 			}
 		}

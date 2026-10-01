@@ -336,6 +336,9 @@ namespace rsx::vr
 		std::vector<guest_address> game_frame_time_sq_f32;
 		std::vector<guest_address> game_frame_time_cube_f32;
 		std::vector<guest_address> game_frame_ms_u32;
+		// Floats holding milliseconds per frame (Dante's Inferno steps its clock by whole 16.68 ms
+		// frames, at least one per frame, so above 60 FPS it runs fast).
+		std::vector<guest_address> game_frame_ms_f32;
 		// u32s holding the game frame rate itself (Ridge Racer 7's VR patch advances its
 		// 60 Hz frame counters by 60/fps per frame from it).
 		std::vector<guest_address> game_fps_u32;

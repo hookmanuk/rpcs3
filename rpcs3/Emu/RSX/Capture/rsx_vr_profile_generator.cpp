@@ -677,7 +677,9 @@ namespace rsx::vr
 				{
 					nonrigid_scene_draws[base] += rigidity(b->m) > 0.3;
 				}
-				else if (rigidity(b->m) > 0.3 && (pass || !aspect_matches(b->m, output_aspect, 0.5)))
+				// Strongly sheared (|cos| > 0.5) without depth test is no camera either: Dante's Inferno's HUD keeps
+				// UV and colour parameters in c[4..7], the scene's projection slots, and vanished in stereo.
+				else if (rigidity(b->m) > 0.3 && (pass || !aspect_matches(b->m, output_aspect, 0.5) || rigidity(b->m) > 0.5))
 				{
 					if (!require_rigid)
 					{
