@@ -2837,11 +2837,21 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 		return false;
 	}
 
+	const bool prof = m_gpuprof_enabled > 0;
+	auto t0 = prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+	const auto lap = [&](int i)
+	{
+		if (!prof) return;
+		const auto t = std::chrono::steady_clock::now();
+		m_gpuprof_eye_ms[i] += std::chrono::duration<f64, std::milli>(t - t0).count();
+		t0 = t;
+	};
 	static thread_local std::vector<u8> scratch;
 	scratch.resize(size);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
 	m_draw_processor.fill_vertex_program_constants_data(scratch.data(), constant_ids);
 	scale_offset_constants(scratch.data(), constant_ids);
+	lap(0);
 
 	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
 	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();
@@ -2864,6 +2874,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
+	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
 	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(size, alignment));
@@ -2877,6 +2888,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	m_xform_constants_dynamic_offset -= m_vertex_constants_buffer_info.offset;
 	m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
 		m_vs_binding_table->cbuf_location);
+	lap(2);
 	return classified_world;
 }
 
@@ -4325,6 +4337,10 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
 				text += fmt::format("; RSX thread ms/frame: setup %.2f, vertex %.2f, textures %.2f, draw %.2f, flip %.2f = %.2f of %.2f between flips",
 					rsx_ms(0), rsx_ms(1), rsx_ms(2), rsx_ms(3), rsx_ms(4), rsx_ms(0) + rsx_ms(1) + rsx_ms(2) + rsx_ms(3) + rsx_ms(4), m_gpuprof_wall_ms / 120);
+				text += fmt::format("; VR on the RSX thread: left-eye constants %.2f, right-eye replay %.2f ms/frame (eye constants, both eyes: fill %.2f, apply %.2f, upload %.2f); RSX thread CPU %.2f ms/frame",
+					m_gpuprof_left_vr_ms / 120, m_gpuprof_right_ms / 120, m_gpuprof_eye_ms[0] / 120, m_gpuprof_eye_ms[1] / 120, m_gpuprof_eye_ms[2] / 120, m_gpuprof_cpu_ms / 120);
+				std::fill(std::begin(m_gpuprof_eye_ms), std::end(m_gpuprof_eye_ms), 0.);
+				m_gpuprof_left_vr_ms = m_gpuprof_right_ms = m_gpuprof_cpu_ms = 0.;
 				text += fmt::format("; flip() %.2f ms/frame, of which waiting for older frames' GPU work %.2f", m_gpuprof_flip_ms / 120, m_gpuprof_ctxwait_ms / 120);
 				m_gpuprof_flip_ms = m_gpuprof_ctxwait_ms = 0.;
 				std::fill(std::begin(m_gpuprof_rsx_us), std::end(m_gpuprof_rsx_us), 0);
@@ -4357,6 +4373,17 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 	m_gpuprof_rsx_us[2] += stats.textures_upload_time;
 	m_gpuprof_rsx_us[3] += stats.draw_exec_time;
 	m_gpuprof_rsx_us[4] += m_frame_stats.flip_time;
+#ifdef _WIN32
+	{
+		FILETIME ctime, etime, ktime, utime;
+		if (GetThreadTimes(GetCurrentThread(), &ctime, &etime, &ktime, &utime))
+		{
+			const u64 t = ((ktime.dwLowDateTime | static_cast<u64>(ktime.dwHighDateTime) << 32) + (utime.dwLowDateTime | static_cast<u64>(utime.dwHighDateTime) << 32));
+			if (m_gpuprof_cpu_last) m_gpuprof_cpu_ms += (t - m_gpuprof_cpu_last) / 10000.;
+			m_gpuprof_cpu_last = t;
+		}
+	}
+#endif
 	const auto now = std::chrono::steady_clock::now();
 	if (m_gpuprof_last_flip != std::chrono::steady_clock::time_point{})
 	{

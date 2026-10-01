@@ -1351,7 +1351,12 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			rsx::method_registers.depth_func() != rsx::comparison_function::always);
 	}
 	rsx::vr::camera_probe::get().clear_hud_env_request();
+	const auto vr_left_t0 = vr_render && m_gpuprof_enabled > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
+	if (vr_left_t0 != std::chrono::steady_clock::time_point{})
+	{
+		m_gpuprof_left_vr_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - vr_left_t0).count();
+	}
 	m_vr_camera_draws += vr_camera_draw;
 	if (vr_render && vk::xr::is_running())
 	{
@@ -1759,6 +1764,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
 	}
 
+	const auto vr_right_t0 = vr_render && m_gpuprof_enabled > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	if (vr_render && vr_batch)
 	{
 		auto* const left_fbo = m_draw_fbo;
@@ -1884,6 +1890,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 		update_draw_state();
 		begin_render_pass();
+	}
+	if (vr_right_t0 != std::chrono::steady_clock::time_point{})
+	{
+		m_gpuprof_right_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - vr_right_t0).count();
 	}
 
 	if (vr_hud_env)

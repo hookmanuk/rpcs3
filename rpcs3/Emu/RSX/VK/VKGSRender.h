@@ -218,6 +218,11 @@ private:
 	u64 m_gpuprof_right_copies = 0;  // right-eye texture copies rebuilt from right-eye surfaces
 	std::map<std::string, u32> m_gpuprof_right_copy_kinds; // what those copies were (op, size, first source)
 	s64 m_gpuprof_rsx_us[5]{};     // RSX thread: setup, vertex upload, texture upload, draw exec, flip
+	f64 m_gpuprof_right_ms = 0.;   // RSX thread wall time in the right-eye replay of draws
+	f64 m_gpuprof_left_vr_ms = 0.; // and in the left eye's VR work (eye constants, classification, HUD env)
+	f64 m_gpuprof_cpu_ms = 0.;     // RSX thread CPU time (Windows: kernel + user)
+	f64 m_gpuprof_eye_ms[3]{};     // bind_vr_eye_constants: fill + scale, apply_render_eye, upload + bind
+	u64 m_gpuprof_cpu_last = 0;
 	std::chrono::steady_clock::time_point m_gpuprof_last_flip{};
 	f64 m_gpuprof_wall_ms = 0.;
 	f64 m_gpuprof_flip_ms = 0.;    // RSX thread inside flip()
