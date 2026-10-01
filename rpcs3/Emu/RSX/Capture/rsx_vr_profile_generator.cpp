@@ -1017,6 +1017,33 @@ namespace rsx::vr
 			}
 			return true;
 		};
+		// Per-object camera blocks: the scale of the matched block's clip-w row (an object's model scale) across the
+		// depth-tested camera draws. When it varies, the eye offset is taken per unit of that row (baseline_per_w):
+		// Jak 1's objects ranged from 0.016 to 1, and the plain baseline offset left most of the world flat.
+		std::vector<f64> camera_w_scales;
+		for (const auto& s : samples)
+		{
+			if (s.program == umax || !s.depth_test) continue;
+			const slot_reader r{ s.ids, s.values, s.full_bank };
+			for (const u32 base : blocks)
+			{
+				if (const auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m))
+				{
+					const f64 w = std::sqrt(b->m[3][0] * b->m[3][0] + b->m[3][1] * b->m[3][1] + b->m[3][2] * b->m[3][2]);
+					if (w > 1e-12) camera_w_scales.push_back(w);
+					break;
+				}
+			}
+		}
+		bool eye_offset_per_w = false;
+		if (camera_w_scales.size() >= 20)
+		{
+			std::sort(camera_w_scales.begin(), camera_w_scales.end());
+			const f64 lo = camera_w_scales[camera_w_scales.size() / 10], hi = camera_w_scales[camera_w_scales.size() * 9 / 10];
+			eye_offset_per_w = lo > 0 && hi / lo > 2.0;
+			vr_gen_log.notice("Camera block w-row scale over %u draws: 10%% %.4g, 90%% %.4g%s.", ::size32(camera_w_scales), lo, hi,
+				eye_offset_per_w ? ": per-object matrices, eye_offset baseline_per_w (check eye_baseline in view units against a known size)" : "");
+		}
 		std::map<u64, std::pair<u32, u32>> flat_hud; // program ucode -> (draws, draws into a camera target)
 		std::set<u32> frame_camera_targets;
 		u32 flat_hud_draws = 0;
@@ -1168,7 +1195,7 @@ namespace rsx::vr
 		// Eyes eye_baseline apart in world units, from each camera matrix's own scale: the
 		// clip-space shear only equals it at the projection sampled, and a Wider view patch
 		// (culling), an aiming zoom or a cutscene FOV changes the projection.
-		json += ",\n    \"eye_offset\": \"baseline\"";
+		json += eye_offset_per_w ? ",\n    \"eye_offset\": \"baseline_per_w\"" : ",\n    \"eye_offset\": \"baseline\"";
 		if (!width_rules.empty())
 		{
 			json += ",\n    \"by_target_width\": [\n";
