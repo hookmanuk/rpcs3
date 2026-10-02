@@ -26,7 +26,7 @@
 
   "screen_space": {
     "passthrough_hud": true,
-    "hud_programs": ["b49181469f73967f", "16ac04cbcbe66dac", "e44e6d596e281ee5"],
+    "hud_programs": ["b49181469f73967f", "16ac04cbcbe66dac"],
     "preprojected_programs": ["b7585fdcc1fb5ad9"]
   }
 }
