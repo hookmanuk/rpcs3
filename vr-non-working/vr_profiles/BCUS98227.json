@@ -16,10 +16,11 @@
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [256, 264, 0],
+  "linked_camera_blocks": [264],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
-    "eye_baseline": 0.064
+    "eye_baseline": 0.64
   },
 
   "stereo": {
