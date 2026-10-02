@@ -1,0 +1,13 @@
+Version: 1.2
+
+PPU-d626d9832ed48d1ff0d8d97e53a4e23df50cfae6: # kingdom.self (Kingdom Hearts Final Mix)
+  "Unlocked frame rate (VR)":
+    Games:
+      "Kingdom Hearts HD 1.5 ReMIX":
+        BLUS31212: [ 01.00 ]
+    Author: "Esppiral, Michael Pama, illusion (community 60 FPS patch); VR fork"
+    Notes: "The community 60 FPS patch (li r3, 0): the game presents every vblank instead of every second one. Community notes: may double cutscene audio/video, some Trinity cutscenes may loop white."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00036870, 0x38600000 ] # li r3, 0x0

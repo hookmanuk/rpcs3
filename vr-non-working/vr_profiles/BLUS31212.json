@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "title_id": "BLUS31212",
+  "app_version": "01.00",
+  "name": "Kingdom Hearts HD 1.5 ReMIX (game selector)",
+  "max_fps": 60,
+  "default_fps": 60,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [256],
+  "camera_palette": [260, 444],
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 6.4
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0157948,
+    "convergence": 51.2,
+    "eye_offset": "baseline_per_w"
+  }
+}

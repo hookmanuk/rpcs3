@@ -131,6 +131,12 @@ namespace rsx::vr
 		// block's clip-space eye transform (X = M^-1 * M_eye), so velocities stay the game's instead of
 		// the head rotation, eye offset and FOV change (characters blurred in the headset).
 		std::vector<u32> linked_camera_blocks;
+		// A palette of per-bone clip matrices beside the camera block, picked per vertex by an index register
+		// (Kingdom Hearts: c[256 + 4k], k from the vertex): 4-slot blocks from first to last (inclusive) get the
+		// camera block's clip-space eye transform, like linked_camera_blocks, but only blocks with the camera's
+		// projection (clip z = a * clip w + b): other data in the range (a UV table) is left alone.
+		u32 camera_palette_first = 0;
+		u32 camera_palette_last = 0;
 		// A camera block must be rigid: its clip x, y and w directions mutually
 		// orthogonal. Rejects unrelated data that happens to sit in a listed block.
 		bool require_rigid_camera = false;

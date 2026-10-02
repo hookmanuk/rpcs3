@@ -760,6 +760,22 @@ namespace rsx::vr
 				if (!node_error.empty()) fail("linked_camera_blocks: " + node_error);
 			}
 		}
+		if (const YAML::Node palette = child(root, "camera_palette"); palette)
+		{
+			if (!palette.IsSequence() || palette.size() != 2)
+			{
+				fail("camera_palette: expected [first block, last block]");
+			}
+			else
+			{
+				profile->camera_palette_first = palette[0].as<u32>();
+				profile->camera_palette_last = palette[1].as<u32>();
+				if (profile->camera_palette_last < profile->camera_palette_first || profile->camera_palette_last > 464)
+				{
+					fail("camera_palette: first <= last <= 464");
+				}
+			}
+		}
 		if (const YAML::Node blocks = child(root, "row_vector_blocks"); blocks && blocks.IsSequence())
 		{
 			for (const auto& node : blocks)
@@ -970,7 +986,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", { "schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect",
-			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs",
+			"camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs",
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
@@ -2135,7 +2151,7 @@ namespace rsx::vr
 	void camera_probe::apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
 		const f32 (&game)[4][4], f32* const rows[4]) const
 	{
-		if (profile.linked_camera_blocks.empty())
+		if (profile.linked_camera_blocks.empty() && !profile.camera_palette_last)
 		{
 			return;
 		}
@@ -2208,6 +2224,61 @@ namespace rsx::vr
 				for (u32 c = 0; c < 4; ++c) linked.rows[r][c] = static_cast<f32>(m[r][c]);
 			}
 		}
+
+		if (!profile.camera_palette_last)
+		{
+			return;
+		}
+		// The camera's projection: clip z = a * clip w + b (row vectors: z column = a * w column + b in the translation row).
+		f64 ww = 0.0, zw = 0.0;
+		for (u32 r = 0; r < 3; ++r)
+		{
+			ww += f64{game[r][3]} * game[r][3];
+			zw += f64{game[r][2]} * game[r][3];
+		}
+		if (ww < 1e-12)
+		{
+			return;
+		}
+		const f64 pa = zw / ww;
+		const f64 pb = game[3][2] - pa * game[3][3];
+		// The palette is read through the index register, not directly: look it up in the whole bank.
+		const auto* const direct_ids = std::exchange(t_direct_slots.ids, nullptr);
+		for (u32 base = profile.camera_palette_first; base <= profile.camera_palette_last; base += 4)
+		{
+			matrix_block bone;
+			if (!bone.bind(buffer, reloc, reloc_size, base, profile.column_vectors, false))
+			{
+				continue;
+			}
+			f64 len = 0.0, residual = 0.0;
+			for (u32 r = 0; r < 3; ++r)
+			{
+				len += f64{bone.rows[r][3]} * bone.rows[r][3];
+				residual = std::max(residual, std::fabs(bone.rows[r][2] - pa * bone.rows[r][3]));
+			}
+			len = std::sqrt(len);
+			if (len < 1e-6 || residual > 1e-3 * len ||
+				std::fabs(bone.rows[3][2] - pa * bone.rows[3][3] - pb) > 1e-3 * std::max(1.0, std::fabs(pb)))
+			{
+				continue;
+			}
+			f64 m[4][4];
+			for (u32 r = 0; r < 4; ++r)
+			{
+				for (u32 c = 0; c < 4; ++c)
+				{
+					f64 sum = 0.0;
+					for (u32 k = 0; k < 4; ++k) sum += bone.rows[r][k] * x[k][c];
+					m[r][c] = sum;
+				}
+			}
+			for (u32 r = 0; r < 4; ++r)
+			{
+				for (u32 c = 0; c < 4; ++c) bone.rows[r][c] = static_cast<f32>(m[r][c]);
+			}
+		}
+		t_direct_slots.ids = direct_ids;
 	}
 
 	void camera_probe::set_vr_view(const f32 q[4], const f32 pos[3], f32 eye_scale,
