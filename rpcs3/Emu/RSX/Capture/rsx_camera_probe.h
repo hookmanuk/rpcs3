@@ -352,6 +352,12 @@ namespace rsx::vr
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);
 
+	// Multiview stereo (Vulkan): both eyes are drawn by one draw into two-layer render targets.
+	// While set, vertex and fragment programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW, which selects
+	// the shader variants that read per-view draw parameters and sample array textures.
+	void set_multiview_active(bool active);
+	bool multiview_active();
+
 	// The VR "Frame Rate" option at this index (vr_frame_rate): its frame rate, 0 for
 	// Unlimited, umax for Default.
 	u32 frame_rate_option_fps(u32 option);

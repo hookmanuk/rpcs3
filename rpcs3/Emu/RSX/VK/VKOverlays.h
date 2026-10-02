@@ -109,6 +109,8 @@ namespace vk
 		void free_resources();
 
 		vk::framebuffer* get_framebuffer(vk::image* target, VkRenderPass render_pass);
+		u8 m_target_layer = 0;     // VR fork: the layer of a stereo target this pass renders into ...
+		u8 m_target_view_mask = 0; // ... or the multiview variant of render_pass (both layers at once)
 
 		virtual void emit_geometry(vk::command_buffer& cmd, glsl::program* program);
 

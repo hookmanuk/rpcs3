@@ -659,7 +659,16 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		xr_eye_width = present_info.width;
 		xr_eye_height = present_info.height;
 
-		if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled())
+		if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled() && m_vr_multiview)
+		{
+			// Multiview stereo: the right eye is layer 1 of the display surface
+			if (image_to_flip && image_to_flip->stereo_layers && image_to_flip->layers() > 1)
+			{
+				image_to_flip2 = vr_mv_right_eye_image(*m_current_command_buffer, image_to_flip);
+			}
+			generated_stereo = image_to_flip2 != nullptr;
+		}
+		else if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled())
 		{
 			// The display target is normally still bound at flip. Prefer that exact
 			// surface: resolving it through the cache merge path can reject a valid

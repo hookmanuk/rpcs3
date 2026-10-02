@@ -104,6 +104,8 @@ namespace vk
 			bool texture_compression_bc = false;
 			bool portability = false;
 			bool provoking_vertex_last = false;
+			bool multiview = false;                   // VR fork: VK_KHR_multiview (core 1.1)
+			bool shader_viewport_index_layer = false; // VR fork: VK_EXT_shader_viewport_index_layer (per-view scissor)
 		} optional_features_support;
 
 		friend class render_device;
@@ -187,6 +189,8 @@ namespace vk
 		bool get_anisotropic_filtering_support() const { return pgpu->features.samplerAnisotropy != VK_FALSE; }
 		bool get_wide_lines_support() const { return pgpu->features.wideLines != VK_FALSE; }
 		bool get_conditional_render_support() const { return pgpu->optional_features_support.conditional_rendering; }
+		bool get_multiview_support() const { return pgpu->optional_features_support.multiview; }
+		bool get_shader_viewport_index_layer_support() const { return pgpu->optional_features_support.shader_viewport_index_layer; }
 		bool get_unrestricted_depth_range_support() const { return pgpu->optional_features_support.unrestricted_depth_range; }
 		bool get_external_memory_host_support() const { return pgpu->optional_features_support.external_memory_host; }
 		bool get_surface_capabilities_2_support() const { return pgpu->optional_features_support.surface_capabilities_2; }

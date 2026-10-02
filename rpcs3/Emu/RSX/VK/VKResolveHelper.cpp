@@ -54,7 +54,7 @@ namespace vk
 		}
 	}
 
-	void resolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src)
+	void resolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src, u32 layer)
 	{
 		if (src->aspect() == VK_IMAGE_ASPECT_COLOR_BIT)
 		{
@@ -75,7 +75,7 @@ namespace vk
 				job.reset(new vk::cs_resolve_task(format_prefix, require_bgra_swap));
 			}
 
-			job->run(cmd, src, dst);
+			job->run(cmd, src, dst, layer);
 		}
 		else
 		{
@@ -90,24 +90,24 @@ namespace vk
 				if (dev.get_shader_stencil_export_support())
 				{
 					initialize_pass(g_depthstencil_resolver, dev);
-					g_depthstencil_resolver->run(cmd, src, dst, renderpass);
+					g_depthstencil_resolver->run(cmd, src, dst, renderpass, layer);
 				}
 				else
 				{
 					initialize_pass(g_depth_resolver, dev);
-					g_depth_resolver->run(cmd, src, dst, renderpass);
+					g_depth_resolver->run(cmd, src, dst, renderpass, layer);
 
 					// Chance for optimization here: If the stencil buffer was not used, simply perform a clear operation
 					const auto stencil_init_flags = vk::as_rtt(src)->stencil_init_flags;
 					if (stencil_init_flags & 0xFF00)
 					{
 						initialize_pass(g_stencil_resolver, dev);
-						g_stencil_resolver->run(cmd, src, dst, renderpass);
+						g_stencil_resolver->run(cmd, src, dst, renderpass, layer);
 					}
 					else
 					{
 						VkClearDepthStencilValue clear{ 1.f, stencil_init_flags & 0xFF };
-						VkImageSubresourceRange range{ VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+						VkImageSubresourceRange range{ VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, layer, 1 };
 
 						dst->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 						vkCmdClearDepthStencilImage(cmd, dst->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
@@ -118,12 +118,12 @@ namespace vk
 			else
 			{
 				initialize_pass(g_depth_resolver, dev);
-				g_depth_resolver->run(cmd, src, dst, renderpass);
+				g_depth_resolver->run(cmd, src, dst, renderpass, layer);
 			}
 		}
 	}
 
-	void unresolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src)
+	void unresolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src, u32 layer)
 	{
 		if (src->aspect() == VK_IMAGE_ASPECT_COLOR_BIT)
 		{
@@ -144,7 +144,7 @@ namespace vk
 				job.reset(new vk::cs_unresolve_task(format_prefix, require_bgra_swap));
 			}
 
-			job->run(cmd, dst, src);
+			job->run(cmd, dst, src, layer);
 		}
 		else
 		{
@@ -159,24 +159,24 @@ namespace vk
 				if (dev.get_shader_stencil_export_support())
 				{
 					initialize_pass(g_depthstencil_unresolver, dev);
-					g_depthstencil_unresolver->run(cmd, dst, src, renderpass);
+					g_depthstencil_unresolver->run(cmd, dst, src, renderpass, layer);
 				}
 				else
 				{
 					initialize_pass(g_depth_unresolver, dev);
-					g_depth_unresolver->run(cmd, dst, src, renderpass);
+					g_depth_unresolver->run(cmd, dst, src, renderpass, layer);
 
 					// Chance for optimization here: If the stencil buffer was not used, simply perform a clear operation
 					const auto stencil_init_flags = vk::as_rtt(dst)->stencil_init_flags;
 					if (stencil_init_flags & 0xFF00)
 					{
 						initialize_pass(g_stencil_unresolver, dev);
-						g_stencil_unresolver->run(cmd, dst, src, renderpass);
+						g_stencil_unresolver->run(cmd, dst, src, renderpass, layer);
 					}
 					else
 					{
 						VkClearDepthStencilValue clear{ 1.f, stencil_init_flags & 0xFF };
-						VkImageSubresourceRange range{ VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1 };
+						VkImageSubresourceRange range{ VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, layer, 1 };
 
 						dst->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 						vkCmdClearDepthStencilImage(cmd, dst->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
@@ -187,7 +187,7 @@ namespace vk
 			else
 			{
 				initialize_pass(g_depth_unresolver, dev);
-				g_depth_unresolver->run(cmd, dst, src, renderpass);
+				g_depth_unresolver->run(cmd, dst, src, renderpass, layer);
 			}
 		}
 	}

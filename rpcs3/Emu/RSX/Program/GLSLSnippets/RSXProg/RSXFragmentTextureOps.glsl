@@ -55,6 +55,12 @@ R"(
 #define TEX_NAME(index) tex##index
 #define TEX_NAME_STENCIL(index) tex##index##_stencil
 
+#ifdef _VR_MULTIVIEW
+// VR fork: 2D samplers are arrays whose layer is the eye being rendered (a one-layer texture clamps to layer 0)
+#define VR_LAYER float(gl_ViewIndex)
+vec4 _vr_shadow_coord(const in vec3 c) { return vec4(c.xy, VR_LAYER, c.z); }
+#endif
+
 #define COORD_SCALE1(index, coord1) _texcoord_xform(coord1, TEX_PARAM(index))
 #define COORD_SCALE2(index, coord2) _texcoord_xform(coord2, TEX_PARAM(index))
 #define COORD_SCALE3(index, coord3) _texcoord_xform(coord3, TEX_PARAM(index))
@@ -70,7 +76,13 @@ R"(
 #define TEX1D_PROJ(index, coord4) _process_texel(texture(TEX_NAME(index), COORD_PROJ1(index, coord4.xw)), TEX_FLAGS(index))
 #endif
 
-#ifdef _ENABLE_TEX2D
+#if defined(_ENABLE_TEX2D) && defined(_VR_MULTIVIEW)
+#define TEX2D(index, coord2) _process_texel(texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER)), TEX_FLAGS(index))
+#define TEX2D_BIAS(index, coord2, bias) _process_texel(texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), bias), TEX_FLAGS(index))
+#define TEX2D_LOD(index, coord2, lod) _process_texel(textureLod(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), lod), TEX_FLAGS(index))
+#define TEX2D_GRAD(index, coord2, dpdx, dpdy) _process_texel(textureGrad(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), dpdx, dpdy), TEX_FLAGS(index))
+#define TEX2D_PROJ(index, coord4) _process_texel(texture(TEX_NAME(index), vec3(COORD_PROJ2(index, coord4.xyw), VR_LAYER)), TEX_FLAGS(index))
+#elif defined(_ENABLE_TEX2D)
 #define TEX2D(index, coord2) _process_texel(texture(TEX_NAME(index), COORD_SCALE2(index, coord2)), TEX_FLAGS(index))
 #define TEX2D_BIAS(index, coord2, bias) _process_texel(texture(TEX_NAME(index), COORD_SCALE2(index, coord2), bias), TEX_FLAGS(index))
 #define TEX2D_LOD(index, coord2, lod) _process_texel(textureLod(TEX_NAME(index), COORD_SCALE2(index, coord2), lod), TEX_FLAGS(index))
@@ -84,14 +96,24 @@ R"(
 	#define SHADOW_COORD4(index, coord4) _texcoord_xform_shadow(coord4, TEX_PARAM(index))
 	#define SHADOW_COORD_PROJ(index, coord4) _texcoord_xform_shadow(coord4.xyz / coord4.w, TEX_PARAM(index))
 
+#ifdef _VR_MULTIVIEW
+	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), _vr_shadow_coord(SHADOW_COORD(index, coord3)))
+	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), _vr_shadow_coord(SHADOW_COORD_PROJ(index, coord4)))
+#else
 	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), SHADOW_COORD(index, coord3))
-	#define TEX3D_SHADOW(index, coord4) texture(TEX_NAME(index), SHADOW_COORD4(index, coord4))
 	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), SHADOW_COORD_PROJ(index, coord4))
+#endif
+	#define TEX3D_SHADOW(index, coord4) texture(TEX_NAME(index), SHADOW_COORD4(index, coord4))
 #else
 	#define COORD_PROJ3_SHADOW(index, coord4) vec3(COORD_PROJ2(index, coord4.xyw), coord4.z / coord4.w)
+#ifdef _VR_MULTIVIEW
+	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), vec4(COORD_SCALE2(index, coord3.xy), VR_LAYER, coord3.z))
+	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), _vr_shadow_coord(COORD_PROJ3_SHADOW(index, coord4)))
+#else
 	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord3.xy), coord3.z))
-	#define TEX3D_SHADOW(index, coord4) texture(TEX_NAME(index), vec4(COORD_SCALE3(index, coord4.xyz), coord4.w))
 	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), COORD_PROJ3_SHADOW(index, coord4))
+#endif
+	#define TEX3D_SHADOW(index, coord4) texture(TEX_NAME(index), vec4(COORD_SCALE3(index, coord4.xyz), coord4.w))
 #endif
 #endif
 

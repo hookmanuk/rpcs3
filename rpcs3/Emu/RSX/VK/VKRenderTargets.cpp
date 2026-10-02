@@ -315,6 +315,8 @@ namespace vk
 	}
 
 	// Get the linear resolve target bound to this surface. Initialize if none exists
+	bool g_vr_stereo_layers = false;
+
 	vk::viewable_image* render_target::get_resolve_target_safe(vk::command_buffer& cmd)
 	{
 		if (!resolve_surface)
@@ -332,7 +334,7 @@ namespace vk
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				VK_IMAGE_TYPE_2D,
 				format(),
-				resolve_w, resolve_h, 1, 1, 1,
+				resolve_w, resolve_h, 1, 1, layers(),
 				VK_SAMPLE_COUNT_1_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED,
 				VK_IMAGE_TILING_OPTIMAL,
@@ -342,6 +344,7 @@ namespace vk
 				format_class()));
 
 			resolve_surface->native_component_map = native_component_map;
+			resolve_surface->stereo_layers = stereo_layers;
 			resolve_surface->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 		}
 
@@ -351,7 +354,7 @@ namespace vk
 	// Resolve the planar MSAA data into a linear block
 	void render_target::resolve(vk::command_buffer& cmd)
 	{
-		VkImageSubresourceRange range = { aspect(), 0, 1, 0, 1 };
+		VkImageSubresourceRange range = { aspect(), 0, 1, 0, layers() };
 
 		// NOTE: This surface can only be in the ATTACHMENT_OPTIMAL layout
 		// The resolve surface can be in any type of access, but we have to assume it is likely in read-only mode like shader read-only
@@ -387,7 +390,10 @@ namespace vk
 			resolve_surface->change_layout(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 		}
 
-		vk::resolve_image(cmd, resolve_surface.get(), this);
+		for (u32 layer = 0; layer < layers(); ++layer)
+		{
+			vk::resolve_image(cmd, resolve_surface.get(), this, layer);
+		}
 
 		if (!is_depth_surface()) [[likely]]
 		{
@@ -425,7 +431,7 @@ namespace vk
 	void render_target::unresolve(vk::command_buffer& cmd)
 	{
 		ensure(!(msaa_flags & rsx::surface_state_flags::require_resolve));
-		VkImageSubresourceRange range = { aspect(), 0, 1, 0, 1 };
+		VkImageSubresourceRange range = { aspect(), 0, 1, 0, layers() };
 
 		if (!is_depth_surface()) [[likely]]
 		{
@@ -460,7 +466,10 @@ namespace vk
 			resolve_surface->change_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
 
-		vk::unresolve_image(cmd, this, resolve_surface.get());
+		for (u32 layer = 0; layer < layers(); ++layer)
+		{
+			vk::unresolve_image(cmd, this, resolve_surface.get(), layer);
+		}
 
 		if (!is_depth_surface()) [[likely]]
 		{
@@ -503,7 +512,7 @@ namespace vk
 
 		surface->push_layout(cmd, optimal_layout);
 
-		VkImageSubresourceRange range{ surface->aspect(), 0, 1, 0, 1 };
+		VkImageSubresourceRange range{ surface->aspect(), 0, 1, 0, surface->layers() };
 		if (surface->aspect() & VK_IMAGE_ASPECT_COLOR_BIT)
 		{
 			VkClearColorValue color = { {0.f, 0.f, 0.f, 1.f} };
@@ -796,6 +805,13 @@ namespace vk
 
 			final_dst->pop_layout(cmd);
 
+			if (stereo_layers)
+			{
+				// VR fork: data the guest wrote is the same picture for both eyes
+				const areai whole{ 0, 0, static_cast<s32>(final_dst->width()), static_cast<s32>(final_dst->height()) };
+				vk::copy_image(cmd, final_dst, final_dst, whole, whole, { .src_layer = 0, .dst_layer = 1 });
+			}
+
 			if (samples() > 1)
 			{
 				// Trigger unresolve
@@ -913,7 +929,7 @@ namespace vk
 		}
 
 		vk::insert_image_memory_barrier(cmd, value, current_layout, current_layout,
-			src_stage, dst_stage, src_access, dst_access, { aspect(), 0, 1, 0, 1 });
+			src_stage, dst_stage, src_access, dst_access, { aspect(), 0, 1, 0, layers() });
 
 		m_cyclic_ref_tracker.reset();
 	}

@@ -21,16 +21,20 @@ namespace vk
 			u64 width  : 16;   // Width of FBO
 			u64 height : 16;   // Height of FBO
 			u64 ia_ref : 1;    // Input attachment references?
+			u64 view_mask : 2;   // VR fork: render pass multiview variant
+			u64 base_layer : 3;  // VR fork: first attachment layer
+			u64 layer_count : 3; // VR fork: attachment layers (0 = one)
 		};
 
-		framebuffer_storage_key(u16 width_, u16 height_, VkBool32 has_input_attachments)
-			: width(width_), height(height_), ia_ref(has_input_attachments)
+		framebuffer_storage_key(u16 width_, u16 height_, VkBool32 has_input_attachments, u8 view_mask_ = 0, u8 base_layer_ = 0, u8 layer_count_ = 0)
+			: width(width_), height(height_), ia_ref(has_input_attachments), view_mask(view_mask_), base_layer(base_layer_), layer_count(layer_count_)
 		{}
 	};
 
-	vk::framebuffer_holder* get_framebuffer(VkDevice dev, u16 width, u16 height, VkBool32 has_input_attachments, VkRenderPass renderpass, const std::vector<vk::image*>& image_list)
+	vk::framebuffer_holder* get_framebuffer(VkDevice dev, u16 width, u16 height, VkBool32 has_input_attachments, VkRenderPass renderpass, const std::vector<vk::image*>& image_list,
+		u8 view_mask, u8 base_layer, u8 layer_count)
 	{
-		framebuffer_storage_key key(width, height, has_input_attachments);
+		framebuffer_storage_key key(width, height, has_input_attachments, view_mask, base_layer, layer_count);
 
 		reader_lock lock(g_framebuffers_mutex);
 
@@ -54,10 +58,11 @@ namespace vk
 		std::vector<std::unique_ptr<vk::image_view>> image_views;
 		image_views.reserve(image_list.size());
 
+		const u32 layers = std::max<u32>(layer_count, 1);
 		for (const auto& e : image_list)
 		{
-			const VkImageSubresourceRange subres = { e->aspect(), 0, 1, 0, 1 };
-			image_views.push_back(std::make_unique<vk::image_view>(dev, e, e->format(), VK_IMAGE_VIEW_TYPE_2D, vk::default_component_map, subres));
+			const VkImageSubresourceRange subres = { e->aspect(), 0, 1, base_layer, layers };
+			image_views.push_back(std::make_unique<vk::image_view>(dev, e, e->format(), layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D, vk::default_component_map, subres));
 		}
 
 		auto value = std::make_unique<vk::framebuffer_holder>(dev, renderpass, width, height, std::move(image_views));

@@ -75,10 +75,15 @@ R"(
 //// ====================== Depth Export ===========================
 
 #ifdef _ENABLE_DEPTH_COMPARE
-#ifdef _ENABLE_ROP_OUTPUT_MULTISAMPLED
-	float dstDepth = texelFetch(frag_depth, ivec2(gl_FragCoord.xy), gl_SampleID).r;
+#ifdef _VR_MULTIVIEW
+#define _ROP_DEPTH_COORD ivec3(gl_FragCoord.xy, gl_ViewIndex)
 #else
-	float dstDepth = texelFetch(frag_depth, ivec2(gl_FragCoord.xy), 0).r;
+#define _ROP_DEPTH_COORD ivec2(gl_FragCoord.xy)
+#endif
+#ifdef _ENABLE_ROP_OUTPUT_MULTISAMPLED
+	float dstDepth = texelFetch(frag_depth, _ROP_DEPTH_COORD, gl_SampleID).r;
+#else
+	float dstDepth = texelFetch(frag_depth, _ROP_DEPTH_COORD, 0).r;
 #endif // _ENABLE_ROP_OUTPUT_MULTISAMPLED
 	float srcDepth = gl_FragCoord.z;
 	float scale = _test_bit(rop_control, FRAG_DEPTH_24_BIT) ? float(0xffffffu) : float(0xffffu);

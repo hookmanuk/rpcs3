@@ -527,13 +527,19 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	// Gate 6: batched right-eye draws (RPCS3_VR_BATCH=0 keeps the per-draw replay)
 	if (rsx::vr::camera_probe::get().render_enabled())
 	{
+		m_vr_batching = true;
+#ifdef _WIN32
 		char* batch_env = nullptr;
 		usz batch_env_size = 0;
-		m_vr_batching = true;
 		if (_dupenv_s(&batch_env, &batch_env_size, "RPCS3_VR_BATCH") == 0 && batch_env)
 		{
 			m_vr_batching = std::string_view(batch_env) != "0";
 			std::free(batch_env);
+#else
+		if (const char* batch_env = std::getenv("RPCS3_VR_BATCH"))
+		{
+			m_vr_batching = std::string_view(batch_env) != "0";
+#endif
 		}
 
 		if (m_vr_batching)
@@ -548,6 +554,17 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 
 	//Occlusion
 	m_occlusion_query_manager = std::make_unique<vk::query_pool_manager>(*m_device, VK_QUERY_TYPE_OCCLUSION, OCCLUSION_MAX_POOL_SIZE);
+
+	// Multiview stereo: available when the device has it (and RPCS3_VR_MULTIVIEW is not 0); switched on with the stereo renderer.
+	{
+		static const bool s_env_off = []() { const char* v = std::getenv("RPCS3_VR_MULTIVIEW"); return v && v[0] == '0'; }();
+		m_vr_multiview_supported = m_device->get_multiview_support() && !s_env_off;
+		rsx_log.notice("VR: multiview stereo %s (device multiview %d, per-view scissor %d)", m_vr_multiview_supported ? "available" : "unavailable: two-draw stereo",
+			m_device->get_multiview_support(), m_device->get_shader_viewport_index_layer_support());
+		s_vr_batch_owner = this;
+		vk::g_end_renderpass_hook = &VKGSRender::vr_on_end_renderpass;
+		vk::g_before_end_renderpass_hook = &VKGSRender::vr_mv_on_before_end_renderpass;
+	}
 	m_occlusion_map.resize(rsx::reports::occlusion_query_count);
 
 	for (u32 n = 0; n < rsx::reports::occlusion_query_count; ++n)
@@ -950,7 +967,11 @@ VKGSRender::~VKGSRender()
 	if (m_vr_batching)
 	{
 		vk::g_end_renderpass_hook = nullptr;
+		vk::g_before_end_renderpass_hook = nullptr;
 		s_vr_batch_owner = nullptr;
+		rsx::vr::set_multiview_active(false);
+		vk::g_vr_stereo_layers = false;
+		m_vr_mv_right_eye.reset();
 		for (auto& [primary, batches] : m_vr_primary_batches)
 		{
 			batches->pool.destroy(); // frees its secondary command buffers
@@ -1345,6 +1366,18 @@ void VKGSRender::bind_viewport()
 		m_graphics_state.clear(rsx::pipeline_state::zclip_config_state_dirty);
 	}
 
+	if (m_vr_multiview)
+	{
+		// One viewport and scissor per view; only a HUD-box draw clips the eyes differently
+		const VkViewport viewports[2] = { m_viewport, m_viewport };
+		const VkRect2D scissors[2] = { m_vr_mv_box_scissor ? m_vr_mv_scissor[0] : m_scissor, m_vr_mv_box_scissor ? m_vr_mv_scissor[1] : m_scissor };
+		vkCmdSetViewport(*m_current_command_buffer, 0, 2, viewports);
+		vkCmdSetScissor(*m_current_command_buffer, 0, 2, scissors);
+		m_vr_mv_bound_scissor[0] = scissors[0];
+		m_vr_mv_bound_scissor[1] = scissors[1];
+		return;
+	}
+
 	vkCmdSetViewport(*m_current_command_buffer, 0, 1, &m_viewport);
 	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
 }
@@ -1630,13 +1663,17 @@ void VKGSRender::clear_surface(u32 mask)
 		{
 			// Partial stencil clear. Disables fast stencil clear
 			auto ds = std::get<1>(m_rtts.m_bound_depth_stencil);
-			auto key = vk::get_renderpass_key({ ds });
+			const u8 stencil_view_mask = (m_vr_multiview && ds->stereo_layers) ? 1 : 0; // both eyes
+			auto key = vk::get_renderpass_key({ ds }, {}, stencil_view_mask);
 			auto renderpass = vk::get_renderpass(*m_device, key);
 
-			vk::get_overlay_pass<vk::stencil_clear_pass>()->run(
+			auto stencil_clear = vk::get_overlay_pass<vk::stencil_clear_pass>();
+			stencil_clear->m_target_view_mask = stencil_view_mask;
+			stencil_clear->run(
 				*m_current_command_buffer, ds, region.rect,
 				depth_stencil_clear_values.depthStencil.stencil,
 				rsx::method_registers.stencil_mask(), renderpass);
+			stencil_clear->m_target_view_mask = 0;
 
 			depth_stencil_mask &= ~VK_IMAGE_ASPECT_STENCIL_BIT;
 		}
@@ -1656,8 +1693,17 @@ void VKGSRender::clear_surface(u32 mask)
 
 	if (!clear_descriptors.empty())
 	{
-		begin_render_pass();
-		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
+		if (m_vr_multiview && vr_right_clear)
+		{
+			// Each eye clears its own rectangle (a sub-viewport clear mapped into the HUD box)
+			const VkClearRect right_region = { { { vr_right_clear->x1, vr_right_clear->y1 }, { static_cast<u32>(vr_right_clear->width()), static_cast<u32>(vr_right_clear->height()) } }, 0, 1 };
+			vr_mv_clear_eye_rects(clear_descriptors, region, right_region);
+		}
+		else
+		{
+			begin_render_pass();
+			vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
+		}
 
 		if (full_frame && update_color)
 		{
@@ -1683,7 +1729,7 @@ void VKGSRender::clear_surface(u32 mask)
 	// clears are mirrored the same way: without them a right-eye target that is
 	// only ever cleared in part keeps accumulating old frames (inFamous 2 smears).
 	// Attachments this clear did not touch are left alone.
-	if ((update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() &&
+	if ((update_color || update_z) && rsx::vr::camera_probe::get().render_enabled() && !m_vr_multiview &&
 		m_vr_right_fbo_images.size() == m_fbo_images.size())
 	{
 		// Batched right-eye draws precede this clear in guest order.
@@ -1734,6 +1780,11 @@ VKGSRender* VKGSRender::s_vr_batch_owner = nullptr;
 void VKGSRender::vr_on_end_renderpass(const vk::command_buffer& cmd)
 {
 	VKGSRender* const self = s_vr_batch_owner;
+	if (self && self->m_vr_multiview)
+	{
+		return; // no right-eye batches with multiview; the query segment ended before the pass did
+	}
+
 	if (!self || !self->m_vr_batch_open || self->m_vr_batch_executing ||
 		static_cast<VkCommandBuffer>(cmd) != static_cast<VkCommandBuffer>(*self->m_vr_batch_primary))
 	{
@@ -2713,6 +2764,18 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 
 bool VKGSRender::vr_apply_box_scissor()
 {
+	VkRect2D scissor;
+	if (!vr_box_scissor_rect(scissor))
+	{
+		return false;
+	}
+
+	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &scissor);
+	return true;
+}
+
+bool VKGSRender::vr_box_scissor_rect(VkRect2D& scissor)
+{
 	const f32 clip_w = rsx::method_registers.surface_clip_width();
 	const f32 clip_h = rsx::method_registers.surface_clip_height();
 	if (clip_w <= 0.f || clip_h <= 0.f)
@@ -2736,13 +2799,238 @@ bool VKGSRender::vr_apply_box_scissor()
 		return false;
 	}
 
-	VkRect2D scissor;
 	scissor.offset.x = static_cast<s32>(std::floor(rect[0]));
 	scissor.offset.y = static_cast<s32>(std::floor(rect[1]));
 	scissor.extent.width = static_cast<u32>(std::ceil(rect[2]) - scissor.offset.x);
 	scissor.extent.height = static_cast<u32>(std::ceil(rect[3]) - scissor.offset.y);
-	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &scissor);
 	return true;
+}
+
+
+void VKGSRender::vr_mv_on_before_end_renderpass(const vk::command_buffer& cmd)
+{
+	if (VKGSRender* const self = s_vr_batch_owner; self && self->m_vr_multiview)
+	{
+		self->vr_mv_end_query_segment(cmd);
+	}
+}
+
+void VKGSRender::vr_update_multiview_mode()
+{
+	const bool want = m_vr_multiview_supported && rsx::vr::camera_probe::get().render_enabled();
+	if (want == m_vr_multiview)
+	{
+		return;
+	}
+
+	// Every render target changes its layer count: finish the GPU's work and drop them all. Their
+	// contents come back from guest memory (or are cleared), as after any other cache invalidation.
+	vr_batch_flush();
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	flush_command_queue(true);
+	m_rtts.invalidate_all();
+	if (m_draw_fbo)
+	{
+		m_draw_fbo->release();
+		m_draw_fbo = nullptr;
+	}
+	m_fbo_images.clear();
+	if (m_vr_mv_right_eye)
+	{
+		vk::get_resource_manager()->dispose(m_vr_mv_right_eye);
+	}
+
+	m_vr_multiview = want;
+	vk::g_vr_stereo_layers = want;
+	rsx::vr::set_multiview_active(want);
+	m_vr_mv_box_scissor = false;
+	m_vr_mv_open_query = umax;
+	// Programs carry the multiview bit: re-evaluate them, and the framebuffer
+	m_graphics_state |= (rsx::vertex_program_state_dirty | rsx::fragment_program_state_dirty | rsx::rtt_config_dirty);
+	m_samplers_dirty.store(true);
+	rsx_log.notice("VR: multiview stereo %s", want ? "on (both eyes in one draw)" : "off");
+}
+
+bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
+{
+	auto& probe = rsx::vr::camera_probe::get();
+	probe.clear_box_mapped();
+	m_vr_mv_box_scissor = false;
+	m_vr_mv_right_xform_offset = m_xform_constants_dynamic_offset;
+	if (!source_size || !m_program || m_vs_binding_table->cbuf_location == umax)
+	{
+		return false;
+	}
+
+	const bool full_bank = m_shader_interpreter.is_interpreter(m_program) || (m_vertex_prog && m_vertex_prog->has_indexed_constants);
+	if (!full_bank && !m_vertex_prog)
+	{
+		return false;
+	}
+
+	const usz size = full_bank ? 8192 : m_vertex_prog->constant_ids.size() * 16;
+	if (!size || size != source_size)
+	{
+		// The last upload does not describe this program; leave the guest allocation bound (both views read it).
+		return false;
+	}
+
+	// Both eyes' constants side by side in one allocation, so the one bound window serves both views:
+	// the right eye's entry is one stride further (see update_vertex_env).
+	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
+	const usz stride = utils::align(size, alignment);
+	static thread_local std::vector<u8> scratch;
+	scratch.resize(stride * 2);
+	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
+	m_draw_processor.fill_vertex_program_constants_data(scratch.data(), constant_ids);
+	scale_offset_constants(scratch.data(), constant_ids);
+	std::memcpy(scratch.data() + stride, scratch.data(), size);
+
+	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
+	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();
+	const bool classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size,
+		m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
+	const bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
+	probe.clear_box_mapped();
+	probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size,
+		m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
+	const bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
+	if (!left_box)
+	{
+		m_vr_mv_scissor[0] = m_scissor;
+	}
+	if (!right_box)
+	{
+		m_vr_mv_scissor[1] = m_scissor;
+	}
+	m_vr_mv_box_scissor = left_box || right_box;
+
+	const u64 allocation = m_transform_constants_allocator->alloc_bytes(stride * 2);
+	void* destination = m_transform_constants_ring_info.map(allocation, stride * 2);
+	std::memcpy(destination, scratch.data(), stride * 2);
+	m_transform_constants_ring_info.unmap();
+
+	m_xform_constants_dynamic_offset = allocation;
+	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, stride * 2,
+		m_device->gpu().get_limits().maxUniformBufferRange);
+	m_xform_constants_dynamic_offset -= m_vertex_constants_buffer_info.offset;
+	m_vr_mv_right_xform_offset = m_xform_constants_dynamic_offset + stride;
+	m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
+		m_vs_binding_table->cbuf_location);
+	return classified_world;
+}
+
+void VKGSRender::vr_mv_begin_query_segment()
+{
+	// Multiview: a query counts both views and takes two consecutive slots. It is begun inside the pass
+	// and ended when the pass ends (vr_mv_end_query_segment), which is what the specification asks for.
+	u32 occlusion_id = m_occlusion_query_manager->allocate_query_pair(*m_current_command_buffer);
+	if (occlusion_id == umax)
+	{
+		rsx_log.warning("[Performance Warning] Out of free occlusion slots. Forcing hard sync.");
+		ZCULL_control::sync(this);
+
+		occlusion_id = m_occlusion_query_manager->allocate_query_pair(*m_current_command_buffer);
+		if (occlusion_id == umax)
+		{
+			if (m_current_task) m_current_task->result = 1;
+			return;
+		}
+	}
+
+	// Allocation may have ended the pass (pool replacement, sync); the query must begin inside it
+	begin_render_pass();
+	m_occlusion_query_manager->begin_query_pair(*m_current_command_buffer, occlusion_id);
+
+	auto& data = m_occlusion_map[m_active_query_info->driver_handle];
+	data.indices.push_back(occlusion_id);
+	data.stereo_pairs.push_back(occlusion_id);
+	data.set_sync_command_buffer(m_current_command_buffer);
+	m_vr_mv_open_query = occlusion_id;
+
+	m_current_command_buffer->flags &= ~vk::command_buffer::cb_load_occluson_task;
+	m_current_command_buffer->flags |= (vk::command_buffer::cb_has_occlusion_task | vk::command_buffer::cb_has_open_query);
+}
+
+void VKGSRender::vr_mv_end_query_segment(const vk::command_buffer& cmd)
+{
+	auto& primary = *m_current_command_buffer;
+	if (!(primary.flags & vk::command_buffer::cb_has_open_query) || !m_active_query_info || m_vr_mv_open_query == umax ||
+		static_cast<VkCommandBuffer>(cmd) != static_cast<VkCommandBuffer>(primary))
+	{
+		return;
+	}
+
+	m_occlusion_query_manager->end_query(primary, m_vr_mv_open_query);
+	m_vr_mv_open_query = umax;
+	primary.flags &= ~vk::command_buffer::cb_has_open_query;
+	// The guest's query goes on: the next draw begins another pair inside its pass
+	primary.flags |= vk::command_buffer::cb_load_occluson_task;
+}
+
+void VKGSRender::vr_mv_clear_eye_rects(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& left, const VkClearRect& right)
+{
+	// Two single-view passes over the same two-layer framebuffer: view 0 clears the left eye's rectangle, view 1 the right eye's
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+
+	const u32 width = m_draw_fbo->width();
+	const u32 height = m_draw_fbo->height();
+	const VkClearRect* rects[2] = { &left, &right };
+	for (u8 eye = 0; eye < 2; ++eye)
+	{
+		const s32 x1 = std::max<s32>(rects[eye]->rect.offset.x, 0);
+		const s32 y1 = std::max<s32>(rects[eye]->rect.offset.y, 0);
+		const s32 x2 = std::min<s32>(rects[eye]->rect.offset.x + static_cast<s32>(rects[eye]->rect.extent.width), static_cast<s32>(width));
+		const s32 y2 = std::min<s32>(rects[eye]->rect.offset.y + static_cast<s32>(rects[eye]->rect.extent.height), static_cast<s32>(height));
+		if (x2 <= x1 || y2 <= y1)
+		{
+			continue;
+		}
+		const VkClearRect clipped = { { { x1, y1 }, { static_cast<u32>(x2 - x1), static_cast<u32>(y2 - y1) } }, 0, 1 };
+
+		const u8 view_mask = (eye == 0) ? 2 : 3;
+		const u64 key = vk::get_renderpass_key(m_fbo_images, {}, view_mask);
+		VkRenderPass pass = vk::get_renderpass(*m_device, key);
+		vk::framebuffer_holder* fbo = vk::get_framebuffer(*m_device, static_cast<u16>(width), static_cast<u16>(height), VK_FALSE, pass, m_fbo_images, view_mask, 0, 2);
+		fbo->add_ref();
+		vk::begin_renderpass(*m_current_command_buffer, pass, fbo->value, { positionu{0u, 0u}, sizeu{ width, height } });
+		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &clipped);
+		vk::end_renderpass(*m_current_command_buffer);
+		fbo->release();
+	}
+
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+}
+
+vk::viewable_image* VKGSRender::vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image)
+{
+	// Layer 1 of the display surface as a plain image, for the compositor, screenshots and the headset
+	if (!m_vr_mv_right_eye || m_vr_mv_right_eye->format() != stereo_image->format() ||
+		m_vr_mv_right_eye->width() != stereo_image->width() || m_vr_mv_right_eye->height() != stereo_image->height())
+	{
+		if (m_vr_mv_right_eye)
+		{
+			vk::get_resource_manager()->dispose(m_vr_mv_right_eye);
+		}
+
+		m_vr_mv_right_eye = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_TYPE_2D, stereo_image->format(), stereo_image->width(), stereo_image->height(), 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, VMM_ALLOCATION_POOL_SYSTEM);
+		m_vr_mv_right_eye->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		m_vr_mv_right_eye->set_debug_name("VR right eye (multiview layer 1)");
+	}
+
+	m_vr_mv_right_eye->native_component_map = stereo_image->native_component_map;
+	const areai whole{ 0, 0, static_cast<s32>(stereo_image->width()), static_cast<s32>(stereo_image->height()) };
+	vk::copy_image(cmd, stereo_image, m_vr_mv_right_eye.get(), whole, whole, { .src_layer = 1, .dst_layer = 0 });
+	return m_vr_mv_right_eye.get();
 }
 
 bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size)
@@ -2808,6 +3096,11 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 
 void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info)
 {
+	update_vertex_env(id, vertex_info, m_xform_constants_dynamic_offset, m_vertex_env_dynamic_offset, true);
+}
+
+void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info, u64 xform_constants_offset, u64 vertex_env_offset, bool push_constants)
+{
 #pragma pack(push, 1)
 	struct rsx_prog_vertex_layout_entry_t
 	{
@@ -2826,8 +3119,8 @@ void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_
 #pragma pack(pop)
 
 	// Actual allocation must have been done previously
-	const u32 vs_constant_id_offset = static_cast<u32>(m_xform_constants_dynamic_offset) / 16u;
-	const u32 vertex_context_offset = static_cast<u32>(m_vertex_env_dynamic_offset) / 96u;
+	const u32 vs_constant_id_offset = static_cast<u32>(xform_constants_offset) / 16u;
+	const u32 vertex_context_offset = static_cast<u32>(vertex_env_offset) / 96u;
 	const u32 vertex_layout_offset = static_cast<u32>(m_vertex_layout_dynamic_offset) / 168u;
 	const u32 fs_constant_id_offset = static_cast<u32>(m_fragment_constants_dynamic_offset) / 16u;
 	const u32 fs_context_offset = static_cast<u32>(m_fragment_env_dynamic_offset) / 32u;
@@ -2851,15 +3144,18 @@ void VKGSRender::update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_
 	dst->fs_stipple_pattern_offset = fs_stipple_pattern_offset;
 
 	const u32 push_val = vertex_layout_offset + id;
-	vkCmdPushConstants(
-		*m_current_command_buffer,
-		m_program->layout(),
-		VK_SHADER_STAGE_VERTEX_BIT,
-		0,
-		4,
-		&push_val);
+	if (push_constants)
+	{
+		vkCmdPushConstants(
+			*m_current_command_buffer,
+			m_program->layout(),
+			VK_SHADER_STAGE_VERTEX_BIT,
+			0,
+			4,
+			&push_val);
+	}
 
-	if (current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING)
+	if (push_constants && (current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING))
 	{
 		// TODO: This should be cached aggressively.
 		u32 blend_config[7];
@@ -3041,6 +3337,7 @@ void VKGSRender::close_and_submit_command_buffer(vk::fence* pFence, VkSemaphore 
 void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 {
 	const bool clipped_scissor = (context == rsx::framebuffer_creation_context::context_draw);
+	vr_update_multiview_mode();
 	if (m_current_framebuffer_context == context && !m_graphics_state.test(rsx::rtt_config_dirty) && m_draw_fbo)
 	{
 		// Fast path
@@ -3093,7 +3390,8 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	// deliberately uses a separate surface cache: guest addresses remain the
 	// semantic key, but no right-eye image is ever exposed to guest memory or
 	// the ordinary texture cache. The path is inert unless render=1 is armed.
-	if (rsx::vr::camera_probe::get().render_enabled())
+	// With multiview stereo the right eye is layer 1 of the ordinary targets instead.
+	if (rsx::vr::camera_probe::get().render_enabled() && !m_vr_multiview)
 	{
 		// The pending batch targets the current right-eye framebuffer; run it before
 		// the right-eye surfaces are rebound or the framebuffer is released.
@@ -3359,7 +3657,29 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		std::iota(input_attachments.begin(), input_attachments.end(), 0);
 	}
 
-	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments);
+	// Multiview stereo: every draw pass renders both views (the targets' two layers)
+	u8 vr_view_mask = 0;
+	if (m_vr_multiview && !m_fbo_images.empty())
+	{
+		vr_view_mask = 1;
+		for (const auto* image : m_fbo_images)
+		{
+			if (!image->stereo_layers || image->layers() < 2)
+			{
+				vr_view_mask = 0;
+				break;
+			}
+		}
+		if (!vr_view_mask)
+		{
+			static bool s_reported = false;
+			if (!std::exchange(s_reported, true))
+			{
+				rsx_log.error("VR multiview: a bound render target has one layer; this pass draws the left eye only");
+			}
+		}
+	}
+	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments, vr_view_mask);
 	m_cached_renderpass = vk::get_renderpass(*m_device, m_current_renderpass_key);
 
 	// Search old framebuffers for this same configuration
@@ -3371,7 +3691,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_draw_fbo->release();
 	}
 
-	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, m_fbo_images);
+	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, m_fbo_images, vr_view_mask, 0, vr_view_mask ? 2 : 0);
 	m_draw_fbo->add_ref();
 
 	set_viewport();
@@ -3700,8 +4020,9 @@ bool VKGSRender::scaled_image_from_memory(const rsx::blit_src_info& src_in, cons
 		}
 		m_current_command_buffer->set_flag(vk::command_buffer::cb_has_blit_transfer);
 
-		if (rsx::vr::camera_probe::get().render_enabled())
+		if (rsx::vr::camera_probe::get().render_enabled() && !m_vr_multiview)
 		{
+			// (multiview: the blitter already wrote both layers)
 			vr_mirror_blit(src, dst, interpolate);
 		}
 
@@ -3799,7 +4120,14 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 		// Gather data
 		for (const auto occlusion_id : data.indices)
 		{
-			query->result += m_occlusion_query_manager->get_query_result(occlusion_id);
+			u32 result = m_occlusion_query_manager->get_query_result(occlusion_id);
+			if (std::find(data.stereo_pairs.begin(), data.stereo_pairs.end(), occlusion_id) != data.stereo_pairs.end())
+			{
+				// VR multiview: the pair holds both views' samples (either split per view or summed into the first slot);
+				// the guest sees their average, the count of a camera between the eyes
+				result = (result + m_occlusion_query_manager->get_query_result(occlusion_id + 1) + 1) / 2;
+			}
+			query->result += result;
 			if (query->result && !g_cfg.video.precise_zpass_count)
 			{
 				// We only need one hit unless precise zcull is requested
@@ -3809,7 +4137,12 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 	}
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
+	for (const auto first : data.stereo_pairs)
+	{
+		m_occlusion_query_manager->free_query(*m_current_command_buffer, first + 1);
+	}
 	data.indices.clear();
+	data.stereo_pairs.clear();
 }
 
 void VKGSRender::discard_occlusion_query(rsx::reports::occlusion_query_info* query)
@@ -3824,7 +4157,12 @@ void VKGSRender::discard_occlusion_query(rsx::reports::occlusion_query_info* que
 		return;
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
+	for (const auto first : data.stereo_pairs)
+	{
+		m_occlusion_query_manager->free_query(*m_current_command_buffer, first + 1);
+	}
 	data.indices.clear();
+	data.stereo_pairs.clear();
 }
 
 void VKGSRender::emergency_query_cleanup(vk::command_buffer* commands)

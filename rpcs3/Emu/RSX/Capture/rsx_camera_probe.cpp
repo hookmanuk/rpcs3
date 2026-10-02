@@ -791,6 +791,18 @@ namespace rsx::vr
 		}
 	}
 
+	static atomic_t<bool> s_multiview_active{false};
+
+	void set_multiview_active(bool active)
+	{
+		s_multiview_active = active;
+	}
+
+	bool multiview_active()
+	{
+		return s_multiview_active.load();
+	}
+
 	void set_headset_active(bool active)
 	{
 		g_headset_active = active;

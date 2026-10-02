@@ -69,6 +69,9 @@ namespace vk
 		void get_query_result_indirect(vk::command_buffer& cmd, u32 index, u32 count, VkBuffer dst, VkDeviceSize dst_offset);
 
 		u32 allocate_query(vk::command_buffer& cmd);
+		// VR fork (multiview): a query begun in a two-view pass takes two consecutive slots. Returns the first, or umax.
+		u32 allocate_query_pair(vk::command_buffer& cmd);
+		void begin_query_pair(vk::command_buffer& cmd, u32 index);
 		void free_query(vk::command_buffer&/*cmd*/, u32 index);
 
 		void on_query_pool_released(std::unique_ptr<vk::query_pool>& pool);

@@ -730,3 +730,8 @@ endif()
 if(WAYLAND_FOUND)
     target_link_libraries(rpcs3_emu PRIVATE OpenGL::EGL)
 endif()
+
+# VR fork: the vendored OpenXR headers use C-style casts in their version macros
+if(NOT MSVC)
+    set_source_files_properties(RSX/VK/VKOpenXR.cpp PROPERTIES COMPILE_OPTIONS "-Wno-old-style-cast")
+endif()

@@ -123,6 +123,26 @@ private:
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
 	std::vector<vk::image*> m_vr_right_fbo_images;
 
+	// Multiview stereo (plans/7-multiview-plan.md): both eyes in one draw. Render targets have two layers
+	// (layer 0 the guest's picture, layer 1 the right eye), every draw pass is a two-view multiview pass, the
+	// vertex shader picks each view's draw parameters by gl_ViewIndex and guest shaders sample 2D textures as
+	// arrays. The two-draw path above stays as the fallback (device without multiview, RPCS3_VR_MULTIVIEW=0).
+	bool m_vr_multiview_supported = false;
+	bool m_vr_multiview = false;             // active: follows camera_probe::render_enabled() (vr_update_multiview_mode)
+	bool m_vr_mv_box_scissor = false;        // the current draw clips each eye to its own HUD-box rectangle
+	VkRect2D m_vr_mv_scissor[2]{};           // per-eye scissors of the current draw (HUD box) ...
+	VkRect2D m_vr_mv_bound_scissor[2]{};     // ... and the ones last bound
+	u64 m_vr_mv_right_xform_offset = 0;      // the right eye's transform constants, relative to the bound window (bytes)
+	u32 m_vr_mv_open_query = umax;           // first slot of the query pair open in the current pass
+	std::unique_ptr<vk::viewable_image> m_vr_mv_right_eye; // layer 1 of the display surface, copied out for presentation
+	void vr_update_multiview_mode();         // prepare_rtts: follow render_enabled(), dropping every surface on a change
+	bool bind_vr_eye_constants_pair(usz source_size); // both eyes' constants in one allocation; records the per-eye box scissors
+	bool vr_box_scissor_rect(VkRect2D& scissor);     // the HUD-box scissor of the eye whose constants were just transformed
+	void vr_mv_begin_query_segment();        // begin the guest's query (two slots) inside the open multiview pass
+	void vr_mv_end_query_segment(const vk::command_buffer& cmd); // the pass ends: end the open pair, continue with the next draw
+	void vr_mv_clear_eye_rects(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& left, const VkClearRect& right);
+	vk::viewable_image* vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image);
+
 	// Headset pose per game frame. A frame must be declared with the pose its camera
 	// draws were rotated by.
 	// - Where a game's frames end in a display buffer, the pose changes only when the
@@ -292,6 +312,7 @@ private:
 	vk::framebuffer_holder* m_vr_batch_fbo = nullptr;
 	static VKGSRender* s_vr_batch_owner;
 	static void vr_on_end_renderpass(const vk::command_buffer& cmd);
+	static void vr_mv_on_before_end_renderpass(const vk::command_buffer& cmd);
 	bool vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo);
 	void vr_batch_flush();   // run any open batch now (ends the left pass if it is open)
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
@@ -435,6 +456,7 @@ private:
 	bool load_program();
 	void load_program_env();
 	void update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info);
+	void update_vertex_env(u32 id, const vk::vertex_upload_info& vertex_info, u64 xform_constants_offset, u64 vertex_env_offset, bool push_constants);
 	void upload_transform_constants(const rsx::io_buffer& buffer);
 	bool bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size);
 	// HUD-box draws: the game's scissor mapped into the box for this eye (restore m_scissor after).

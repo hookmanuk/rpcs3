@@ -1,7 +1,12 @@
 R"(
 #define ZS_READ(index, coord) vec2(texture(TEX_NAME(index), coord).r, float(texture(TEX_NAME_STENCIL(index), coord).x))
 #define TEX1D_Z24X8_RGBA8(index, coord1) _process_texel(convert_z24x8_to_rgba8(ZS_READ(index, COORD_SCALE1(index, coord1)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))
+#ifdef _VR_MULTIVIEW
+#define ZS_READ2D(index, coord) vec2(texture(TEX_NAME(index), vec3(coord, VR_LAYER)).r, float(texture(TEX_NAME_STENCIL(index), vec3(coord, VR_LAYER)).x))
+#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8(ZS_READ2D(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))
+#else
 #define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8(ZS_READ(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))
+#endif
 #define TEX3D_Z24X8_RGBA8(index, coord3) _process_texel(convert_z24x8_to_rgba8(ZS_READ(index, COORD_SCALE3(index, coord3)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))
 
 // NOTE: Memory layout is fetched as byteswapped BGRA [GBAR] (GOW collection, DS2, DeS)

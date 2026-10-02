@@ -7,6 +7,8 @@
 #include "util/asm.hpp"
 #include "VKGSRender.h"
 
+#include <unordered_set>
+
 namespace vk
 {
 	inline bool query_pool_manager::poke_query(query_slot_info& query, u32 index, VkQueryResultFlags flags)
@@ -233,6 +235,49 @@ namespace vk
 		}
 
 		return ~0u;
+	}
+
+	u32 query_pool_manager::allocate_query_pair(vk::command_buffer& cmd)
+	{
+		if (m_pool_lifetime_counter < 2)
+		{
+			if (vk::is_renderpass_open(cmd))
+			{
+				vk::end_renderpass(cmd);
+			}
+
+			reallocate_pool(cmd);
+		}
+
+		// Oldest-first, like allocate_query, but the slot after it must be free too
+		std::unordered_set<u32> free_slots(m_available_slots.begin(), m_available_slots.end());
+		for (const u32 first : m_available_slots)
+		{
+			if (!free_slots.contains(first + 1))
+			{
+				continue;
+			}
+
+			std::erase(m_available_slots, first);
+			std::erase(m_available_slots, first + 1);
+			m_pool_lifetime_counter -= 2;
+			return first;
+		}
+
+		return ~0u;
+	}
+
+	void query_pool_manager::begin_query_pair(vk::command_buffer& cmd, u32 index)
+	{
+		for (u32 i = index; i < index + 2; ++i)
+		{
+			ensure(query_slot_status[i].active == false);
+			query_slot_status[i].pool = m_current_query_pool.get();
+			query_slot_status[i].active = true;
+		}
+
+		// One begin covers both views' slots (index, index + 1)
+		vkCmdBeginQuery(cmd, *query_slot_status[index].pool, index, control_flags);
 	}
 
 	void query_pool_manager::on_query_pool_released(std::unique_ptr<vk::query_pool>& pool)

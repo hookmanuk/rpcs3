@@ -842,7 +842,10 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 		if (view) [[likely]]
 		{
-			m_program->bind_uniform({ *view, *fs_sampler_handles[i] },
+			// Multiview stereo: the shader samples 2D textures as arrays, the layer being the eye
+			const bool vr_array = m_vr_multiview &&
+				current_fragment_program.get_texture_dimension(i) == rsx::texture_dimension_extended::texture_dimension_2d;
+			m_program->bind_uniform({ *(vr_array ? view->as_array() : view), *fs_sampler_handles[i] },
 				vk::glsl::binding_set_index_fragment,
 				m_fs_binding_table->ftex_location[i]);
 
@@ -851,6 +854,10 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 				// Stencil mirror required
 				auto root_image = static_cast<vk::viewable_image*>(view->image());
 				auto stencil_view = root_image->get_view(rsx::default_remap_vector, VK_IMAGE_ASPECT_STENCIL_BIT);
+				if (vr_array)
+				{
+					stencil_view = stencil_view->as_array();
+				}
 
 				if (!m_stencil_mirror_sampler)
 				{
@@ -944,6 +951,11 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 		validate_image_layout_for_read_access(*m_current_command_buffer, image_ptr, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, sampler_state);
 
+		if (m_vr_multiview && current_vertex_program.get_texture_dimension(i) == rsx::texture_dimension_extended::texture_dimension_2d)
+		{
+			image_ptr = image_ptr->as_array(); // multiview stereo: layer = eye
+		}
+
 		m_program->bind_uniform({ *image_ptr, *vs_sampler_handles[i] },
 			vk::glsl::binding_set_index_vertex,
 			m_vs_binding_table->vtex_location[i]);
@@ -955,6 +967,10 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 			? m_vr_right_rtts.m_bound_depth_stencil.second
 			: m_rtts.m_bound_depth_stencil.second);
 		auto view = ds->get_view(rsx::default_remap_vector, VK_IMAGE_ASPECT_DEPTH_BIT);
+		if (m_vr_multiview)
+		{
+			view = view->as_array(); // multiview stereo: frag_depth is an array sampler
+		}
 		m_program->bind_uniform({ *view, vk::null_sampler() }, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_depth_input_location);
 	}
 
@@ -966,7 +982,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 		for (u32 i = 0; i < current_fragment_program.mrt_buffers_count; ++i)
 		{
 			auto viewable = static_cast<vk::viewable_image*>(m_fbo_images[i]);
-			const auto view = viewable->get_view(remap);
+			const auto view = m_vr_multiview ? viewable->get_view(remap)->as_array() : viewable->get_view(remap); // multiview: the framebuffer's two layers
 			m_program->bind_uniform(*view, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_src_location[i]);
 		}
 	}
@@ -1197,7 +1213,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	// Faults are allowed during vertex upload. Ensure consistent CB state after uploads.
 	// Queries are spawned and closed outside render pass scope for consistency reasons.
-	if (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task)
+	// (multiview stereo begins its queries inside the render pass instead: vr_mv_begin_query_segment)
+	if (!m_vr_multiview && (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task))
 	{
 		u32 occlusion_id = m_occlusion_query_manager->allocate_query(*m_current_command_buffer);
 		if (occlusion_id == umax)
@@ -1238,8 +1255,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	VkDescriptorBufferViewEx persistent_buffer = m_persistent_attribute_storage ? *m_persistent_attribute_storage : *null_buffer_view;
 	VkDescriptorBufferViewEx volatile_buffer = m_volatile_attribute_storage ? *m_volatile_attribute_storage : *null_buffer_view;
 	bool update_descriptors = false;
-	bool vr_render = rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
-		!draw_call.is_trivial_instanced_draw;
+	// Multiview stereo: both eyes in this one draw (instanced draws included; their constants are shared between the eyes).
+	const bool vr_mv = m_vr_multiview && rsx::vr::camera_probe::get().render_enabled();
+	bool vr_render = vr_mv || (rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
+		!draw_call.is_trivial_instanced_draw);
 	// A draw that samples a bound render target (a feedback loop) needs the texture barrier
 	// between the earlier writes and its read inside the eye's own pass. In the right-eye batch
 	// the barrier is recorded in the primary buffer before the batch runs, so the right eye
@@ -1253,11 +1272,11 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// Gate 6: batch the right-eye draw into the current left pass's right-eye batch.
 	// Programmable blending (input attachments), conditional rendering and feedback
 	// loops keep the per-draw replay: none carries over into a secondary command buffer here.
-	const bool vr_batch = vr_render && m_vr_batching && !vr_feedback &&
+	const bool vr_batch = vr_render && !vr_mv && m_vr_batching && !vr_feedback &&
 		!(current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
 		!cond_render_ctrl.hw_cond_active;
 	u32 vr_query_continuation = umax;
-	const bool vr_suspend_query = vr_render && !vr_batch &&
+	const bool vr_suspend_query = vr_render && !vr_mv && !vr_batch &&
 		(m_current_command_buffer->flags & vk::command_buffer::cb_has_open_query);
 	if (vr_suspend_query)
 	{
@@ -1303,7 +1322,9 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		probe.set_draw_depth_test(rsx::method_registers.depth_test_enabled());
 	}
 	rsx::vr::camera_probe::get().clear_hud_env_request();
-	const bool vr_camera_draw = vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size);
+	const bool vr_camera_draw = vr_mv
+		? bind_vr_eye_constants_pair(m_xform_constants_data_size)
+		: (vr_render && bind_vr_eye_constants(-1.f, guest_constants_source_offset, m_xform_constants_data_size));
 	m_vr_camera_draws += vr_camera_draw;
 	if (vr_render && vk::xr::is_running())
 	{
@@ -1383,6 +1404,35 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 	}
 	const bool vr_hud_env = (vr_hud || vr_preprojected) && vr_hud_vertex_env(-1.f, vr_preprojected);
+
+	// Multiview: the right eye's vertex context as well, reached through the left eye's bound window
+	u64 vr_mv_env_right = m_vertex_env_dynamic_offset;
+	if (vr_mv && vr_hud_env)
+	{
+		const VkDescriptorBufferInfoEx left_env_info = m_vertex_env_buffer_info;
+		const u64 left_env_offset = m_vertex_env_dynamic_offset;
+		if (vr_hud_vertex_env(1.f, vr_preprojected))
+		{
+			const u64 right_absolute = m_vertex_env_buffer_info.offset + m_vertex_env_dynamic_offset;
+			const u64 left_window_end = (left_env_info.range == VK_WHOLE_SIZE) ? ~0ull : (left_env_info.offset + left_env_info.range);
+			if (right_absolute >= left_env_info.offset && right_absolute + 96 <= left_window_end)
+			{
+				vr_mv_env_right = right_absolute - left_env_info.offset;
+			}
+			else
+			{
+				static bool s_reported = false;
+				if (!std::exchange(s_reported, true))
+				{
+					rsx_log.warning("VR multiview: the right eye's vertex context fell outside the left eye's window; using the left eye's");
+				}
+				vr_mv_env_right = left_env_offset;
+			}
+		}
+		m_vertex_env_buffer_info = left_env_info;
+		m_vertex_env_dynamic_offset = left_env_offset;
+		m_program->bind_uniform(m_vertex_env_buffer_info, vk::glsl::binding_set_index_vertex, m_vs_binding_table->context_buffer_location);
+	}
 
 	// A 2D screen that never clears its display buffer (Gran Turismo 5's arcade menu starts with a
 	// full-screen background) leaves everything outside the HUD box stale: trails when the head
@@ -1477,7 +1527,13 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	// FIXME: We only need to rebind the pipeline when reload state is set. Flags?
 	m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	if (vr_render)
+	if (vr_mv)
+	{
+		// Multiview: entry 2n serves view 0 and 2n+1 view 1 (the shader adds gl_ViewIndex); the push constant names the left one
+		update_vertex_env(sub_index * 2 + 1, upload_info, m_vr_mv_right_xform_offset, vr_mv_env_right, false);
+		update_vertex_env(sub_index * 2, upload_info, m_xform_constants_dynamic_offset, m_vertex_env_dynamic_offset, true);
+	}
+	else if (vr_render)
 	{
 		// VR: the left eye's vertex env (a push constant) goes after the render pass change
 		// above. Ending the left pass runs the right-eye batch (vkCmdExecuteCommands), which
@@ -1494,6 +1550,11 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	{
 		update_draw_state();
 		begin_render_pass();
+
+		if (m_vr_multiview && (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task))
+		{
+			vr_mv_begin_query_segment();
+		}
 
 		if (cond_render_ctrl.hw_cond_active && m_device->get_conditional_render_support())
 		{
@@ -1654,7 +1715,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	};
 
 	// HUD-box draws: the game's scissor follows the HUD into the box (per eye).
-	const bool vr_box_scissor = vr_render && vr_apply_box_scissor();
+	const bool vr_box_scissor = vr_render && !vr_mv && vr_apply_box_scissor(); // (multiview: per-view scissors, bind_viewport)
 	if (vr_clear_shown)
 	{
 		vr_clear_shown_region();
@@ -1721,7 +1782,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 		bind_texture_env(false);
 	}
-	else if (vr_render)
+	else if (vr_render && !vr_mv)
 	{
 		vk::end_renderpass(*m_current_command_buffer);
 		if (vr_suspend_query)
