@@ -59,6 +59,10 @@
 	// into this eye's HUD box, or, for a profile pre-projected program (hash), from
 	// the game's clip space into this eye's. Returns false if not applicable.
 	bool vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program = 0);
+	// The box's combined matrix for one eye (the first half of vr_hud_vertex_env); false when the eye is not mapped.
+	bool vr_hud_box_matrix(f32 eye_sign, u64 preprojected_program, f32 combined[16]);
+	// Multiview: both eyes' vertex contexts in one allocation (the right eye's one entry after the left's: m_vr_draw.mv_env_right).
+	bool vr_hud_vertex_env_pair(u64 preprojected_program);
 	// The ucode hash of the current vertex program when the profile lists it as
 	// pre-projected (screen_space.preprojected_programs), else 0.
 	u64 vr_preprojected_program();

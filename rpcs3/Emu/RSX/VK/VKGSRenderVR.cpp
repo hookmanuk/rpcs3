@@ -617,7 +617,7 @@ u64 VKGSRender::vr_preprojected_program()
 	return std::find(list.begin(), list.end(), hash) != list.end() ? hash : 0;
 }
 
-bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
+bool VKGSRender::vr_hud_box_matrix(f32 eye_sign, u64 preprojected_program, f32 combined[16])
 {
 	f32 box[4][4];
 	f32 aspect = m_framebuffer_layout.height ? static_cast<f32>(m_framebuffer_layout.width) / m_framebuffer_layout.height : 16.f / 9.f;
@@ -638,7 +638,6 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 	// applied after the box: column k of the result is sum_c V[k][c] * box[.][c].
 	alignas(16) f32 base[24];
 	m_draw_processor.fill_scale_offset_data(base, false);
-	f32 combined[16];
 	for (u32 k = 0; k < 4; ++k)
 	{
 		for (u32 r = 0; r < 4; ++r)
@@ -650,6 +649,16 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 			}
 			combined[k * 4 + r] = sum;
 		}
+	}
+	return true;
+}
+
+bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
+{
+	f32 combined[16];
+	if (!vr_hud_box_matrix(eye_sign, preprojected_program, combined))
+	{
+		return false;
 	}
 
 	const auto& gpu_limits = m_device->gpu().get_limits();
@@ -678,6 +687,51 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 		else
 			rsx_log.success("VR: HUD drawn without a matrix is mapped into the HUD box (target 0x%x).", m_framebuffer_layout.color_addresses[0]);
 	}
+	return true;
+}
+
+// Multiview: the two eyes' contexts are consecutive entries of one allocation, so the one bound window
+// holds both and the right eye's entry index is the left's plus one (update_vertex_env divides by 96).
+bool VKGSRender::vr_hud_vertex_env_pair(u64 preprojected_program)
+{
+	f32 combined[2][16];
+	if (!vr_hud_box_matrix(-1.f, preprojected_program, combined[0]))
+	{
+		return false;
+	}
+	// Each eye's scissor from its own box map (the constants pair found no box for a draw boxed here).
+	VkRect2D scissors[2];
+	const bool left_box = vr_box_scissor_rect(scissors[0]);
+	rsx::vr::camera_probe::get().clear_box_mapped();
+	if (!vr_hud_box_matrix(1.f, preprojected_program, combined[1]))
+	{
+		return false;
+	}
+	const bool right_box = vr_box_scissor_rect(scissors[1]);
+	if (left_box || right_box)
+	{
+		m_vr_mv_scissor[0] = left_box ? scissors[0] : m_scissor;
+		m_vr_mv_scissor[1] = right_box ? scissors[1] : m_scissor;
+		m_vr_mv_box_scissor = true;
+	}
+
+	const auto& probe = rsx::vr::camera_probe::get();
+	const auto* profile = probe.profile();
+	const f32 keep_depth = !preprojected_program && probe.vr_hud_fixed() && profile && profile->screen_space_hud_keep_depth ? 1.f : 0.f;
+	const auto& gpu_limits = m_device->gpu().get_limits();
+	const auto mem = m_vertex_env_allocator->alloc(2);
+	auto buf = m_vertex_env_ring_info.map<char>(mem, 192);
+	for (u32 eye = 0; eye < 2; ++eye)
+	{
+		std::memcpy(buf + eye * 96, combined[eye], 64);
+		fill_vertex_env_tail(buf + eye * 96, keep_depth);
+	}
+	m_vertex_env_ring_info.unmap();
+
+	m_vertex_env_buffer_info = m_vertex_env_ring_info.window<256>(mem, 192, gpu_limits.maxUniformBufferRange);
+	m_vertex_env_dynamic_offset = mem - m_vertex_env_buffer_info.offset;
+	m_vr_draw.mv_env_right = m_vertex_env_dynamic_offset + 96;
+	m_program->bind_uniform(m_vertex_env_buffer_info, vk::glsl::binding_set_index_vertex, m_vs_binding_table->context_buffer_location);
 	return true;
 }
 
@@ -1732,9 +1786,11 @@ void VKGSRender::vr_setup_draw()
 		const u32 kinds = vr_sampled_textures();
 		const u32 target = m_framebuffer_layout.color_addresses[0];
 		const bool in_scene = std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end();
-		const std::string key = fmt::format("camera %d hud %d env %d passthrough %d textures %u target 0x%x %ux%u in_scene %d box %d",
+		const std::string key = fmt::format("camera %d hud %d env %d passthrough %d textures %u target 0x%x %ux%u in_scene %d box %d state %u viewport %.0fx%.0f clip %ux%u mv %d",
 			d.camera_draw, vr_hud, probe.hud_env_requested(), vr_is_passthrough_hud(), kinds, target,
-			m_framebuffer_layout.width, m_framebuffer_layout.height, in_scene, probe.box_mapped());
+			m_framebuffer_layout.width, m_framebuffer_layout.height, in_scene, probe.box_mapped(), probe.vr_state_bits(),
+			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f, std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f,
+			rsx::method_registers.surface_clip_width(), rsx::method_registers.surface_clip_height(), d.mv);
 		static std::set<std::string> s_seen;
 		if (s_seen.insert(fmt::format("%016llx %s", why, key)).second)
 		{
@@ -1781,36 +1837,9 @@ void VKGSRender::vr_setup_draw()
 		}
 	}
 	d.preprojected = vr_preprojected;
-	d.hud_env = (vr_hud || vr_preprojected) && vr_hud_vertex_env(-1.f, vr_preprojected);
-
-	// Multiview: the right eye's vertex context as well, reached through the left eye's bound window.
+	// Multiview: both eyes' contexts (vr_hud_vertex_env_pair sets mv_env_right); else the right eye reads the guest's.
 	d.mv_env_right = m_vertex_env_dynamic_offset;
-	if (d.mv && d.hud_env)
-	{
-		const VkDescriptorBufferInfoEx left_env_info = m_vertex_env_buffer_info;
-		const u64 left_env_offset = m_vertex_env_dynamic_offset;
-		if (vr_hud_vertex_env(1.f, d.preprojected))
-		{
-			const u64 right_absolute = m_vertex_env_buffer_info.offset + m_vertex_env_dynamic_offset;
-			const u64 left_window_end = (left_env_info.range == VK_WHOLE_SIZE) ? ~0ull : (left_env_info.offset + left_env_info.range);
-			if (right_absolute >= left_env_info.offset && right_absolute + 96 <= left_window_end)
-			{
-				d.mv_env_right = right_absolute - left_env_info.offset;
-			}
-			else
-			{
-				static bool s_reported = false;
-				if (!std::exchange(s_reported, true))
-				{
-					rsx_log.warning("VR multiview: the right eye's vertex context fell outside the left eye's window; using the left eye's");
-				}
-				d.mv_env_right = left_env_offset;
-			}
-		}
-		m_vertex_env_buffer_info = left_env_info;
-		m_vertex_env_dynamic_offset = left_env_offset;
-		m_program->bind_uniform(m_vertex_env_buffer_info, vk::glsl::binding_set_index_vertex, m_vs_binding_table->context_buffer_location);
-	}
+	d.hud_env = (vr_hud || vr_preprojected) && (d.mv ? vr_hud_vertex_env_pair(vr_preprojected) : vr_hud_vertex_env(-1.f, vr_preprojected));
 
 	// A 2D screen that never clears its display buffer (Gran Turismo 5's arcade menu starts with a
 	// full-screen background) leaves everything outside the HUD box stale: trails when the head
@@ -1969,7 +1998,13 @@ void VKGSRender::vr_before_left_draw()
 	{
 		// Multiview: one scissor per view, the HUD box's for a boxed draw (bind_viewport sets them on a
 		// dynamic-state reload; a draw that changes them in between sets them here).
-		const VkRect2D want[2] = {m_vr_mv_box_scissor ? m_vr_mv_scissor[0] : m_scissor, m_vr_mv_box_scissor ? m_vr_mv_scissor[1] : m_scissor};
+		static const bool s_box_scissor = []()
+		{
+			const char* v = std::getenv("RPCS3_VR_MV_SCISSOR");
+			return !v || v[0] != '0';
+		}();
+		const bool box = m_vr_mv_box_scissor && s_box_scissor;
+		const VkRect2D want[2] = {box ? m_vr_mv_scissor[0] : m_scissor, box ? m_vr_mv_scissor[1] : m_scissor};
 		if (std::memcmp(want, m_vr_mv_bound_scissor, sizeof(want)) != 0)
 		{
 			vkCmdSetScissor(*m_current_command_buffer, 0, 2, want);
@@ -3462,11 +3497,32 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 	bool classified_world = false;
 	if (!keep_game_camera)
 	{
+		// The untransformed constants, to redo an eye when the two classify the draw differently (a rule that
+		// came true during the left eye's apply, such as the projection becoming known, must not leave the eyes apart).
+		static thread_local std::vector<u8> pristine;
+		pristine.assign(scratch.begin(), scratch.begin() + size);
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
-		const bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
+		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 		probe.clear_box_mapped();
-		probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
-		const bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
+		const bool right_world = probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
+		bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
+		if (right_world != classified_world)
+		{
+			static u32 s_redone = 0;
+			if (s_redone++ < 8)
+			{
+				rsx_log.notice("VR multiview: eyes classified a draw of program %016llx differently (left world %d, right world %d); redoing the left eye",
+					vr_vertex_program_hash(), classified_world, right_world);
+			}
+			std::memcpy(scratch.data(), pristine.data(), size);
+			probe.clear_box_mapped();
+			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
+			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
+			probe.clear_box_mapped();
+			std::memcpy(scratch.data() + stride, pristine.data(), size);
+			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
+			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
+		}
 		if (!left_box)
 		{
 			m_vr_mv_scissor[0] = m_scissor;
@@ -3506,7 +3562,14 @@ bool VKGSRender::vr_bind_viewport()
 	}
 
 	const VkViewport viewports[2] = {m_viewport, m_viewport};
-	const VkRect2D scissors[2] = {m_vr_mv_box_scissor ? m_vr_mv_scissor[0] : m_scissor, m_vr_mv_box_scissor ? m_vr_mv_scissor[1] : m_scissor};
+	// Dev: RPCS3_VR_MV_SCISSOR=0 keeps the game's scissor for both views (no HUD-box clipping).
+	static const bool s_box_scissor = []()
+	{
+		const char* v = std::getenv("RPCS3_VR_MV_SCISSOR");
+		return !v || v[0] != '0';
+	}();
+	const bool box = m_vr_mv_box_scissor && s_box_scissor;
+	const VkRect2D scissors[2] = {box ? m_vr_mv_scissor[0] : m_scissor, box ? m_vr_mv_scissor[1] : m_scissor};
 	vkCmdSetViewport(*m_current_command_buffer, 0, 2, viewports);
 	vkCmdSetScissor(*m_current_command_buffer, 0, 2, scissors);
 	m_vr_mv_bound_scissor[0] = scissors[0];
@@ -3551,7 +3614,13 @@ VkImageViewType VKGSRender::vr_null_view_type(rsx::texture_dimension_extended di
 // clear_surface(): with multiview, a sub-viewport clear mapped into the HUD box clears each eye's own rectangle.
 bool VKGSRender::vr_clear_attachments(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& region, const std::optional<areai>& right_clear)
 {
-	if (!m_vr_multiview || !right_clear)
+	// Dev: RPCS3_VR_MV_EYECLEAR=0 keeps the one clear (the left eye's rectangle in both views).
+	static const bool s_eye_clear = []()
+	{
+		const char* v = std::getenv("RPCS3_VR_MV_EYECLEAR");
+		return !v || v[0] != '0';
+	}();
+	if (!m_vr_multiview || !right_clear || !s_eye_clear)
 	{
 		return false;
 	}

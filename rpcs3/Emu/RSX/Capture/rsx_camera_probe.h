@@ -625,6 +625,11 @@ namespace rsx::vr
 		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
 		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
 		// anything the game parked outside its screen stays clipped. Call clear before each eye.
+		// Dev (probe why=): the headset state the boxing rules test: bit 0 view, bit 1 FOV, bit 2 projection known.
+		u32 vr_state_bits() const
+		{
+			return (m_vr_view ? 1u : 0u) | (m_vr_hmd_fov ? 2u : 0u) | (m_vr_proj_valid ? 4u : 0u);
+		}
 		void clear_box_mapped() const
 		{
 			m_box_mapped = false;
