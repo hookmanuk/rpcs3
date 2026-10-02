@@ -6,7 +6,7 @@ PPU-46bf3c2b3292d77f10d82e3a8729625ab0d3d6c2:
       "Dante's Inferno":
         BLUS30405: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Widens the gameplay camera's field of view (61.9 degrees across) by the chosen scale, up to 170 degrees, where the camera update passes it to the camera's perspective setter (0x452f1c). The game culls against this frustum, so objects at the edges of the headset view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The multiply runs in the body of the camera-shake modifier at 0x663d8, which this patch (like 'Disable camera shake (VR)') makes return at once, so the hit camera shake is off too. Applies when the game boots, not when a savestate is loaded."
+    Notes: "Widens the gameplay camera's field of view (61.9 degrees across) by the chosen scale, up to 170 degrees, where the camera update passes it to the camera's perspective setter (0x452f1c). The game culls against this frustum, so objects at the edges of the headset view are no longer missing. Two more changes keep full detail at any scale: (1) the EDGE geometry jobs (SPU) cull triangles that cover no pixel of the game's viewport; with a wider projection the characters shrink on that viewport and lost most of their triangles (holes in the headset). The culling viewport and scissor are scaled up 20x, so that test runs at the normal view's pixel size or finer, and the frustum test is unchanged. (2) The size metric that culls small objects and effects (fire, torches) uses the unwidened field of view. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code runs in the body of the camera-shake modifier at 0x663d8, which this patch (like 'Disable camera shake (VR)') makes return at once, so the hit camera shake is off too. Applies when the game boots, not when a savestate is loaded."
     Configurable Values:
       "Scale":
         Type: double_enum
@@ -17,11 +17,12 @@ PPU-46bf3c2b3292d77f10d82e3a8729625ab0d3d6c2:
           "2.0 (124 degrees)": 2.0
           "2.25 (139 degrees)": 2.25
           "2.5 (155 degrees)": 2.5
-          "2.75 (170 degrees, maximum)": 2.75
-    Patch Version: 2.0
+          "2.75 (170 degrees, maximum, recommended)": 2.75
+    Patch Version: 3.0
     Enabled By Default: true
     Patch:
       - [ be32, 0x000663d8, 0x4e800020 ] # camera-shake modifier: blr at entry (its body below is free)
+      # field of view at the camera perspective setter call: min(fov x Scale, 170 degrees)
       - [ be32, 0x000663e0, 0x3d200006 ] # lis r9, 0x6
       - [ be32, 0x000663e4, 0xc0296400 ] # lfs f1, 0x6400(r9)   scale
       - [ be32, 0x000663e8, 0xec2107f2 ] # fmuls f1, f1, f31     field of view x scale
@@ -31,6 +32,59 @@ PPU-46bf3c2b3292d77f10d82e3a8729625ab0d3d6c2:
       - [ be32, 0x000663f8, 0x4e800020 ] # blr
       - [ bef32, 0x00066400, "Scale" ]
       - [ bef32, 0x00066404, 2.96706 ]   # 170 degrees (radians)
+      - [ bef32, 0x00066408, 20.0 ]      # EDGE culling screen scale (>= the projection shrink at 2.75: 19.05)
+      - [ be32, 0x0006640c, 0x00000014 ] # the same, an integer for the scissor
+      # EDGE viewport setter (0x5ef390): the culling viewport scales and offsets x 20 (template 0x1342e00 +0x50, +0x60)
+      - [ be32, 0x00066410, 0x8122da68 ] # lwz r9, -0x2598(r2)
+      - [ be32, 0x00066414, 0x3d290012 ] # addis r9, r9, 0x12
+      - [ be32, 0x00066418, 0xd0292a88 ] # stfs f1, 0x2a88(r9)
+      - [ be32, 0x0006641c, 0xd0492a8c ] # stfs f2, 0x2a8c(r9)
+      - [ be32, 0x00066420, 0x3d600006 ] # lis r11, 6
+      - [ be32, 0x00066424, 0xc1ab6408 ] # lfs f13, 0x6408(r11)
+      - [ be32, 0x00066428, 0xc0050000 ] # lfs f0, 0(r5)
+      - [ be32, 0x0006642c, 0xec000372 ] # fmuls f0, f0, f13
+      - [ be32, 0x00066430, 0xd0092ad0 ] # stfs f0, 0x2ad0(r9)
+      - [ be32, 0x00066434, 0xc0050004 ] # lfs f0, 4(r5)
+      - [ be32, 0x00066438, 0xec000372 ] # fmuls f0, f0, f13
+      - [ be32, 0x0006643c, 0xd0092ad4 ] # stfs f0, 0x2ad4(r9)
+      - [ be32, 0x00066440, 0x80050008 ] # lwz r0, 8(r5)
+      - [ be32, 0x00066444, 0x90092ad8 ] # stw r0, 0x2ad8(r9)
+      - [ be32, 0x00066448, 0x8005000c ] # lwz r0, 0xc(r5)
+      - [ be32, 0x0006644c, 0x90092adc ] # stw r0, 0x2adc(r9)
+      - [ be32, 0x00066450, 0xc0060000 ] # lfs f0, 0(r6)
+      - [ be32, 0x00066454, 0xec000372 ] # fmuls f0, f0, f13
+      - [ be32, 0x00066458, 0xd0092ae0 ] # stfs f0, 0x2ae0(r9)
+      - [ be32, 0x0006645c, 0xc0060004 ] # lfs f0, 4(r6)
+      - [ be32, 0x00066460, 0xec000372 ] # fmuls f0, f0, f13
+      - [ be32, 0x00066464, 0xd0092ae4 ] # stfs f0, 0x2ae4(r9)
+      - [ be32, 0x00066468, 0x80060008 ] # lwz r0, 8(r6)
+      - [ be32, 0x0006646c, 0x90092ae8 ] # stw r0, 0x2ae8(r9)
+      - [ be32, 0x00066470, 0x8006000c ] # lwz r0, 0xc(r6)
+      - [ be32, 0x00066474, 0x90092aec ] # stw r0, 0x2aec(r9)
+      - [ be32, 0x00066478, 0x4e800020 ] # blr
+      # EDGE scissor setter (0x5ef250): the culling scissor x 20 (template +0..+6, u16 x, y, w, h)
+      - [ be32, 0x0006647c, 0x8122da68 ] # lwz r9, -0x2598(r2)
+      - [ be32, 0x00066480, 0x3d290012 ] # addis r9, r9, 0x12
+      - [ be32, 0x00066484, 0x3d600006 ] # lis r11, 6
+      - [ be32, 0x00066488, 0x816b640c ] # lwz r11, 0x640c(r11)
+      - [ be32, 0x0006648c, 0x7c0659d6 ] # mullw r0, r6, r11
+      - [ be32, 0x00066490, 0xb0092a86 ] # sth r0, 0x2a86(r9)
+      - [ be32, 0x00066494, 0x7c0359d6 ] # mullw r0, r3, r11
+      - [ be32, 0x00066498, 0xb0092a80 ] # sth r0, 0x2a80(r9)
+      - [ be32, 0x0006649c, 0x7c0459d6 ] # mullw r0, r4, r11
+      - [ be32, 0x000664a0, 0xb0092a82 ] # sth r0, 0x2a82(r9)
+      - [ be32, 0x000664a4, 0x7c0559d6 ] # mullw r0, r5, r11
+      - [ be32, 0x000664a8, 0xb0092a84 ] # sth r0, 0x2a84(r9)
+      - [ be32, 0x000664ac, 0x4e800020 ] # blr
+      # model/effect size metric (0x65e8f0, radius / (tan(fov / 2) x 1.5 x distance)): fov / Scale
+      - [ be32, 0x000664b0, 0xc01c01ac ] # lfs f0, 0x1ac(r28)
+      - [ be32, 0x000664b4, 0x3d600006 ] # lis r11, 6
+      - [ be32, 0x000664b8, 0xc1ab6400 ] # lfs f13, 0x6400(r11)
+      - [ be32, 0x000664bc, 0xec006824 ] # fdivs f0, f0, f13
+      - [ be32, 0x000664c0, 0x4e800020 ] # blr
+      - [ be32, 0x005ef390, 0x4ba77080 ] # b 0x66410 (was lwz r9, -0x2598(r2))
+      - [ be32, 0x005ef250, 0x4ba7722c ] # b 0x6647c (was lwz r9, -0x2598(r2))
+      - [ be32, 0x0065e8f0, 0x4ba07bc1 ] # bl 0x664b0 (was lfs f0, 0x1ac(r28))
       - [ be32, 0x00452f1c, 0x4bc134c5 ] # bl 0x663e0 (was fmr f1, f31)
   "Disable camera shake (VR)":
     Games:
