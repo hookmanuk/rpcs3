@@ -1,8 +1,5 @@
 #include "stdafx.h"
 #include "VKGSRender.h"
-#include "../Capture/rsx_camera_probe.h"
-#include "VKOpenXR.h"
-#include "Emu/RSX/RSXOffload.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/memory.h"
 #include "Emu/RSX/Overlays/overlay_manager.h"
@@ -85,7 +82,7 @@ bool VKGSRender::reinitialize_swapchain()
 
 	// Drain all the queues. The OpenXR frame thread may be submitting, and
 	// vkDeviceWaitIdle requires every queue to be externally synchronized.
-	vk::acquire_global_submit_lock();
+	vk::acquire_global_submit_lock(); // VR fork
 	vkDeviceWaitIdle(*m_device);
 	vk::release_global_submit_lock();
 
@@ -250,17 +247,13 @@ void VKGSRender::queue_swap_request()
 void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 {
 	ensure(ctx->swap_command_buffer);
+	const gpuprof_timer vr_wait_timer{ this, &VKGSRender::m_gpuprof_ctxwait_ms }; // VR fork: dev GPU profiler
 
 	// Perform hard swap here
-	const auto wait_start = std::chrono::steady_clock::now();
 	if (ctx->swap_command_buffer->wait(FRAME_PRESENT_TIMEOUT) != VK_SUCCESS)
 	{
 		// Lost surface/device, release swapchain
 		swapchain_unavailable = true;
-	}
-	if (m_gpuprof_enabled > 0)
-	{
-		m_gpuprof_ctxwait_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - wait_start).count();
 	}
 
 	// Resource cleanup.
@@ -276,10 +269,7 @@ void VKGSRender::frame_context_cleanup(vk::frame_context_t *ctx)
 			for (const auto& view : m_overlay_manager->get_dirty())
 			{
 				ui_renderer->remove_temp_resources(view->uid);
-				if (m_xr_overlay_img)
-				{
-					vk::get_overlay_pass<vk::ui_overlay_renderer_xr>()->remove_temp_resources(view->uid);
-				}
+				vr_remove_overlay_temp_resources(view->uid); // VR fork
 				uids_to_dispose.push_back(view->uid);
 			}
 
@@ -439,68 +429,8 @@ vk::viewable_image* VKGSRender::get_present_source(/* inout */ vk::present_surfa
 
 void VKGSRender::flip(const rsx::display_flip_info_t& info)
 {
-	struct flip_timer
-	{
-		VKGSRender* r;
-		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-		~flip_timer()
-		{
-			if (r->m_gpuprof_enabled > 0)
-			{
-				r->m_gpuprof_flip_ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
-			}
-		}
-	} flip_timer_{ this };
-
-	// Gate 6: the right eye's last batched draws must land before it is presented.
-	vr_batch_flush();
-
-	// VR fork dev hook: RPCS3_VR_RTDUMP=<file>. When the file appears (consumed), both eyes' surfaces at
-	// the display buffer are written raw to <file>.<n>.left / .right (+ .txt: width height format). It runs
-	// before the swapchain checks, so it works with a locked desktop, where the flip skips present and
-	// screenshots. The file may list other surface addresses (hex, one per line) to dump instead, as
-	// <file>.<n>.<address>.left / .right.
-	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
-	// A prog=<hash>#n request counts that program's draws from the start of a frame.
-	if (m_vr_rtdump_program && !m_vr_rtdump_armed)
-	{
-		m_vr_rtdump_armed = true;
-	}
-	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
-	{
-		std::string request;
-		if (fs::file f{s_rtdump}) request = f.to_string();
-		fs::remove_file(s_rtdump);
-		std::vector<u32> addresses;
-		u64 program = 0;
-		for (const std::string& line : fmt::split(request, {"\n", "\r", " ", ","}))
-		{
-			// prog=<vertex ucode hash>: dump just before that program's next draw instead of now.
-			if (line.starts_with("prog="))
-			{
-				program = std::strtoull(line.c_str() + 5, nullptr, 16);
-				const usz hash = line.find('#');
-				m_vr_rtdump_skip = hash != umax ? std::max(1u, static_cast<u32>(std::strtoul(line.c_str() + hash + 1, nullptr, 10))) - 1 : 0;
-				m_vr_rtdump_armed = hash == umax;
-			}
-			else if (const u32 a = static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16))) addresses.push_back(a);
-		}
-		if (program)
-		{
-			m_vr_rtdump_program = program;
-			m_vr_rtdump_addresses = std::move(addresses);
-		}
-		else
-		{
-			if (addresses.empty()) addresses.push_back(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
-			vr_rtdump(addresses, "flip");
-		}
-	}
-
-	if (gpuprof_enabled())
-	{
-		gpuprof_flip(info.stats);
-	}
+	const gpuprof_timer vr_flip_timer{ this, &VKGSRender::m_gpuprof_flip_ms }; // VR fork: dev GPU profiler
+	vr_flip_begin(info); // VR fork: pending right-eye batch, RPCS3_VR_RTDUMP, GPU profiler
 
 	// Check swapchain condition/status
 	if (!m_swapchain->supports_automatic_wm_reports())
@@ -617,15 +547,13 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			buffer_pitch = buffer_width * 4;
 	}
 
-	// The previous flip's display-buffer uploads are no longer read.
+	// VR fork: the previous flip's display-buffer uploads are no longer read.
 	m_texture_cache.release_flip_uploads();
 
 	// Scan memory for required data. This is done early to optimize waiting for the driver image acquire below.
 	vk::viewable_image* image_to_flip = nullptr;
 	vk::viewable_image* image_to_flip2 = nullptr;
-	bool generated_stereo = false;
-	u32 xr_eye_width = 0;
-	u32 xr_eye_height = 0;
+	bool generated_stereo = false; // VR fork: image_to_flip2 is the right eye of the fork's own stereo
 
 	if (info.buffer < display_buffers_count && buffer_width && buffer_height)
 	{
@@ -639,54 +567,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			.eye = 0
 		};
 		image_to_flip = get_present_source(&present_info, avconfig);
-		// Resolution-scaled eye size, as rewritten by get_present_source().
-		xr_eye_width = present_info.width;
-		xr_eye_height = present_info.height;
-
-		if (!avconfig.stereo_enabled && rsx::vr::camera_probe::get().render_enabled())
-		{
-			// The display target is normally still bound at flip. Prefer that exact
-			// surface: resolving it through the cache merge path can reject a valid
-			// right eye whose inherited memory range is larger than the display.
-			// Compare in guest pixels: get_present_source() has already rewritten
-			// present_info.width/height to the resolution-scaled size.
-			for (const auto& [address, surface] : m_vr_right_rtts.m_bound_render_targets)
-			{
-				if (address == present_info.address && surface &&
-					surface->get_surface_width<rsx::surface_metrics::samples>() >= buffer_width &&
-					surface->get_surface_height<rsx::surface_metrics::samples>() >= buffer_height)
-				{
-					image_to_flip2 = surface->get_surface(rsx::surface_access::transfer_read);
-					break;
-				}
-			}
-
-			if (!image_to_flip2)
-			{
-				const auto format_bpp = rsx::get_format_block_size_in_bytes(present_info.format);
-				auto right_overlap = m_vr_right_rtts.get_merged_texture_memory_region(*m_current_command_buffer,
-					present_info.address, buffer_width, buffer_height, present_info.pitch,
-					format_bpp, rsx::surface_access::transfer_read);
-				if (!right_overlap.empty())
-				{
-					const auto& section = right_overlap.back();
-					auto* surface = vk::as_rtt(section.surface);
-					if (section.base_address == present_info.address &&
-						surface->get_surface_width<rsx::surface_metrics::samples>() >= buffer_width &&
-						surface->get_surface_height<rsx::surface_metrics::samples>() >= buffer_height)
-					{
-						image_to_flip2 = section.surface->get_surface(rsx::surface_access::transfer_read);
-					}
-				}
-			}
-
-			generated_stereo = image_to_flip2 != nullptr;
-			static bool s_reported_generated_stereo = false;
-			if (generated_stereo && !std::exchange(s_reported_generated_stereo, true))
-			{
-				rsx_log.success("Gate 5: presenting generated stereo as side-by-side.");
-			}
-		}
+		generated_stereo = vr_present_right_eye(present_info, avconfig, buffer_width, buffer_height, image_to_flip2); // VR fork
 
 		if (avconfig.stereo_enabled) [[unlikely]]
 		{
@@ -719,285 +600,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		evaluate_cpu_usage_reduction_limits();
 	}
 
-	// Gate 6: publish the eyes to the OpenXR frame thread. The RSX thread never
-	// waits on the headset's clock (that stalled guest command processing and
-	// dropped frames in busy scenes); it records a copy into a free eye buffer,
-	// submits, and tags the pair with the pose its draws were rotated by.
-	if (vk::xr::is_running() || vk::xr::fake_hmd())
-	{
-		// Videos some games show without flipping (Demon's Souls: decoded into the display
-		// buffer, shown only by RPCS3's UI refresh) count as frames without camera draws, so
-		// frames_without_3d_as_screen shows them on the fixed screen instead of head-locked.
-		if (info.emu_flip)
-		{
-			m_vr_last_emu_flip_us = get_system_time();
-		}
-		const bool vr_video_refresh = !info.emu_flip && !Emu.IsPaused() && get_system_time() - m_vr_last_emu_flip_us > 200'000;
-		// Only game flips carry a new eye pair. Flips requested by RPCS3's overlays
-		// (e.g. while the home menu pauses emulation) would re-publish the old frame
-		// tagged with a newer head pose, dragging the world along with the head. A video
-		// frame on the fixed screen has no world to drag: it is published too.
-		const bool vr_video_screen = vr_video_refresh && m_vr_video_on_screen;
-		const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
-			generated_stereo && image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, xr_eye_width, xr_eye_height);
-
-		// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
-		// the desktop swapchain below; the headset gets them as a quad layer.
-		bool xr_overlay = false;
-		if (m_overlay_manager && m_overlay_manager->has_visible())
-		{
-			constexpr u32 overlay_width = 1920;
-			constexpr u32 overlay_height = 1080;
-			constexpr VkFormat overlay_format = VK_FORMAT_B8G8R8A8_UNORM;
-			if (!m_xr_overlay_img)
-			{
-				m_xr_overlay_img = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-					VK_IMAGE_TYPE_2D, overlay_format, overlay_width, overlay_height, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-					0, VMM_ALLOCATION_POOL_SYSTEM);
-			}
-
-			vk::image* overlay_img = m_xr_overlay_img.get();
-			const VkImageSubresourceRange overlay_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-			const VkClearColorValue transparent{};
-			overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-			vkCmdClearColorImage(*m_current_command_buffer, overlay_img->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &transparent, 1, &overlay_range);
-			overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-			const VkRenderPass overlay_pass = vk::get_renderpass(*m_device, vk::get_renderpass_key(overlay_format));
-			vk::framebuffer_holder* overlay_fbo = vk::get_framebuffer(*m_device, overlay_width, overlay_height, VK_FALSE, overlay_pass, { overlay_img });
-			overlay_fbo->add_ref();
-			{
-				auto ui_renderer = vk::get_overlay_pass<vk::ui_overlay_renderer_xr>();
-				std::lock_guard lock(*m_overlay_manager);
-				const areau overlay_area = { 0, 0, overlay_width, overlay_height };
-				for (const auto& view : m_overlay_manager->get_views())
-				{
-					ui_renderer->run(*m_current_command_buffer, overlay_area, overlay_fbo, overlay_pass, m_texture_upload_buffer_ring_info, *view.get());
-				}
-			}
-			overlay_fbo->release();
-
-			xr_overlay = vk::xr::publish_overlay(*m_current_command_buffer, overlay_img);
-		}
-
-		if (xr_eyes || xr_overlay)
-		{
-			flush_command_queue();
-			if (g_cfg.video.multithreaded_rsx)
-			{
-				// The submit may still be queued on the offload thread.
-				g_fxo->get<rsx::dma_manager>().sync();
-			}
-			vk::xr::signal_published();
-		}
-
-		if (xr_eyes)
-		{
-			// Also shows an overlay published in this flip.
-			f32 tan_x = 0.f, tan_y = 0.f;
-			// Rendered with the headset's FOV, the projection layer declares the headset's own per-eye FOV
-			// and needs nothing from the game. Waiting for the game's first camera draw put everything before
-			// it (Killzone HD's splash screens, videos and menus, already in the HUD box) on a head-locked quad,
-			// stretched: the box looked ultrawide and followed the face until the first 3D frame.
-			const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y) || vk::xr::hmd_fov();
-			// The pose the displayed image was drawn with, if it can be traced.
-			u32 pose = m_vr_applied_pose;
-			if (m_vr_frame_boundaries && info.buffer < display_buffers_count)
-			{
-				if (auto* surface = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
-					surface && surface->vr_pose)
-				{
-					pose = surface->vr_pose;
-				}
-			}
-			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose);
-			if (vr_tracing())
-			{
-				vr_trace_flush_cam();
-				rsx_log.notice("VR trace:%s F[d%u] declared %u(%.1f) applied %u(%.1f)", m_vr_trace, info.buffer,
-					pose, vk::xr::render_pose_yaw(pose), m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose));
-			}
-			m_vr_trace.clear();
-			m_vr_trace_flips++;
-		}
-		else if (xr_overlay)
-		{
-			vk::xr::commit_overlay();
-		}
-
-		if (!xr_overlay)
-		{
-			vk::xr::hide_overlay();
-		}
-
-		// Head pose for the next game frame. Overlay flips (paused emulation) draw
-		// nothing, so the pose waits for the next game flip. Games whose frames end in
-		// a display buffer take it at the frame boundary instead (prepare_rtts); the
-		// flip falls back to it if no boundary has been seen for two flips.
-		if (vr_video_refresh || (info.emu_flip && (!m_vr_frame_boundaries || ++m_vr_flips_since_boundary > 2)))
-		{
-			vr_update_view();
-			if (vr_tracing())
-			{
-				m_vr_trace += fmt::format(" L%u(%.1f)", m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose));
-			}
-		}
-	}
-	else
-	{
-		// No headset session: back to the game's camera.
-		rsx::vr::camera_probe::get().clear_vr_view();
-	}
-
-	// VR fork: screenshots and recording read the game image before the swapchain image is acquired:
-	// with the desktop locked, the hard sync below between acquire and present crashed the NVIDIA driver.
-	VkRenderPass single_target_pass = VK_NULL_HANDLE;
-	vk::framebuffer_holder* direct_fbo = nullptr;
-	rsx::simple_array<vk::viewable_image*> calibration_src;
-
-	const bool has_overlay = (m_overlay_manager && m_overlay_manager->has_visible());
-	const bool user_asked_for_screenshot = g_user_asked_for_screenshot.exchange(false);
-	const bool user_is_recording = (g_recording_mode != recording_mode::stopped && m_frame->can_consume_frame());
-	const bool need_media_capture = user_asked_for_screenshot || user_is_recording;
-
-	const auto render_overlays = [&](vk::framebuffer_holder* fbo, const areau& area)
-	{
-		if (!has_overlay) return;
-
-		// Lock to avoid modification during run-update chain
-		auto ui_renderer = vk::get_overlay_pass<vk::ui_overlay_renderer>();
-		std::lock_guard lock(*m_overlay_manager);
-
-		const areau display_area = {0, 0, static_cast<u32>(m_swapchain_dims.width), static_cast<u32>(m_swapchain_dims.height)};
-		for (const auto& view : m_overlay_manager->get_views())
-		{
-			const areau render_area = view->use_window_space ? display_area : area;
-			ui_renderer->run(*m_current_command_buffer, render_area, fbo, single_target_pass, m_texture_upload_buffer_ring_info, *view.get());
-		}
-	};
-
-	// WARNING: We have to do this here. We cannot touch the acquired image on the CB and then do a hard sync on it before it is submitted to the presentation engine.
-	// That introduces a WRITE_AFTER_PRESENT (from the previous present) when we later try to present on a different CB
-	// VR fork: the first frames of a boot can present an image the capture below cannot read (Ridge
-	// Racer 7: smaller than the display buffer, or not 32-bit, or still owned by another queue); a
-	// screenshot then crashed the driver or failed image::push_layout's queue check. Skip it instead.
-	const bool capturable = image_to_flip && image_to_flip->width() >= buffer_width && image_to_flip->height() >= buffer_height &&
-		vk::get_format_texel_width(image_to_flip->format()) == 4 &&
-		(image_to_flip->current_queue_family == VK_QUEUE_FAMILY_IGNORED || image_to_flip->current_queue_family == m_current_command_buffer->get_queue_family());
-	if (image_to_flip && need_media_capture && !capturable)
-	{
-		rsx_log.warning("Screenshot/recording skipped: the presented image (%ux%u fmt %d) cannot be captured this frame (buffer %ux%u).",
-			image_to_flip->width(), image_to_flip->height(), static_cast<int>(image_to_flip->format()), buffer_width, buffer_height);
-	}
-	if (image_to_flip && need_media_capture && capturable)
-	{
-		// VR fork: a screenshot while generated stereo is shown holds both eyes side by side.
-		const bool sbs_shot = user_asked_for_screenshot && generated_stereo && image_to_flip2 &&
-			vk::get_format_texel_width(image_to_flip2->format()) == 4 &&
-			image_to_flip2->width() >= buffer_width && image_to_flip2->height() >= buffer_height;
-		if (user_asked_for_screenshot && generated_stereo && image_to_flip2)
-		{
-			rsx_log.notice("VR screenshot: left %ux%u fmt %d, right %ux%u fmt %d, side by side %d", image_to_flip->width(), image_to_flip->height(), static_cast<int>(image_to_flip->format()),
-				image_to_flip2->width(), image_to_flip2->height(), static_cast<int>(image_to_flip2->format()), sbs_shot);
-		}
-		const u32 shot_width = sbs_shot ? buffer_width * 2 : buffer_width;
-		const usz sshot_size = buffer_height * shot_width * 4;
-
-		vk::buffer sshot_vkbuf(*m_device, utils::align(sshot_size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
-
-		VkBufferImageCopy copy_info{};
-		copy_info.bufferOffset = 0;
-		copy_info.bufferRowLength = shot_width;
-		copy_info.bufferImageHeight = 0;
-		copy_info.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		copy_info.imageSubresource.baseArrayLayer = 0;
-		copy_info.imageSubresource.layerCount = 1;
-		copy_info.imageSubresource.mipLevel = 0;
-		copy_info.imageOffset.x = 0;
-		copy_info.imageOffset.y = 0;
-		copy_info.imageOffset.z = 0;
-		copy_info.imageExtent.width = buffer_width;
-		copy_info.imageExtent.height = buffer_height;
-		copy_info.imageExtent.depth = 1;
-
-		vk::image* image_to_copy = image_to_flip;
-
-		if (g_cfg.video.record_with_overlays && has_overlay && !sbs_shot)
-		{
-			const auto key = vk::get_renderpass_key(m_swapchain->get_surface_format());
-			single_target_pass = vk::get_renderpass(*m_device, key);
-			ensure(single_target_pass != VK_NULL_HANDLE);
-
-			if (m_overlay_recording_img)
-			{
-				// Validate
-				if (m_overlay_recording_img->format() != image_to_flip->format() ||
-					m_overlay_recording_img->width() != image_to_flip->width() ||
-					m_overlay_recording_img->height() != image_to_flip->height())
-				{
-					// Dispose correctly
-					vk::remove_framebuffers_with_image(m_overlay_recording_img.get());
-					vk::get_resource_manager()->dispose(m_overlay_recording_img);
-				}
-			}
-
-			if (!m_overlay_recording_img)
-			{
-				m_overlay_recording_img = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-					VK_IMAGE_TYPE_2D, image_to_flip->format(), image_to_flip->width(), image_to_flip->height(), 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-					0, VMM_ALLOCATION_POOL_SYSTEM);
-			}
-
-			m_overlay_recording_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-			image_to_flip->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-			const areai rect = areai(0, 0, buffer_width, buffer_height);
-			vk::copy_image(*m_current_command_buffer, image_to_flip, m_overlay_recording_img.get(), rect, rect);
-
-			image_to_flip->pop_layout(*m_current_command_buffer);
-			m_overlay_recording_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-			vk::framebuffer_holder* sshot_fbo = vk::get_framebuffer(*m_device, buffer_width, buffer_height, VK_FALSE, single_target_pass, { m_overlay_recording_img.get() });
-			sshot_fbo->add_ref();
-			render_overlays(sshot_fbo, areau(rect));
-			sshot_fbo->release();
-
-			image_to_copy = m_overlay_recording_img.get();
-		}
-
-		image_to_copy->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-		vk::copy_image_to_buffer(*m_current_command_buffer, image_to_copy, &sshot_vkbuf, copy_info);
-		image_to_copy->pop_layout(*m_current_command_buffer);
-
-		if (sbs_shot)
-		{
-			copy_info.bufferRowLength = shot_width;
-			copy_info.bufferOffset = buffer_width * 4;
-			image_to_flip2->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-			vk::copy_image_to_buffer(*m_current_command_buffer, image_to_flip2, &sshot_vkbuf, copy_info);
-			image_to_flip2->pop_layout(*m_current_command_buffer);
-		}
-
-		flush_command_queue(true);
-		const auto src = sshot_vkbuf.map(0, sshot_size);
-		std::vector<u8> sshot_frame(sshot_size);
-		memcpy(sshot_frame.data(), src, sshot_size);
-		sshot_vkbuf.unmap();
-
-		const bool is_bgra = image_to_copy->format() == VK_FORMAT_B8G8R8A8_UNORM;
-
-		if (user_asked_for_screenshot)
-		{
-			m_frame->take_screenshot(std::move(sshot_frame), shot_width, buffer_height, is_bgra);
-		}
-		else
-		{
-			m_frame->present_frame(std::move(sshot_frame), buffer_width * 4, buffer_width, buffer_height, is_bgra);
-		}
-	}
+	vr_publish_frame(info, image_to_flip, generated_stereo ? image_to_flip2 : nullptr); // VR fork: the headset's frame and overlay
 
 	// Prepare surface for new frame. Set no timeout here so that we wait for the next image if need be
 	ensure(m_current_frame->present_image == umax);
@@ -1065,6 +668,133 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	const VkImageSubresourceRange subresource_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 	VkImageLayout target_layout = present_layout;
 
+	VkRenderPass single_target_pass = VK_NULL_HANDLE;
+	vk::framebuffer_holder* direct_fbo = nullptr;
+	rsx::simple_array<vk::viewable_image*> calibration_src;
+
+	const bool has_overlay = (m_overlay_manager && m_overlay_manager->has_visible());
+	const bool user_asked_for_screenshot = g_user_asked_for_screenshot.exchange(false);
+	const bool user_is_recording = (g_recording_mode != recording_mode::stopped && m_frame->can_consume_frame());
+	const bool need_media_capture = user_asked_for_screenshot || user_is_recording;
+
+	const auto render_overlays = [&](vk::framebuffer_holder* fbo, const areau& area)
+	{
+		if (!has_overlay) return;
+
+		// Lock to avoid modification during run-update chain
+		auto ui_renderer = vk::get_overlay_pass<vk::ui_overlay_renderer>();
+		std::lock_guard lock(*m_overlay_manager);
+
+		const areau display_area = {0, 0, static_cast<u32>(m_swapchain_dims.width), static_cast<u32>(m_swapchain_dims.height)};
+		for (const auto& view : m_overlay_manager->get_views())
+		{
+			const areau render_area = view->use_window_space ? display_area : area;
+			ui_renderer->run(*m_current_command_buffer, render_area, fbo, single_target_pass, m_texture_upload_buffer_ring_info, *view.get());
+		}
+	};
+
+	// WARNING: We have to do this here. We cannot touch the acquired image on the CB and then do a hard sync on it before it is submitted to the presentation engine.
+	// That introduces a WRITE_AFTER_PRESENT (from the previous present) when we later try to present on a different CB
+	if (image_to_flip && need_media_capture && vr_capturable(image_to_flip, buffer_width, buffer_height)) // VR fork: skips an image the copy cannot read
+	{
+		// VR fork: a screenshot while generated stereo is shown holds both eyes side by side.
+		const bool sbs_shot = user_asked_for_screenshot && generated_stereo && vr_side_by_side_shot(image_to_flip, image_to_flip2, buffer_width, buffer_height);
+		const u32 shot_width = sbs_shot ? buffer_width * 2 : buffer_width;
+		const usz sshot_size = buffer_height * shot_width * 4;
+
+		vk::buffer sshot_vkbuf(*m_device, utils::align(sshot_size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
+
+		VkBufferImageCopy copy_info{};
+		copy_info.bufferOffset = 0;
+		copy_info.bufferRowLength = shot_width; // VR fork
+		copy_info.bufferImageHeight = 0;
+		copy_info.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		copy_info.imageSubresource.baseArrayLayer = 0;
+		copy_info.imageSubresource.layerCount = 1;
+		copy_info.imageSubresource.mipLevel = 0;
+		copy_info.imageOffset.x = 0;
+		copy_info.imageOffset.y = 0;
+		copy_info.imageOffset.z = 0;
+		copy_info.imageExtent.width = buffer_width;
+		copy_info.imageExtent.height = buffer_height;
+		copy_info.imageExtent.depth = 1;
+
+		vk::image* image_to_copy = image_to_flip;
+
+		if (g_cfg.video.record_with_overlays && has_overlay && !sbs_shot) // VR fork
+		{
+			const auto key = vk::get_renderpass_key(m_swapchain->get_surface_format());
+			single_target_pass = vk::get_renderpass(*m_device, key);
+			ensure(single_target_pass != VK_NULL_HANDLE);
+
+			if (m_overlay_recording_img)
+			{
+				// Validate
+				if (m_overlay_recording_img->format() != image_to_flip->format() ||
+					m_overlay_recording_img->width() != image_to_flip->width() ||
+					m_overlay_recording_img->height() != image_to_flip->height())
+				{
+					// Dispose correctly
+					vk::remove_framebuffers_with_image(m_overlay_recording_img.get());
+					vk::get_resource_manager()->dispose(m_overlay_recording_img);
+				}
+			}
+
+			if (!m_overlay_recording_img)
+			{
+				m_overlay_recording_img = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					VK_IMAGE_TYPE_2D, image_to_flip->format(), image_to_flip->width(), image_to_flip->height(), 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
+					VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+					0, VMM_ALLOCATION_POOL_SYSTEM);
+			}
+
+			m_overlay_recording_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			image_to_flip->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+			const areai rect = areai(0, 0, buffer_width, buffer_height);
+			vk::copy_image(*m_current_command_buffer, image_to_flip, m_overlay_recording_img.get(), rect, rect);
+
+			image_to_flip->pop_layout(*m_current_command_buffer);
+			m_overlay_recording_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+			vk::framebuffer_holder* sshot_fbo = vk::get_framebuffer(*m_device, buffer_width, buffer_height, VK_FALSE, single_target_pass, { m_overlay_recording_img.get() });
+			sshot_fbo->add_ref();
+			render_overlays(sshot_fbo, areau(rect));
+			sshot_fbo->release();
+
+			image_to_copy = m_overlay_recording_img.get();
+		}
+
+		image_to_copy->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		vk::copy_image_to_buffer(*m_current_command_buffer, image_to_copy, &sshot_vkbuf, copy_info);
+		image_to_copy->pop_layout(*m_current_command_buffer);
+
+		if (sbs_shot) // VR fork: the right eye into the second half of each row
+		{
+			copy_info.bufferOffset = buffer_width * 4;
+			image_to_flip2->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+			vk::copy_image_to_buffer(*m_current_command_buffer, image_to_flip2, &sshot_vkbuf, copy_info);
+			image_to_flip2->pop_layout(*m_current_command_buffer);
+		}
+
+		flush_command_queue(true);
+		const auto src = sshot_vkbuf.map(0, sshot_size);
+		std::vector<u8> sshot_frame(sshot_size);
+		memcpy(sshot_frame.data(), src, sshot_size);
+		sshot_vkbuf.unmap();
+
+		const bool is_bgra = image_to_copy->format() == VK_FORMAT_B8G8R8A8_UNORM;
+
+		if (user_asked_for_screenshot)
+		{
+			m_frame->take_screenshot(std::move(sshot_frame), shot_width, buffer_height, is_bgra); // VR fork
+		}
+		else
+		{
+			m_frame->present_frame(std::move(sshot_frame), buffer_width * 4, buffer_width, buffer_height, is_bgra);
+		}
+	}
 
 	if (!image_to_flip || aspect_ratio.x1 || aspect_ratio.y1)
 	{
@@ -1113,40 +843,13 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	{
 		const bool use_full_rgb_range_output = g_cfg.video.full_rgb_range_output.get();
 
-		if (!use_full_rgb_range_output || !rsx::fcmp(avconfig.gamma, 1.f) || avconfig.stereo_enabled || generated_stereo) [[unlikely]]
+		if (!use_full_rgb_range_output || !rsx::fcmp(avconfig.gamma, 1.f) || avconfig.stereo_enabled || generated_stereo) [[unlikely]] // VR fork
 		{
 			if (image_to_flip) calibration_src.push_back(image_to_flip);
 			if (image_to_flip2) calibration_src.push_back(image_to_flip2);
+			if (generated_stereo) vr_crop_for_side_by_side(calibration_src, buffer_width, buffer_height); // VR fork
 
-			// VR fork: generated stereo from a display buffer larger than the region the game shows (Gran Turismo 5:
-			// 2048x1080 surfaces, 1280x720 shown) would put each whole surface into its half of the window, the shown
-			// part small in a corner. Copy the shown region of each eye into an image of that size first.
-			if (generated_stereo && buffer_width && buffer_height)
-			{
-				for (auto& img : calibration_src)
-				{
-					if (img->width() <= buffer_width && img->height() <= buffer_height)
-					{
-						continue;
-					}
-					const u32 w = std::min<u32>(buffer_width, img->width()), h = std::min<u32>(buffer_height, img->height());
-					auto& crop = m_vr_warp_scratch[(1ull << 63) | (static_cast<u64>(img->format()) << 40) | (static_cast<u64>(w) << 20) | h];
-					if (!crop)
-					{
-						crop = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-							VK_IMAGE_TYPE_2D, img->format(), w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT,
-							VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
-							VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-							0, VMM_ALLOCATION_POOL_SYSTEM);
-						crop->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-					}
-					vk::copy_image(*m_current_command_buffer, img, crop.get(), areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) },
-						areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) });
-					img = crop.get();
-				}
-			}
-
-			if (m_output_scaling == output_scaling_mode::fsr && !avconfig.stereo_enabled && !generated_stereo) // 3D will be implemented later
+			if (m_output_scaling == output_scaling_mode::fsr && !avconfig.stereo_enabled && !generated_stereo) // 3D will be implemented later (VR fork: nor for its stereo)
 			{
 				// Run upscaling pass before the rest of the output effects pipeline
 				// This can be done with all upscalers but we already get bilinear upscaling for free if we just out the filters directly
@@ -1178,7 +881,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			vk::get_overlay_pass<vk::video_out_calibration_pass>()->run(
 				*m_current_command_buffer, areau(aspect_ratio), direct_fbo, calibration_src,
 				avconfig.gamma, !use_full_rgb_range_output, avconfig.stereo_enabled || generated_stereo,
-				single_target_pass, generated_stereo);
+				single_target_pass, generated_stereo); // VR fork: side by side
 
 			direct_fbo->release();
 		}
@@ -1322,7 +1025,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 
 		// Then apply the change
 		m_rtts.sync_scaling_config(*m_current_command_buffer, active_res_scaling_config);
-		m_vr_right_rtts.sync_scaling_config(*m_current_command_buffer, active_res_scaling_config);
+		m_vr_right_rtts.sync_scaling_config(*m_current_command_buffer, active_res_scaling_config); // VR fork
 		this->resolution_scaling_config = active_res_scaling_config;
 
 		// Finally reclaim any unused resources
@@ -1332,247 +1035,4 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			flush_command_queue(true);
 		}
 	}
-}
-
-// Locate the head for the next game frame: its camera draws are rotated by that
-// pose, and the frame is declared with it when the frame thread presents it.
-void VKGSRender::vr_update_view()
-{
-	m_vr_frame_covered.clear();
-	f32 head[4];
-	f32 head_position[3];
-	f32 eye_fov[2][4];
-	f32 render_fov[2][4];
-	auto& probe = rsx::vr::camera_probe::get();
-	// A game frame with no camera draws has no 3D to follow the head (splash screens,
-	// videos, 2D menus): show it as the fixed screen, which respects the HUD settings,
-	// instead of stretched over the whole view. Back to the headset view on the first
-	// frame with a camera draw (that frame is still shown as the screen).
-	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
-	m_vr_camera_draws = 0;
-	const auto* no_3d_profile = probe.profile();
-	const bool no_3d = m_vr_frames_without_camera >= 3 && no_3d_profile && no_3d_profile->screen_space_frames_without_3d_as_screen;
-	if (static bool s_no_3d = false; no_3d != s_no_3d)
-	{
-		s_no_3d = no_3d;
-		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
-	}
-	m_vr_video_on_screen = no_3d;
-	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
-	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
-	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
-	const f32 vr_hud_distance = rsx::vr::effective_hud_depth();
-	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
-		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
-	const bool located = pose != 0;
-	m_vr_applied_pose = 0;
-
-	// The HUD box: the game's output aspect, fitted in the central symmetric part of
-	// both eyes' views, scaled by the HUD settings, at the HUD Depth. The fixed screen and
-	// RPCS3's overlays use it.
-	const size2u output_size = g_fxo->get<rsx::avconf>().video_frame_size();
-	const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
-	const f32 depth = vr_hud_distance;
-	f32 box_y = 0.f;
-	f32 width = 0.f;
-	if (located)
-	{
-		const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
-		const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
-		box_y = std::min(fit_y, fit_x / aspect);
-		width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
-		vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
-			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
-			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
-			depth);
-	}
-
-	if (fixed_screen && located)
-	{
-		// Fixed screen: the game keeps its own camera and stereo; the HUD sliders
-		// place the window where the HUD box would be (depth 0 = 2 m).
-		probe.clear_vr_view();
-
-		// The game's stereo separates far objects by a fixed fraction of the picture,
-		// tuned for the profile's reference screen (WipEout: a 0.53 m, 24" TV). On a
-		// wider window that would make the eyes diverge, so keep that screen's physical
-		// disparity by scaling the separation by reference width / window width, then
-		// by the user's strength.
-		const auto* profile = probe.profile();
-		const f32 reference_width = profile ? profile->reference_screen_width : 0.f;
-		const f32 auto_scale = reference_width > 0.f && width > reference_width ? reference_width / width : 1.f;
-		probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
-
-		vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
-			width,
-			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
-			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
-			depth);
-	}
-	else if (!fixed_screen && located)
-	{
-		vk::xr::set_screen(false, true, 0.f, 0.f, 0.f, 0.f);
-		probe.set_screen_stereo_scale(1.f);
-		// World Scale: a bigger world is a smaller viewer, i.e. less eye separation in game units.
-		{
-			// VR fork dev hook: RPCS3_VR_WOBBLE=<degrees> sweeps the rendered head yaw over that range, to
-			// test world-fixed HUD boxes and trails without moving the headset.
-			static const f32 s_wobble = [] { const char* v = ::getenv("RPCS3_VR_WOBBLE"); return v ? static_cast<f32>(std::atof(v)) : 0.f; }();
-			if (s_wobble != 0.f)
-			{
-				static u32 s_n = 0;
-				const f32 a = 0.5f * s_wobble * 3.14159265f / 180.f * std::sin(++s_n * 0.05f);
-				const f32 qy[4] = { 0.f, std::sin(a), 0.f, std::cos(a) };
-				const f32 h[4] = { head[0], head[1], head[2], head[3] };
-				head[0] = qy[3] * h[0] + qy[0] * h[3] + qy[1] * h[2] - qy[2] * h[1];
-				head[1] = qy[3] * h[1] - qy[0] * h[2] + qy[1] * h[3] + qy[2] * h[0];
-				head[2] = qy[3] * h[2] + qy[0] * h[1] - qy[1] * h[0] + qy[2] * h[3];
-				head[3] = qy[3] * h[3] - qy[0] * h[0] - qy[1] * h[1] - qy[2] * h[2];
-			}
-		}
-		{
-			// VR fork dev hook: RPCS3_VR_HEAD_OFFSET=x,y,z (metres) moves the rendered head, e.g. 0,0,0.3 leans back.
-			static const std::array<f32, 3> s_offset = [] { std::array<f32, 3> o{}; if (const char* v = ::getenv("RPCS3_VR_HEAD_OFFSET")) std::sscanf(v, "%f,%f,%f", &o[0], &o[1], &o[2]); return o; }();
-			for (u32 i = 0; i < 3; ++i) head_position[i] += s_offset[i];
-		}
-		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
-			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
-		probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
-			g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
-			g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
-			vr_hud_distance, vk::xr::ipd());
-		m_vr_applied_pose = pose;
-	}
-	else
-	{
-		probe.clear_vr_view();
-	}
-}
-
-void VKGSRender::vr_track_frame_boundary()
-{
-	// Per-frame poses are part of the older-frame reprojection machinery (profile
-	// reproject_older_frames, Ico). Other games keep the per-flip pose update: Pure's pause
-	// menu crosses a display-buffer boundary many times per flip.
-	if (!vr_reprojects_older_frames())
-	{
-		return;
-	}
-
-	s32 index = -1;
-	for (const u32 address : m_framebuffer_layout.color_addresses)
-	{
-		if (!address)
-		{
-			continue;
-		}
-		for (u32 i = 0; i < display_buffers_count; ++i)
-		{
-			if (display_buffers[i].valid() && rsx::get_address(display_buffers[i].offset, CELL_GCM_LOCATION_LOCAL) == address)
-			{
-				index = static_cast<s32>(i);
-				break;
-			}
-		}
-		break;
-	}
-
-	if (vr_tracing())
-	{
-		const u32 address = m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address;
-		if (address != m_vr_trace_addr)
-		{
-			vr_trace_flush_cam();
-			m_vr_trace += index >= 0 ? fmt::format(" B%x[d%d]", address, index) : fmt::format(" B%x", address);
-			m_vr_trace_addr = address;
-		}
-	}
-
-	if (m_vr_display_target >= 0 && index != m_vr_display_target)
-	{
-		// The game has finished writing a display buffer and moves on: its next frame
-		// starts here, and all of it is rotated by one pose.
-		if (!m_vr_frame_boundaries)
-		{
-			rsx_log.success("VR: head pose changes at frame boundaries (leaving display buffer %d).", m_vr_display_target);
-		}
-		m_vr_frame_boundaries = true;
-		m_vr_flips_since_boundary = 0;
-		vr_update_view();
-		if (vr_tracing())
-		{
-			m_vr_trace += fmt::format(" Y%u(%.1f, %.1fmm)", m_vr_applied_pose, vk::xr::render_pose_yaw(m_vr_applied_pose),
-				vk::xr::render_pose_step_mm(m_vr_applied_pose - 1, m_vr_applied_pose));
-		}
-	}
-
-	m_vr_display_target = index;
-}
-
-void VKGSRender::vr_trace_flush_cam()
-{
-	if (m_vr_trace_other_count)
-	{
-		m_vr_trace += fmt::format(" N x%u", m_vr_trace_other_count);
-		m_vr_trace_other_count = 0;
-	}
-	if (m_vr_trace_cam_count)
-	{
-		m_vr_trace += fmt::format(" C%u x%u", m_vr_trace_cam_pose, m_vr_trace_cam_count);
-		m_vr_trace_cam_count = 0;
-	}
-}
-
-void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string& tag)
-{
-	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
-	static u32 s_dump_index = 0;
-	vr_batch_flush();
-	std::string suffix;
-	const auto dump = [&](vk::render_target* rt, const char* eye)
-	{
-		// 4- or 8-byte colour (8: RGBA16F, raw), or the depth aspect of a depth surface (D24: 24-bit depth in a 32-bit
-		// word, D32F: float).
-		const bool depth = rt && (rt->aspect() & VK_IMAGE_ASPECT_DEPTH_BIT);
-		const u32 texel = depth ? 4 : (rt ? vk::get_format_texel_width(rt->format()) : 0);
-		if (!rt || (!depth && ((texel != 4 && texel != 8) || !(rt->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))))
-		{
-			return;
-		}
-		const u32 w = rt->width(), h = rt->height();
-		const usz size = usz{ w } * h * texel;
-		vk::buffer buffer(*m_device, utils::align(size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
-		VkBufferImageCopy region{};
-		region.bufferRowLength = w;
-		region.imageSubresource = { static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 0, 1 };
-		region.imageExtent = { w, h, 1 };
-		if (vk::is_renderpass_open(*m_current_command_buffer)) vk::end_renderpass(*m_current_command_buffer);
-		rt->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read); // resolves an MSAA surface
-		auto* image = rt->get_surface(rsx::surface_access::transfer_read);
-		image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-		if (depth)
-		{
-			// Raw depth words (no D32F -> D16F conversion as in copy_image_to_buffer).
-			vkCmdCopyImageToBuffer(*m_current_command_buffer, image->value, image->current_layout, buffer.value, 1, &region);
-		}
-		else
-		{
-			vk::copy_image_to_buffer(*m_current_command_buffer, image, &buffer, region);
-		}
-		image->pop_layout(*m_current_command_buffer);
-		flush_command_queue(true);
-		const auto src = buffer.map(0, size);
-		fs::write_file(fmt::format("%s.%u%s.%s", s_rtdump, s_dump_index, suffix, eye), fs::rewrite, src, size);
-		buffer.unmap();
-		fs::write_file(fmt::format("%s.%u%s.%s.txt", s_rtdump, s_dump_index, suffix, eye), fs::rewrite, fmt::format("%u %u %d", w, h, static_cast<int>(image->format())));
-	};
-	for (const u32 a : addresses)
-	{
-		suffix = fmt::format(".%x", a);
-		dump(m_rtts.get_surface_at(a), "left");
-		dump(m_vr_right_rtts.get_surface_at(a), "right");
-	}
-	rsx_log.success("VR surface dump %u written (%s, %u surfaces)", s_dump_index, tag, ::size32(addresses));
-	s_dump_index++;
 }

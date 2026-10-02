@@ -2,9 +2,7 @@
 #include "RSXThread.h"
 
 #include "Capture/rsx_capture.h"
-#include "Capture/rsx_stereo_inspector.h"
-#include "Capture/rsx_camera_probe.h"
-#include "Capture/rsx_vr_profile_generator.h"
+#include "Capture/rsx_vr_hooks.h" // VR fork
 #include "Common/surface_store.h"
 #include "Core/RSXReservationLock.hpp"
 #include "Core/RSXEngLock.hpp"
@@ -1073,9 +1071,7 @@ namespace rsx
 
 		rsx::overlays::reset_performance_overlay();
 		rsx::overlays::reset_debug_overlay();
-
-		// VR fork: a new boot; drop the previous game's per-frame profile cache.
-		rsx::vr::camera_probe::get().reload_profile();
+		rsx::vr::on_boot(); // VR fork: a new boot; drop the previous game's per-frame profile cache
 
 		if (!is_initialized)
 		{
@@ -1166,8 +1162,7 @@ namespace rsx
 #endif
 			u64 start_time = get_system_time();
 
-			// VR fork: the VR frame rate's vblank rate while a headset runs (see rsx::vr::effective_vblank_rate).
-			u64 vblank_rate = rsx::vr::effective_vblank_rate();
+			u64 vblank_rate = rsx::vr::effective_vblank_rate(); // VR fork: the VR frame rate's vblank rate while a headset runs
 			u64 vblank_period = 1'000'000 + u64{g_cfg.video.vblank_ntsc.get()} * 1000;
 
 			u64 local_vblank_count = 0;
@@ -1205,7 +1200,7 @@ namespace rsx
 							local_vblank_count = 0;
 
 							// We have a rare chance to update settings without losing precision whenever local_vblank_count is 0
-							if (const u64 rate = rsx::vr::effective_vblank_rate(); rate != vblank_rate)
+							if (const u64 rate = rsx::vr::effective_vblank_rate(); rate != vblank_rate) // VR fork
 							{
 								rsx_log.notice("VBlank rate: %u Hz", rate);
 								vblank_rate = rate;
@@ -3389,173 +3384,7 @@ namespace rsx
 		// MM sync. This is a pre-emptive operation, so we can use a deferred request.
 		rsx::mm_flush_lazy();
 
-		// VR fork: finalize any armed stereo-inspector capture and arm the next one.
-		// No-op unless RPCS3_STEREO_INSPECT is set.
-		rsx::vr::stereo_inspector::get().on_frame_end();
-		rsx::vr::camera_probe::get().poll();
-		rsx::vr::update_game_refresh_rate();
-		rsx::vr::profile_generator::get().on_frame_end();
-
-		// VR fork dev hook: RPCS3_VR_SHOT=<file>; creating the file takes a screenshot
-		// (consumed), for scripted runs where the desktop cannot be captured.
-		static const std::string s_shot_trigger = []() -> std::string
-		{
-			const char* v = std::getenv("RPCS3_VR_SHOT");
-			return v ? v : "";
-		}();
-		if (!s_shot_trigger.empty() && fs::is_file(s_shot_trigger) && fs::remove_file(s_shot_trigger))
-		{
-			g_user_asked_for_screenshot = true;
-		}
-
-		// VR fork dev hook: RPCS3_VR_MEMDUMP=<file>; creating the file writes guest main
-		// memory 0x00000000-0xbfffffff to <file>.<n>.bin (mapped pages) and the
-		// wall time to <file>.<n>.txt, for finding a game's clock by diffing dumps.
-		static const std::string s_dump_trigger = []() -> std::string
-		{
-			const char* v = std::getenv("RPCS3_VR_MEMDUMP");
-			return v ? v : "";
-		}();
-		if (!s_dump_trigger.empty() && fs::is_file(s_dump_trigger) && fs::remove_file(s_dump_trigger))
-		{
-			static u32 s_dump_index = 0;
-			const std::string base = fmt::format("%s.%u", s_dump_trigger, s_dump_index++);
-			// Copy first (a fraction of a second) so the snapshot is close to one instant.
-			std::vector<u32> pages;
-			std::vector<u8> data;
-			const u64 start_us = get_system_time();
-			for (u32 page = 0; page < 0xc0000000u; page += 0x10000)
-			{
-				if (vm::check_addr(page, vm::page_readable, 0x10000))
-				{
-					data.insert(data.end(), vm::_ptr<u8>(page), vm::_ptr<u8>(page) + 0x10000);
-					pages.push_back(page);
-				}
-			}
-			const u64 wall_us = (start_us + get_system_time()) / 2;
-			// <file>.<n>.bin: the mapped 64 KiB pages; <file>.<n>.idx: their addresses (u32 LE).
-			fs::write_file(base + ".bin", fs::rewrite, data);
-			fs::write_file(base + ".idx", fs::rewrite, pages.data(), pages.size() * sizeof(u32));
-			fs::write_file(base + ".txt", fs::rewrite, std::to_string(wall_us));
-			rsx_log.success("VR memory dump written to '%s.bin' (wall %u us)", base, wall_us);
-		}
-
-		// VR fork dev hook: RPCS3_VR_PEEK=<file> (read once at the first frame): lines "<addr hex>";
-		// every RPCS3_VR_PEEK_EVERY frames (default 1) the u32 at each address is logged with the
-		// wall time, e.g. to follow a game's frame pacing variables through a scene change.
-		static const std::vector<u32> s_peek = []()
-		{
-			std::vector<u32> list;
-			if (const char* v = std::getenv("RPCS3_VR_PEEK"))
-			{
-				if (fs::file f{v}; f)
-				{
-					for (const auto& line : fmt::split(f.to_string(), {"\n", "\r", " ", ","}))
-					{
-						if (!line.empty()) list.push_back(static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16)));
-					}
-				}
-			}
-			return list;
-		}();
-		if (!s_peek.empty())
-		{
-			static const u32 s_every = [] { const char* v = std::getenv("RPCS3_VR_PEEK_EVERY"); return v ? std::max(1u, static_cast<u32>(std::strtoul(v, nullptr, 10))) : 1u; }();
-			static u32 s_frame = 0;
-			if (s_frame++ % s_every == 0)
-			{
-				std::string line = fmt::format("VR peek %u t=%.3f buf %u draws %u:", s_frame, get_system_time() / 1e6, buffer, m_frame_stats.draw_calls);
-				// RPCS3_VR_PEEK_CONST=<slot>: also the vertex constant register (e.g. a camera position).
-				if (static const s32 s_const = [] { const char* v = std::getenv("RPCS3_VR_PEEK_CONST"); return v ? static_cast<s32>(std::strtol(v, nullptr, 10)) : -1; }(); s_const >= 0 && s_const < 512)
-				{
-					const auto& c = rsx::method_registers.transform_constants[s_const];
-					fmt::append(line, " c%d=(%.3f %.3f %.3f)", s_const, std::bit_cast<f32>(c[0]), std::bit_cast<f32>(c[1]), std::bit_cast<f32>(c[2]));
-				}
-				for (const u32 addr : s_peek)
-				{
-					fmt::append(line, " %x=%08x", addr, vm::check_addr(addr) ? static_cast<u32>(vm::read32(addr)) : 0u);
-				}
-				rsx_log.notice("%s", line);
-			}
-		}
-
-		// VR fork dev hook: RPCS3_VR_POKE=<file>; creating the file writes each of its lines
-		// "<addr hex> f32|u32 <value>" to guest memory (big-endian), e.g. to try a patch's
-		// data change on a running game or a savestate, whose memory already holds the old value.
-		static const std::string s_poke_trigger = []() -> std::string
-		{
-			const char* v = std::getenv("RPCS3_VR_POKE");
-			return v ? v : "";
-		}();
-		if (!s_poke_trigger.empty() && fs::is_file(s_poke_trigger))
-		{
-			std::string spec;
-			if (fs::file f{s_poke_trigger}; f)
-			{
-				spec = f.to_string();
-			}
-			fs::remove_file(s_poke_trigger);
-			for (const auto& line : fmt::split(spec, {"\n"}))
-			{
-				const auto items = fmt::split(line, {" ", "\t", "\r"});
-				if (items.size() < 3)
-				{
-					continue;
-				}
-				const u32 addr = static_cast<u32>(std::strtoul(items[0].c_str(), nullptr, 16));
-				// Code pages are read-only: written through the supervisor mapping, then the PPU
-				// interpreter's cache is rebuilt for the word (PPU Decoder: Interpreter (static);
-				// LLVM keeps its compiled code).
-				const bool code = vm::check_addr(addr, vm::page_executable, 4);
-				if (!code && !vm::check_addr(addr, vm::page_writable, 4))
-				{
-					rsx_log.error("VR poke: 0x%x is not writable", addr);
-					continue;
-				}
-				const u32 value = items[1] == "f32" ? std::bit_cast<u32>(std::strtof(items[2].c_str(), nullptr)) :
-					static_cast<u32>(std::strtoul(items[2].c_str(), nullptr, 0));
-				const u32 old = vm::read32(addr);
-				*vm::get_super_ptr<be_t<u32>>(addr) = value;
-				if (code)
-				{
-					extern void ppu_register_function_at(u32 addr, u32 size, u64 ptr);
-					ppu_register_function_at(addr, 4, 0);
-				}
-				rsx_log.success("VR poke 0x%x%s: 0x%08x -> 0x%08x (%s %s)", addr, code ? " (code)" : "", old, value, items[1], items[2]);
-			}
-		}
-
-		// VR fork dev hook: RPCS3_PPU_WATCH_FILE=<file>; writing "w|r,<addr>,<len>,<code start>,<code end>"
-		// (hex) to the file installs the PPU store (w) or load (r) watch at that moment, so a
-		// watch can target memory located in the same run (PPU interpreter only).
-		static const std::string s_watch_trigger = []() -> std::string
-		{
-			const char* v = std::getenv("RPCS3_PPU_WATCH_FILE");
-			return v ? v : "";
-		}();
-		if (!s_watch_trigger.empty() && fs::is_file(s_watch_trigger))
-		{
-			std::string spec;
-			if (fs::file f{s_watch_trigger}; f)
-			{
-				spec = f.to_string();
-			}
-			fs::remove_file(s_watch_trigger);
-			const auto items = fmt::split(spec, {","});
-			if (items.size() >= 5)
-			{
-				extern u32 ppu_watch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
-				extern u32 ppu_rwatch_install(u32 watch_addr, u32 watch_len, u32 start, u32 end);
-				u32 v[4]{};
-				for (usz i = 0; i < 4; i++)
-				{
-					v[i] = static_cast<u32>(std::strtoul(items[i + 1].c_str(), nullptr, 16));
-				}
-				const bool load = items[0].find('r') != umax;
-				const u32 count = load ? ppu_rwatch_install(v[0], v[1], v[2], v[3]) : ppu_watch_install(v[0], v[1], v[2], v[3]);
-				rsx_log.success("PPU %s watch on 0x%x+0x%x: %u instructions", load ? "read" : "write", v[0], v[1], count);
-			}
-		}
+		rsx::vr::on_frame_end(buffer, m_frame_stats.draw_calls); // VR fork: stereo inspector, camera probe, profile generator, development hooks
 
 		// Marks the end of a frame scope GPU-side
 		if (g_user_asked_for_frame_capture.exchange(false) && !capture_current_frame)
@@ -3736,40 +3565,7 @@ namespace rsx
 			return;
 		}
 
-		// VR fork dev hook: RPCS3_VR_FRAMESTATS=<seconds> logs the game's frame times over each window of that
-		// length: frames, average FPS, 1% low and 0.1% low (the FPS of the 99th / 99.9th percentile frame time).
-		// Only runs when the variable is set.
-		if (static const u32 s_window = [] { const char* v = std::getenv("RPCS3_VR_FRAMESTATS"); return v ? static_cast<u32>(std::max(1, std::atoi(v))) : 0u; }(); s_window)
-		{
-			static std::vector<f32> s_times;
-			static u64 s_last = 0, s_start = 0;
-			const u64 now = get_system_time();
-			if (s_last)
-			{
-				s_times.push_back((now - s_last) / 1000.f);
-			}
-			else
-			{
-				s_start = now;
-			}
-			s_last = now;
-			if (now - s_start >= s_window * 1'000'000ull && s_times.size() >= 10)
-			{
-				std::vector<f32> sorted = s_times;
-				std::sort(sorted.begin(), sorted.end());
-				f64 sum = 0.;
-				for (const f32 t : sorted) sum += t;
-				const f32 p99 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 99 / 100)];
-				const f32 p999 = sorted[std::min<usz>(sorted.size() - 1, sorted.size() * 999 / 1000)];
-				// Missed frames: longer than 1.5x the median frame time (at a fixed rate the median is the frame period).
-				const f32 median = sorted[sorted.size() / 2];
-				const usz late = static_cast<usz>(sorted.end() - std::upper_bound(sorted.begin(), sorted.end(), median * 1.5f));
-				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%",
-					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size());
-				s_times.clear();
-				s_start = now;
-			}
-		}
+		rsx::vr::on_flip(); // VR fork: RPCS3_VR_FRAMESTATS (development)
 
 		if (!m_queued_flip.pop(buffer))
 		{
@@ -3783,13 +3579,13 @@ namespace rsx
 
 		switch (frame_limit)
 		{
-		case frame_limit_type::none: limit = g_cfg.core.max_cpu_preempt_count_per_frame ? static_cast<double>(rsx::vr::effective_vblank_rate()) : 0.; break;
+		case frame_limit_type::none: limit = g_cfg.core.max_cpu_preempt_count_per_frame ? static_cast<double>(rsx::vr::effective_vblank_rate()) : 0.; break; // VR fork
 		case frame_limit_type::_30: limit = 30.; break;
 		case frame_limit_type::_50: limit = 50.; break;
 		case frame_limit_type::_60: limit = 60.; break;
  		case frame_limit_type::_120: limit = 120.; break;
 		case frame_limit_type::display_rate: limit = get_cached_display_refresh_rate(); break;
-		case frame_limit_type::_auto: limit = static_cast<double>(rsx::vr::effective_vblank_rate()); break;
+		case frame_limit_type::_auto: limit = static_cast<double>(rsx::vr::effective_vblank_rate()); break; // VR fork
 		case frame_limit_type::_ps3: limit = 0.; break;
 		case frame_limit_type::infinite: limit = 0.; break;
 		default:
@@ -4012,7 +3808,7 @@ namespace rsx
 				}
 			};
 
-			const u64 vblank_rate_10 = rsx::vr::effective_vblank_rate() * 10;
+			const u64 vblank_rate_10 = rsx::vr::effective_vblank_rate() * 10; // VR fork
 
 			if (can_reevaluate)
 			{

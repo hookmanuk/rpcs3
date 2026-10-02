@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "rpcs3_version.h"
 #include "git-version.h"
+#include "rpcs3_vr_version.h" // VR fork
 #include "Utilities/StrUtil.h"
 
 namespace rpcs3
@@ -24,13 +25,9 @@ namespace rpcs3
 		return std::make_pair(std::move(commit_and_hash[0]), std::move(commit_and_hash[1]));
 	}
 
-	// VR fork: builds branched from upstream 0.0.42 are 0.0.42-vr1, -vr2, ... (GitHub release tags v0.0.42-vrN).
-	// The tag leads the version postfix: "0.0.42-vr1-<commit> Alpha".
-#define RPCS3_VR_VERSION "vr6"
-
 	const utils::version& get_version()
 	{
-		static constexpr utils::version version{ 0, 0, 42, utils::version_type::alpha, 1, RPCS3_VR_VERSION "-" RPCS3_GIT_VERSION };
+		static constexpr utils::version version{ 0, 0, 42, utils::version_type::alpha, 1, RPCS3_VR_VERSION "-" RPCS3_GIT_VERSION }; // VR fork
 		return version;
 	}
 

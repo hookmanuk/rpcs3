@@ -126,15 +126,6 @@ public:
 		const QString disable_fifo_reordering      = tr("Disables RSX FIFO optimizations completely. Draws are processed as they are received by the DMA puller.");
 		const QString gpu_texture_scaling          = tr("Force all texture transfer, scaling and conversion operations on the GPU.\nMay cause texture corruption in some cases.");
 		const QString strict_texture_flushing      = tr("Forces texture flushing even in situations where it is not necessary/correct. Known to cause visual artifacts, but useful for debugging certain texture cache issues.");
-		const QString vr_enabled                   = tr("Renders the game in stereo and outputs it to an OpenXR headset.\nOffered only in the custom configuration of games with a VR profile (bin/vr_profiles/<serial>.json). Requires a restart of the game.");
-		const QString vr_hud_fixed                 = tr("Keeps the HUD and menus fixed in front of you instead of following your head.\nTurn your head to look away from them.");
-		const QString vr_frame_rate                = tr("The game's frame rate in the headset. Set the headset to this rate or a multiple of it.\n\nDefault:");
-		const QString vr_fixed_screen              = tr("Shows the game as a floating 3D screen instead of surrounding you.\nThe game keeps its own camera. The HUD scale and offsets set the screen's size and position. It is shown 2 m away.\nHUD Fixed In Front keeps the screen in place in the room; otherwise it follows your head.");
-		const QString vr_screen_depth              = tr("Strength of the 3D effect on the fixed screen.\nAt 100% the depth is reduced automatically as the screen gets larger, so distant objects stay comfortable to look at. Raise it for more depth, lower it for less.");
-		const QString vr_hud_scale                 = tr("Size of the HUD and menus in the headset, as a percentage of the central view.");
-		const QString vr_hud_offset                = tr("Moves the HUD and menus in the headset.\n100% moves the centre of the HUD to the edge of the central view. Positive is right or up.");
-		const QString vr_reprojection_margin       = tr("Renders this many degrees beyond each edge of the headset's view.\nAt low frame rates the headset turns an older frame to where you now look; the margin fills what would otherwise be black at the edges. Costs sharpness: raise Resolution Scale to compensate. 0 renders exactly the headset's view.\nAuto: 10 degrees for games whose VR profile caps the frame rate (Ico: 30 FPS), 0 for games that run at the headset's refresh rate.");
-		const QString vr_camera_depth              = tr("Moves your viewpoint forward or back.\nPositive moves it forward, into the scene. Leave at 0 to sit exactly where the game puts the camera.");
 		const QString stereo_render_mode           = tr("Sets the 3D stereo rendering mode (only available in custom configurations with a default resolution of 720p).\nAnaglyph uses different colors for each eye, which can then be filtered with certain glasses.\nSide-by-Side is more commonly supported by VR viewer apps.\nOver-Under is closer to the native stereo output, but less commonly supported.");
 		const QString accurate_ppu_128_loop        = tr("When enabled, PPU atomic operations will operate on entire cache line data, as opposed to a single 64bit block of memory when disabled.\nNumerical values control whether or not to enable the accurate version based on the atomic operation's length.");
 		const QString enable_performance_report    = tr("Measure certain events and print a chart after the emulator is stopped. Don't enable if not asked to.");
@@ -296,6 +287,17 @@ public:
 		const QString empty_hdd0_tmp          = tr("Required for some Homebrew or Game Mods.\nIf unsure, do not use this option");
 		const QString limit_cache_size        = tr("Automatically removes older files from disk cache on boot if it grows larger than the specified value.\nGames can use the cache folder to temporarily store data outside of system memory. It is not used for long-term storage.\n\nThis setting is only available in the global configuration.");
 		const QString console_time_offset     = tr("Sets the time to be used within the console. This will be applied as an offset that tracks wall clock time.\nCan be reset to current wall clock time by clicking \"Set to Now\".");
+
+		// VR fork
+		const QString vr_enabled                   = tr("Renders the game in stereo and outputs it to an OpenXR headset.\nOffered only in the custom configuration of games with a VR profile (bin/vr_profiles/<serial>.json). Requires a restart of the game.");
+		const QString vr_hud_fixed                 = tr("Keeps the HUD and menus fixed in front of you instead of following your head.\nTurn your head to look away from them.");
+		const QString vr_frame_rate                = tr("The game's frame rate in the headset. Set the headset to this rate or a multiple of it.\n\nDefault:");
+		const QString vr_fixed_screen              = tr("Shows the game as a floating 3D screen instead of surrounding you.\nThe game keeps its own camera. The HUD scale and offsets set the screen's size and position. It is shown 2 m away.\nHUD Fixed In Front keeps the screen in place in the room; otherwise it follows your head.");
+		const QString vr_screen_depth              = tr("Strength of the 3D effect on the fixed screen.\nAt 100% the depth is reduced automatically as the screen gets larger, so distant objects stay comfortable to look at. Raise it for more depth, lower it for less.");
+		const QString vr_hud_scale                 = tr("Size of the HUD and menus in the headset, as a percentage of the central view.");
+		const QString vr_hud_offset                = tr("Moves the HUD and menus in the headset.\n100% moves the centre of the HUD to the edge of the central view. Positive is right or up.");
+		const QString vr_reprojection_margin       = tr("Renders this many degrees beyond each edge of the headset's view.\nAt low frame rates the headset turns an older frame to where you now look; the margin fills what would otherwise be black at the edges. Costs sharpness: raise Resolution Scale to compensate. 0 renders exactly the headset's view.\nAuto: 10 degrees for games whose VR profile caps the frame rate (Ico: 30 FPS), 0 for games that run at the headset's refresh rate.");
+		const QString vr_camera_depth              = tr("Moves your viewpoint forward or back.\nPositive moves it forward, into the scene. Leave at 0 to sit exactly where the game puts the camera.");
 	} settings;
 
 	const struct gamepad_settings

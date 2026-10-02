@@ -20,6 +20,7 @@
 #include "Emu/Cell/SPUThread.h"
 #include "Emu/Cell/SPURecompiler.h"
 #include "Emu/RSX/RSXThread.h"
+#include "Emu/RSX/Capture/rsx_vr_hooks.h" // VR fork
 #include "Emu/Cell/lv2/sys_process.h"
 #include "Emu/Cell/lv2/sys_sync.h"
 #include "Emu/Cell/lv2/sys_prx.h"
@@ -2513,13 +2514,7 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 			return game_boot_result::decryption_error;
 		}
 
-		// VR fork dev hook: RPCS3_DUMP_ELF=<path> writes the decrypted executable
-		// (for finding frame-rate patch sites with a disassembler).
-		if (const char* dump = std::getenv("RPCS3_DUMP_ELF"); dump && *dump)
-		{
-			fs::write_file(dump, fs::rewrite, elf_file.to_vector<u8>());
-			sys_log.success("Decrypted executable written to '%s'", dump);
-		}
+		rsx::vr::dev::dump_elf(elf_file); // VR fork: RPCS3_DUMP_ELF (development)
 
 		// Check EBOOT.BIN (before updates - disc games)
 		ppu_exec_object ppu_exec;

@@ -1,6 +1,7 @@
 add_library(rpcs3_ui STATIC
     about_dialog.cpp
     anaglyph_settings_dialog.cpp
+    vr_settings_widget.cpp
     auto_pause_settings_dialog.cpp
     auto_scroll_label.cpp
     basic_mouse_settings_dialog.cpp
@@ -166,6 +167,7 @@ add_library(rpcs3_ui STATIC
     ../Input/gui_pad_thread.cpp
     ../Input/hid_pad_handler.cpp
     ../Input/keyboard_pad_handler.cpp
+    ../Input/keyboard_pad_handler_vr.cpp
     ../Input/mm_joystick_handler.cpp
     ../Input/mouse_gyro_handler.cpp
     ../Input/pad_thread.cpp
