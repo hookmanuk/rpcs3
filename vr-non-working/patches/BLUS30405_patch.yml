@@ -1,0 +1,13 @@
+Version: 1.2
+
+PPU-46bf3c2b3292d77f10d82e3a8729625ab0d3d6c2:
+  "Wider view (VR culling)":
+    Games:
+      "Dante's Inferno":
+        BLUS30405: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Doubles the gameplay camera's field of view (61.9 x 37.3 -> 124 x 93 degrees) where the camera update passes it to the camera's perspective setter (0x452f1c: fmr f1,f31 -> fadds f1,f31,f31). The game culls against this frustum, so objects at the edges of the headset view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view. Camera position does not depend on it (checked)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00452f1c, 0xec3ff82a ] # fadds f1, f31, f31 (was fmr f1, f31)
