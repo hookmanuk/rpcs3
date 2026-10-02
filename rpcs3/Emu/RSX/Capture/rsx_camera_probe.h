@@ -367,6 +367,10 @@ namespace rsx::vr
 		// u32s holding the game frame rate itself (Ridge Racer 7's VR patch advances its
 		// 60 Hz frame counters by 60/fps per frame from it).
 		std::vector<guest_address> game_fps_u32;
+		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
+		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
+		// times this factor (through a patch that reads it), so it stays real-time at the headset's rate.
+		std::vector<guest_address> game_vblank_frames_f32;
 
 		// The game composites the previous frame's scene (ICO: left over from SPU
 		// MLAA) with effects built from the current one (bloom). Each frame carries
