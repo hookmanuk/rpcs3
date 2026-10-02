@@ -3657,6 +3657,30 @@ namespace rsx
 			g_user_asked_for_screenshot = true;
 		}
 
+		// VR fork dev hook: RPCS3_VR_SAVESTATE=<file>; creating the file saves a savestate as Ctrl+S does (the game
+		// carries on), for unattended runs: with the desktop locked the game window gets no keys.
+		static const std::string s_savestate_trigger = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_VR_SAVESTATE");
+			return v ? v : "";
+		}();
+		if (dev_poll && !s_savestate_trigger.empty() && fs::is_file(s_savestate_trigger) && fs::remove_file(s_savestate_trigger))
+		{
+			rsx_log.success("VR dev: savestate requested (%s)", s_savestate_trigger);
+			Emu.CallFromMainThread([]()
+			{
+				if (!g_cfg.savestate.suspend_emu)
+				{
+					Emu.after_kill_callback = []()
+					{
+						Emu.Restart(true, false);
+					};
+					Emu.SetContinuousMode(true);
+				}
+				Emu.Kill(false, true);
+			});
+		}
+
 		// VR fork dev hook: RPCS3_VR_MEMDUMP=<file>; creating the file writes guest main
 		// memory 0x00000000-0xbfffffff to <file>.<n>.bin (mapped pages) and the
 		// wall time to <file>.<n>.txt, for finding a game's clock by diffing dumps.
