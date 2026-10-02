@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "title_id": "BLUS31460",
+  "app_version": "01.00",
+  "name": "Kingdom Hearts II Final Mix (Kingdom Hearts HD 2.5 ReMIX)",
+  "max_fps": 30,
+  "default_fps": 30,
+  "vblanks_per_frame": 2,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [256, 56],
+  "camera_slots_read_directly": true,
+  "require_rigid_camera": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 6.4
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0100634,
+    "convergence": 51.2006,
+    "eye_offset": "baseline_per_w"
+  },
+
+  "screen_space": {
+    "passthrough_hud": true,
+    "hud_programs": ["67d8f773436e61a5", "b4c6872a86d66c95"],
+    "preprojected_programs": ["a0ae7ea7d5ffb37f"]
+  }
+}
