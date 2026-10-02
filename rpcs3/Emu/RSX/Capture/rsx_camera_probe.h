@@ -176,6 +176,10 @@ namespace rsx::vr
 		// Render targets exactly this wide (guest pixels) keep the game's camera in
 		// both eyes: views that are not the player's, e.g. Blur's rear-view mirror.
 		std::vector<u32> game_camera_target_widths;
+		// Camera blocks whose projection aspect (|clip y| / |clip x|) is one of these, within 0.25%, keep the game's
+		// camera: views rendered for a texture at their own aspect. Asura's Wrath renders its TV-screen feeds at
+		// 720/408 (1.765) into the scene target before copying them out; the player's camera is 16:9 (1.778).
+		std::vector<f32> game_camera_aspects;
 
 		u32 camera_position_slot = umax; // umax: the game has none
 		f32 eye_baseline = 0.f;          // native eye distance, world units

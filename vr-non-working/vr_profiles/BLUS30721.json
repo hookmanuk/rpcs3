@@ -10,6 +10,7 @@
   "matrix_layout": "row_vectors",
   "camera_blocks": [0],
   "camera_slots_read_directly": true,
+  "game_camera_aspects": [1.7647],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
@@ -26,7 +27,8 @@
 
   "screen_space": {
     "orthographic_block": 200,
-    "hud_skips_passes": true
+    "hud_skips_passes": true,
+    "screen_frame_draws": [ { "program": "487364b5ccf9cbc2", "texture": "1280x720" } ]
   },
 
   "hidden_draws": [
