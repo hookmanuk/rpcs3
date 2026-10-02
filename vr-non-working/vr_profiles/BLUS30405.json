@@ -29,6 +29,7 @@
   "screen_space": {
     "frames_without_3d_as_screen": true,
     "orthographic_block": 0,
+    "preprojected_programs": [ { "program": "54fba8b442f9fa7f", "without_depth_test": true } ],
     "hud_block_programs": [ { "program": "2f7541c34fd0c5d7", "block": 256 } ],
     "screen_frame_draws": [ { "program": "2f7541c34fd0c5d7", "texture": "1280x736" } ]
   }

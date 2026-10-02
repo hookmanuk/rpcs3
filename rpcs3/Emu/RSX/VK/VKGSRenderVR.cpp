@@ -1727,11 +1727,18 @@ void VKGSRender::vr_setup_draw()
 	d.saved_env_offset = m_vertex_env_dynamic_offset;
 	// Sprites the game projected itself (ICO's flames): through the camera's eye transform.
 	// Only into this frame's scene with depth test: the same program also draws ICO's pause
-	// menu, which must stay in the HUD box (or as drawn).
+	// menu, which must stay in the HUD box (or as drawn). Programs listed "without_depth_test"
+	// also take it with depth test off (Dante's Inferno's torch glows).
 	const u32 vr_target = m_framebuffer_layout.color_addresses[0];
 	const u64 vr_listed = d.render && !d.camera_draw ? vr_preprojected_program() : 0;
 	const bool vr_in_scene = vr_target && std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), vr_target) != m_vr_camera_targets.end();
-	u64 vr_preprojected = vr_listed && !vr_hud && rsx::method_registers.depth_test_enabled() && vr_in_scene ? vr_listed : 0;
+	const auto vr_untested = [&]()
+	{
+		const auto* profile = probe.profile();
+		return profile && std::find(profile->screen_space_preprojected_untested.begin(), profile->screen_space_preprojected_untested.end(), vr_listed) !=
+		                      profile->screen_space_preprojected_untested.end();
+	};
+	u64 vr_preprojected = vr_listed && !vr_hud && (rsx::method_registers.depth_test_enabled() || vr_untested()) && vr_in_scene ? vr_listed : 0;
 	// Profile clip_space_scene_draws: every other depth-tested scene draw that is no camera draw
 	// (its matrix folded with an object's, in another slot or layout, skinned from the whole bank)
 	// takes the same eye transform, B^-1 * B_eye of the latest camera draw: the object part cancels.

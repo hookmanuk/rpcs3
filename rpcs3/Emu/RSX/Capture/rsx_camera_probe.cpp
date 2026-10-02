@@ -669,14 +669,27 @@ namespace rsx::vr
 		}
 		if (const YAML::Node programs = child(screen_space, "preprojected_programs"); programs && programs.IsSequence())
 		{
+			// "<vertex ucode hash>", or { "program": "<hash>", "without_depth_test": true } for a program
+			// whose scene draws also take the eye transform with depth test off.
 			for (const auto& program : programs)
 			{
-				const std::string text = program.as<std::string>();
+				std::string text, untested;
+				if (program.IsMap())
+				{
+					read(program, "program", text);
+					read(program, "without_depth_test", untested, false);
+				}
+				else
+				{
+					text = program.as<std::string>();
+				}
 				char* end = nullptr;
 				const u64 hash = std::strtoull(text.c_str(), &end, 16);
 				if (text.empty() || !end || *end)
 					fail("screen_space.preprojected_programs: '" + text + "' is not a hex program hash");
 				profile->screen_space_preprojected_programs.push_back(hash);
+				if (untested == "true")
+					profile->screen_space_preprojected_untested.push_back(hash);
 			}
 		}
 		if (const YAML::Node draws = child(root, "hidden_draws"); draws && draws.IsSequence())

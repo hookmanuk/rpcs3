@@ -259,6 +259,9 @@ namespace rsx::vr
 		// the game's camera (ICO's flames and glows: GS-style sprites, NDC with w = 1).
 		// They get the latest camera draw's eye transform, B^-1 * B_eye, after the program.
 		std::vector<u64> screen_space_preprojected_programs;
+		// Of those, the ones whose scene draws also take it with depth test off (entry
+		// { "program": ..., "without_depth_test": true }): Dante's Inferno's torch glows.
+		std::vector<u64> screen_space_preprojected_untested;
 
 		// Vertex programs (ucode hashes) whose matrix-less draws are HUD even into a
 		// target that camera draws also wrote (Shadow of the Colossus draws its title,
