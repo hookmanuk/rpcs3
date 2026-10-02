@@ -321,6 +321,51 @@ namespace rsx::vr
 			for (const u16 id : s.ids) push(id);
 		}
 
+		// Indexed programs reach blocks they do not read directly. For each directly read 4-slot block, count the
+		// blocks after it whose projection (clip z = a * clip w + b, either layout) is the same: a palette of per-bone
+		// clip matrices picked by the index register (Kingdom Hearts skins rigidly with full MVPs at c[256 + 4k]).
+		if (indexed && !s.ids.empty())
+		{
+			const auto f = [&](u32 slot, u32 k) { return static_cast<f64>(std::bit_cast<f32>(bank[slot][k])); };
+			// (a, b) of the block at base in one layout; false if it has no perspective w or z is not a * w + b.
+			const auto projection = [&](u32 base, bool columns, f64& a, f64& b) -> bool
+			{
+				f64 z[4], w[4];
+				for (u32 k = 0; k < 4; ++k)
+				{
+					z[k] = columns ? f(base + 2, k) : f(base + k, 2);
+					w[k] = columns ? f(base + 3, k) : f(base + k, 3);
+				}
+				const f64 ww = w[0] * w[0] + w[1] * w[1] + w[2] * w[2];
+				if (!(ww > 1e-12) || !std::isfinite(ww)) return false;
+				a = (z[0] * w[0] + z[1] * w[1] + z[2] * w[2]) / ww;
+				b = z[3] - a * w[3];
+				const f64 tolerance = 1e-3 * std::sqrt(ww);
+				return std::fabs(a) > 1e-6 && std::fabs(z[0] - a * w[0]) <= tolerance && std::fabs(z[1] - a * w[1]) <= tolerance &&
+					std::fabs(z[2] - a * w[2]) <= tolerance;
+			};
+			for (usz i = 0; i + 3 < s.ids.size(); ++i)
+			{
+				const u32 base = s.ids[i];
+				if (s.ids[i + 1] != base + 1 || s.ids[i + 2] != base + 2 || s.ids[i + 3] != base + 3) continue;
+				u32 best = 0;
+				for (const bool columns : { true, false })
+				{
+					f64 a0, b0;
+					if (!projection(base, columns, a0, b0)) continue;
+					u32 run = 0;
+					for (u32 next = base + 4; next + 3 < 468; next += 4, ++run)
+					{
+						f64 a, b;
+						if (!projection(next, columns, a, b) || std::fabs(a - a0) > 1e-3 * std::max(1.0, std::fabs(a0)) ||
+							std::fabs(b - b0) > 1e-3 * std::max(1.0, std::fabs(b0))) break;
+					}
+					best = std::max(best, run);
+				}
+				if (best >= 2) s.palettes.emplace_back(static_cast<u16>(base), static_cast<u16>(best));
+			}
+		}
+
 		std::lock_guard lock(m_mutex);
 		m_samples.push_back(std::move(s));
 	}
@@ -1044,6 +1089,28 @@ namespace rsx::vr
 			vr_gen_log.notice("Camera block w-row scale over %u draws: 10%% %.4g, 90%% %.4g%s.", ::size32(camera_w_scales), lo, hi,
 				eye_offset_per_w ? ": per-object matrices, eye_offset baseline_per_w (check eye_baseline in view units against a known size)" : "");
 		}
+		// A palette of per-bone clip matrices after the first camera block (indexed programs, counted while sampling):
+		// the renderer gives each such block the camera's eye transform. Kingdom Hearts: c[260..444]; without it only
+		// bone 0 moved and characters stayed head-locked with stretched limbs.
+		u32 palette_last = 0, palette_draws = 0;
+		if (!blocks.empty())
+		{
+			for (const auto& s : samples)
+			{
+				for (const auto& [base, run] : s.palettes)
+				{
+					if (base != blocks[0]) continue;
+					palette_draws++;
+					palette_last = std::max<u32>(palette_last, base + 4u * run);
+				}
+			}
+			if (palette_draws < 10) palette_last = 0;
+			if (palette_last)
+			{
+				vr_gen_log.notice("%u indexed draws pick per-bone clip matrices after c[%u] (same projection up to c[%u]): camera_palette.",
+					palette_draws, blocks[0], palette_last);
+			}
+		}
 		std::map<u64, std::pair<u32, u32>> flat_hud; // program ucode -> (draws, draws into a camera target)
 		std::set<u32> frame_camera_targets;
 		u32 flat_hud_draws = 0;
@@ -1156,6 +1223,7 @@ namespace rsx::vr
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
 		json += fmt::format("  \"camera_blocks\": [%s],\n", blocks_text);
+		if (palette_last) json += fmt::format("  \"camera_palette\": [%u, %u],\n", blocks[0] + 4, palette_last);
 		if (!row_blocks.empty())
 		{
 			std::string rows_text;

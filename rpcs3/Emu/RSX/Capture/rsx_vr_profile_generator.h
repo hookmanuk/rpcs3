@@ -58,6 +58,9 @@ namespace rsx::vr
 			u64 ucode = 0;           // vertex program ucode hash
 			std::vector<u16> ids;
 			std::vector<std::array<f32, 4>> values;
+			// Indexed programs: per directly read 4-slot block, the run of blocks after it in the bank with the same
+			// projection (clip z = a * w + b): a palette of per-bone clip matrices (Kingdom Hearts: c[256 + 4k]).
+			std::vector<std::pair<u16, u16>> palettes;
 		};
 
 		void finish();
