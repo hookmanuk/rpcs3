@@ -4,8 +4,6 @@
 
 #include <QString>
 
-LOG_CHANNEL(input_log, "Input");
-
 // VR fork dev hook: RPCS3_VR_KEYS=<file>. When the file appears it is consumed and
 // its lines are queued, one after another:
 //   <keys> <hold_ms> [gap_ms]   press keys (Qt names as in the pad config, "W+X" =

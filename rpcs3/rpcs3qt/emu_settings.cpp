@@ -1516,22 +1516,6 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case vsync_mode::adaptive: return tr("Adaptive", "VSync Mode");
 		case vsync_mode::full: return tr("Full", "VSync Mode");
 		}
-	default:
-		break;
-	}
-
-	if (strict)
-	{
-		std::string type_string;
-		if (const auto it = settings_location.find(type); it != settings_location.cend())
-		{
-			for (const std::string& loc : it->second)
-			{
-				if (!type_string.empty()) type_string += ": ";
-				type_string += loc;
-			}
-		}
-		fmt::throw_exception("Missing translation for emu setting (original=%s, type='%s'=%d, index=%d)", original, type_string.empty() ? "?" : type_string, static_cast<int>(type), index);
 	// VR fork
 	case emu_settings_type::VRFrameRate:
 		switch (static_cast<vr_frame_rate>(index))
@@ -1549,6 +1533,22 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case vr_frame_rate::unlimited: return tr("Unlimited (headset refresh rate)", "VR frame rate");
 		}
 		break;
+	default:
+		break;
+	}
+
+	if (strict)
+	{
+		std::string type_string;
+		if (const auto it = settings_location.find(type); it != settings_location.cend())
+		{
+			for (const std::string& loc : it->second)
+			{
+				if (!type_string.empty()) type_string += ": ";
+				type_string += loc;
+			}
+		}
+		fmt::throw_exception("Missing translation for emu setting (original=%s, type='%s'=%d, index=%d)", original, type_string.empty() ? "?" : type_string, static_cast<int>(type), index);
 	}
 
 	return original;
