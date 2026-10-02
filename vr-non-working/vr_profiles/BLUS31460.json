@@ -3,9 +3,10 @@
   "title_id": "BLUS31460",
   "app_version": "01.00",
   "name": "Kingdom Hearts HD 2.5 ReMIX (game selector)",
-  "max_fps": 30,
-  "default_fps": 30,
-  "vblanks_per_frame": 2,
+  "max_fps": 0,
+  "default_fps": 0,
+  "game_vblank_frames_f32": ["0x887ca4"],
+  "video_vblank_rate": 60,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [256, 56],

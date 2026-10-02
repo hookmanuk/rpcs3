@@ -6,8 +6,22 @@ PPU-f18bcdcc6d74a25383d72074e1646352ab53e9d2: # kingdom2.self (Kingdom Hearts II
       "Kingdom Hearts HD 2.5 ReMIX":
         BLUS31460: [ 01.00 ]
     Author: "illusion, BlaGe (community 60 FPS patch); VR fork"
-    Notes: "The community 60 FPS patch (li r3, 0): the game presents every vblank instead of every second one. Community notes: doubles gravity, some things move at double speed. VR fork 2026-10-02: Roxas ran several times as far at 60 as at 30 for the same press: not real-time, so off by default (the VR profile keeps max_fps 30)."
-    Patch Version: 1.0
-    Enabled By Default: false
+    Notes: "The game presents every vblank (community 60 FPS patch: li r3, 0) and its frame step stays real time at any vblank rate. The step (0x887c94) is the vblanks since the last frame (or a fixed 2.0 in its fixed-step mode), i.e. each vblank counts as 1/60 s, so above 60 Hz everything ran fast. The patch multiplies both by a free word (0x887ca4) that the VR profile sets every frame to 60 / vblank rate (game_vblank_frames_f32). Without the profile the word stays 1.0: the community patch's behaviour. Community notes on the 60 FPS patch: doubles gravity, some things move at double speed."
+    Patch Version: 2.0
+    Enabled By Default: true
     Patch:
-      - [ be32, 0x00076850, 0x38600000 ] # li r3, 0x0
+      - [ be32, 0x00887ca4, 0x3f800000 ] # 60 Hz frames per vblank, 1.0 (the VR profile writes 60 / vblank rate)
+      # Fixed-step mode (flag 0x66a3c8 = 0): step = 2 x that word instead of 2.0
+      - [ be32, 0x000767e4, 0x3c800088 ] # lis r4, 0x88
+      - [ be32, 0x000767e8, 0xc0247ca4 ] # lfs f1, 0x7ca4(r4)
+      - [ be32, 0x000767ec, 0xec21082a ] # fadds f1, f1, f1
+      - [ be32, 0x000767f4, 0x80a47c8c ] # lwz r5, 0x7c8c(r4)
+      - [ be32, 0x000767fc, 0xd0247c94 ] # stfs f1, 0x7c94(r4)
+      # Variable mode: step = vblanks x that word; no wait for a second vblank
+      - [ be32, 0x0007684c, 0xc0447ca4 ] # lfs f2, 0x7ca4(r4)
+      - [ be32, 0x00076850, 0x38600000 ] # li r3, 0 (community 60 FPS patch)
+      - [ be32, 0x00076858, 0xfc200e9c ] # fcfid f1, f1
+      - [ be32, 0x0007685c, 0xfc200818 ] # frsp f1, f1
+      - [ be32, 0x00076860, 0xec2100b2 ] # fmuls f1, f1, f2
+      - [ be32, 0x00076864, 0x60000000 ] # nop
+      - [ be32, 0x0007686c, 0x48000050 ] # b 0x768bc

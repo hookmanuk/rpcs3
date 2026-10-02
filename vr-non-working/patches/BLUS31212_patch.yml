@@ -6,8 +6,10 @@ PPU-d626d9832ed48d1ff0d8d97e53a4e23df50cfae6: # kingdom.self (Kingdom Hearts Fin
       "Kingdom Hearts HD 1.5 ReMIX":
         BLUS31212: [ 01.00 ]
     Author: "Esppiral, Michael Pama, illusion (community 60 FPS patch); VR fork"
-    Notes: "The community 60 FPS patch (li r3, 0): the game presents every vblank instead of every second one. Community notes: may double cutscene audio/video, some Trinity cutscenes may loop white."
-    Patch Version: 1.0
+    Notes: "The game presents every vblank (community 60 FPS patch: li r3, 0) and its frame step stays real time at any vblank rate. The step (0x20d100c, read by most of the game) is the vblanks since the last frame times a factor that the game fixes at 1.0, i.e. each vblank counts as 1/60 s, so at 90 or 120 Hz everything ran 1.5x or 2x fast. The patch reads the factor from a free word (0x20d102c) that the VR profile sets every frame to 60 / vblank rate (game_vblank_frames_f32). Without the profile the word stays 1.0: the community patch's behaviour. Community notes on the 60 FPS patch: may double cutscene audio/video, some Trinity cutscenes may loop white."
+    Patch Version: 2.0
     Enabled By Default: true
     Patch:
-      - [ be32, 0x00036870, 0x38600000 ] # li r3, 0x0
+      - [ be32, 0x020d102c, 0x3f800000 ] # 60 Hz frames per vblank, 1.0 (the VR profile writes 60 / vblank rate)
+      - [ be32, 0x0003686c, 0xc043102c ] # lfs f2, 0x102c(r3): step = vblanks x that word (was the fixed 1.0 at 0x20d1004)
+      - [ be32, 0x00036870, 0x38600000 ] # li r3, 0: no wait for a second vblank (community 60 FPS patch)

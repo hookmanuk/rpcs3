@@ -3,8 +3,10 @@
   "title_id": "BLUS31212",
   "app_version": "01.00",
   "name": "Kingdom Hearts Final Mix (Kingdom Hearts HD 1.5 ReMIX)",
-  "max_fps": 60,
-  "default_fps": 60,
+  "max_fps": 0,
+  "default_fps": 0,
+  "game_vblank_frames_f32": ["0x20d102c"],
+  "video_vblank_rate": 60,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [256],
