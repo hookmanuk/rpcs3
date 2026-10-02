@@ -11,3 +11,13 @@ PPU-46bf3c2b3292d77f10d82e3a8729625ab0d3d6c2:
     Enabled By Default: true
     Patch:
       - [ be32, 0x00452f1c, 0xec3ff82a ] # fadds f1, f31, f31 (was fmr f1, f31)
+  "Disable camera shake (VR)":
+    Games:
+      "Dante's Inferno":
+        BLUS30405: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Test patch: the camera modifier whose apply function (0x663d8) adds random-table noise to the camera returns at once. Believed to be the hit shake; not yet confirmed (it may be the idle hand-held sway). Applies on a disc boot, not when loading a savestate."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x000663d8, 0x4e800020 ] # blr (was stdu r1, -0x190(r1))
