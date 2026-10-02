@@ -25,4 +25,4 @@ namespace vk
 	// bit 0x200 drops the stencil test, for draws that write colour (development toggles).
 	rsx::comparison_function vr_dev_depth_func(rsx::comparison_function func, bool writes_color);
 	bool vr_dev_skip_stencil_test(bool writes_color);
-}
+} // namespace vk

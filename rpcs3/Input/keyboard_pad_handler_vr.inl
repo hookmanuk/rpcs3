@@ -1,6 +1,6 @@
-// VR fork: members of keyboard_pad_handler for the scripted key presses (RPCS3_VR_KEYS).
-// Textually included in the private section of keyboard_pad_handler.h; the body is in
-// keyboard_pad_handler_vr.cpp.
+	// VR fork: members of keyboard_pad_handler for the scripted key presses (RPCS3_VR_KEYS).
+	// Textually included in the private section of keyboard_pad_handler.h; the body is in
+	// keyboard_pad_handler_vr.cpp.
 
 	// VR fork dev hook: scripted key presses from RPCS3_VR_KEYS=<file> (see process_key_script).
 	struct scripted_key_event

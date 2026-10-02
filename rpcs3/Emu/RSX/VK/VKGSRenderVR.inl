@@ -1,7 +1,6 @@
-// VR fork: every VR member of VKGSRender. Textually included inside the class body of
-// VKGSRender.h (private section), so that upstream's header changes by two lines.
-// Definitions: VKGSRenderVR.cpp (rendering) and VKGSRenderVRDev.cpp (development tools).
-
+	// VR fork: every VR member of VKGSRender. Textually included inside the class body of
+	// VKGSRender.h (private section), so that upstream's header changes by two lines.
+	// Definitions: VKGSRenderVR.cpp (rendering) and VKGSRenderVRDev.cpp (development tools).
 
 	vk::surface_cache m_vr_right_rtts;
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
@@ -18,17 +17,17 @@
 	//   blits copy it, and the flip declares the displayed buffer's stamp. ICO draws
 	//   each frame's scene into one of two buffers but composites the other (the
 	//   previous frame's), then flips a frame later.
-	u32 m_vr_applied_pose = 0;       // pose the camera draws are rotated by now
-	s32 m_vr_display_target = -1;    // display buffer bound as the colour target, or -1
-	u32 vr_sampled_pose();           // newest pose stamp among the render targets the current draw samples
+	u32 m_vr_applied_pose = 0;    // pose the camera draws are rotated by now
+	s32 m_vr_display_target = -1; // display buffer bound as the colour target, or -1
+	u32 vr_sampled_pose();        // newest pose stamp among the render targets the current draw samples
 	void vr_stamp_targets(u32 pose, bool camera);
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
 	// pose (ICO blends last frame's scene and glow into each new frame) sample it
 	// shifted by the head rotation in between, so the blended copy lines up instead
 	// of trailing the head.
-	bool m_vr_params_shifted = false;  // the last uploaded texture parameters carry such a shift
-	u16 m_vr_params_extra_mask = 0;    // TIU slots holding homographies for this upload
+	bool m_vr_params_shifted = false; // the last uploaded texture parameters carry such a shift
+	u16 m_vr_params_extra_mask = 0;   // TIU slots holding homographies for this upload
 	bool vr_is_feedback_texture(const vk::render_target* rtt) const;
 	// A pass that blends onto a full-screen target still holding an older pose's image
 	// (ICO's glow accumulates across frames) first moves that image by the head
@@ -40,7 +39,12 @@
 	bool vr_is_passthrough_hud();
 	// Kinds of texture the fragment program samples: ordinary (uploaded) textures, colour render targets,
 	// and among those a view-shaped one (the scene, the output, a display buffer: not a small mask or atlas).
-	enum : u32 { vr_texture_ordinary = 1, vr_texture_colour_target = 2, vr_texture_view_target = 4 };
+	enum : u32
+	{
+		vr_texture_ordinary = 1,
+		vr_texture_colour_target = 2,
+		vr_texture_view_target = 4
+	};
 	u32 vr_sampled_textures();
 	bool vr_unboxed_draw();
 	f32 vr_hud_draw_scale();
@@ -55,7 +59,7 @@
 	void vr_redirect_previous_frame_copy(rsx::blit_src_info& src); // profile current_frame_copies
 	bool m_vr_frame_boundaries = false;
 	u32 m_vr_flips_since_boundary = 0;
-	void vr_update_view();           // locate the head and rotate the next frame's camera draws by it
+	void vr_update_view(); // locate the head and rotate the next frame's camera draws by it
 	// Camera draws since the last view update, and view updates in a row without any:
 	// frames with no 3D at all (splash screens, videos, menus) are shown as the fixed screen.
 	u32 m_vr_camera_draws = 0;
@@ -68,10 +72,13 @@
 	u32 m_vr_trace_cam_pose = 0;
 	u32 m_vr_trace_cam_count = 0;
 	u32 m_vr_trace_other_count = 0; // non-camera draws into the latest camera target
-	bool vr_tracing() const { return (m_vr_trace_flips % 150) < 6; }
+	bool vr_tracing() const
+	{
+		return (m_vr_trace_flips % 150) < 6;
+	}
 	void vr_trace_copy_reads(bool camera); // textures read from copies of render-target memory
 	void vr_trace_flush_cam();
-	void vr_track_frame_boundary();  // prepare_rtts: detect the move away from a display buffer
+	void vr_track_frame_boundary(); // prepare_rtts: detect the move away from a display buffer
 
 	// Dev (RPCS3_VR_GPUPROF=1): GPU time per render target. A timestamp at each render
 	// target change and flip; every 120 frames the log lists the targets by GPU ms/frame.
@@ -91,29 +98,29 @@
 	u32 m_gpuprof_slot = 0;
 	u32 m_gpuprof_frames = 0;
 	f64 m_gpuprof_total_ms = 0.;
-	u32 m_gpuprof_target = 0;      // RPCS3_VR_GPUPROF_TARGET=<hex address>: also time each draw into it
-	u32 m_gpuprof_draw = 0;        // draws since the flip
+	u32 m_gpuprof_target = 0; // RPCS3_VR_GPUPROF_TARGET=<hex address>: also time each draw into it
+	u32 m_gpuprof_draw = 0;   // draws since the flip
 	u64 m_gpuprof_draw_sum = 0;
-	u64 m_gpuprof_batches = 0;       // right-eye batches executed
-	u64 m_gpuprof_right_copies = 0;  // right-eye texture copies rebuilt from right-eye surfaces
+	u64 m_gpuprof_batches = 0;                             // right-eye batches executed
+	u64 m_gpuprof_right_copies = 0;                        // right-eye texture copies rebuilt from right-eye surfaces
 	std::map<std::string, u32> m_gpuprof_right_copy_kinds; // what those copies were (op, size, first source)
-	s64 m_gpuprof_rsx_us[5]{};     // RSX thread: setup, vertex upload, texture upload, draw exec, flip
-	f64 m_gpuprof_right_ms = 0.;   // RSX thread wall time in the right-eye replay of draws
-	f64 m_gpuprof_left_vr_ms = 0.; // and in the left eye's VR work (eye constants, classification, HUD env)
-	f64 m_gpuprof_cpu_ms = 0.;     // RSX thread CPU time (Windows: kernel + user)
-	f64 m_gpuprof_eye_ms[3]{};     // bind_vr_eye_constants: fill + scale, apply_render_eye, upload + bind
+	s64 m_gpuprof_rsx_us[5]{};                             // RSX thread: setup, vertex upload, texture upload, draw exec, flip
+	f64 m_gpuprof_right_ms = 0.;                           // RSX thread wall time in the right-eye replay of draws
+	f64 m_gpuprof_left_vr_ms = 0.;                         // and in the left eye's VR work (eye constants, classification, HUD env)
+	f64 m_gpuprof_cpu_ms = 0.;                             // RSX thread CPU time (Windows: kernel + user)
+	f64 m_gpuprof_eye_ms[3]{};                             // bind_vr_eye_constants: fill + scale, apply_render_eye, upload + bind
 	u64 m_gpuprof_cpu_last = 0;
 	std::chrono::steady_clock::time_point m_gpuprof_last_flip{};
 	f64 m_gpuprof_wall_ms = 0.;
-	f64 m_gpuprof_flip_ms = 0.;    // RSX thread inside flip()
-	f64 m_gpuprof_ctxwait_ms = 0.; // ... of which waiting for an older frame's GPU work (frame_context_cleanup)
+	f64 m_gpuprof_flip_ms = 0.;             // RSX thread inside flip()
+	f64 m_gpuprof_ctxwait_ms = 0.;          // ... of which waiting for an older frame's GPU work (frame_context_cleanup)
 	atomic_t<u64> m_gpuprof_readback_ns{0}; // guest threads blocked in GPU readbacks (on_access_violation)
 	atomic_t<u32> m_gpuprof_readbacks{0};
 	atomic_t<u32> m_gpuprof_readback_addr{0};
-	f64 m_gpuprof_sync_ms = 0.;   // RSX thread blocked in hard syncs (flush_command_queue(true))
+	f64 m_gpuprof_sync_ms = 0.; // RSX thread blocked in hard syncs (flush_command_queue(true))
 	u32 m_gpuprof_syncs = 0;
 	std::unordered_map<u64, std::pair<f64, u32>> m_gpuprof_sum; // key -> (ms, segments)
-	std::unordered_map<u64, u64> m_gpuprof_draws;                // key -> draws
+	std::unordered_map<u64, u64> m_gpuprof_draws;               // key -> draws
 	std::unordered_map<u64, gpuprof_mark_t> m_gpuprof_keys;
 	bool gpuprof_enabled();
 	void gpuprof_mark(const gpuprof_mark_t& mark);
@@ -130,7 +137,7 @@
 		u32 address = 0;
 		u32 pitch = 0;
 		u8 bpp = 4;
-		u16 width = 0;  // guest pixels (pitch / bpp)
+		u16 width = 0; // guest pixels (pitch / bpp)
 		u16 height = 0;
 		std::unique_ptr<vk::image> image;
 	};
@@ -190,18 +197,18 @@
 	void vr_batch_execute(); // left pass closed: one right-eye pass executing the batch
 	// RPCS3_VR_RTDUMP: write both eyes' surfaces at these addresses (development).
 	void vr_rtdump(const std::vector<u32>& addresses, const std::string& tag);
-	u64 m_vr_rtdump_program = 0;            // "prog=<hash>[#n]" in the request: dump before this program's next draw
-	u32 m_vr_rtdump_skip = 0;               // (#n: the n-th draw of it from the next frame on, counting from 1)
-	bool m_vr_rtdump_armed = false;         // the next frame has started
+	u64 m_vr_rtdump_program = 0;    // "prog=<hash>[#n]" in the request: dump before this program's next draw
+	u32 m_vr_rtdump_skip = 0;       // (#n: the n-th draw of it from the next frame on, counting from 1)
+	bool m_vr_rtdump_armed = false; // the next frame has started
 	std::vector<u32> m_vr_rtdump_addresses;
 	void vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate);
-	usz m_xform_constants_data_size = 0;               // Exact current upload size; Gate 5 clones this host allocation per eye.
+	usz m_xform_constants_data_size = 0; // Exact current upload size; Gate 5 clones this host allocation per eye.
 	// VR: sections the game or the RSX read back (see flush_listed_sections), copied early in stereo.
 	shared_mutex m_vr_readback_mutex;
 	std::vector<utils::address_range32> m_vr_readback_ranges;
 	// VR: colour targets fully covered this frame (a pass or a full clear); see vr_clear_shown in emit_geometry.
 	std::vector<u32> m_vr_frame_covered;
-	std::unique_ptr<vk::image> m_xr_overlay_img; // RPCS3 overlays for the OpenXR quad layer
+	std::unique_ptr<vk::image> m_xr_overlay_img;                                    // RPCS3 overlays for the OpenXR quad layer
 	std::unordered_map<u64, std::unique_ptr<vk::viewable_image>> m_vr_warp_scratch; // realign warp targets, by format and size
 	bool bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size);
 	// HUD-box draws: the game's scissor mapped into the box for this eye (restore m_scissor after).
@@ -217,7 +224,7 @@
 	const void* m_fc_overrides_profile = nullptr;
 	std::vector<const rsx::vr::fragment_constant_override*> m_fc_overrides;
 	bool m_fragment_constants_overridden = false;
-	u64 m_vr_last_emu_flip_us = 0; // last game flip (not an overlay/UI refresh)
+	u64 m_vr_last_emu_flip_us = 0;     // last game flip (not an overlay/UI refresh)
 	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
 
 	// ---- Hooks called from upstream functions (see VKGSRenderVR.cpp) -------------------------
@@ -249,12 +256,12 @@
 	vr_draw_state m_vr_draw;
 
 	// emit_geometry()
-	void vr_begin_draw();                                                               // classification, batching decision, query split, guest constants
-	void vr_setup_draw();                                                               // probe draw flags, eye constants, pose stamping, HUD env, clear-shown
+	void vr_begin_draw(); // classification, batching decision, query split, guest constants
+	void vr_setup_draw(); // probe draw flags, eye constants, pose stamping, HUD env, clear-shown
 	void vr_after_pipeline_bind(u32 sub_index, const vk::vertex_upload_info& upload_info);
-	void vr_capture_draw(u32 sub_index, const vk::vertex_upload_info& upload_info);     // stereo inspector, profile generator
+	void vr_capture_draw(u32 sub_index, const vk::vertex_upload_info& upload_info); // stereo inspector, profile generator
 	void vr_before_left_draw();
-	bool vr_begin_right_eye(u32 sub_index, const vk::vertex_upload_info& upload_info);  // true: emit the draw again for the right eye
+	bool vr_begin_right_eye(u32 sub_index, const vk::vertex_upload_info& upload_info); // true: emit the draw again for the right eye
 	void vr_end_right_eye();
 	void vr_end_draw();
 	void vr_restore_left_eye();
@@ -274,9 +281,9 @@
 	void vr_restore_texture(u32 index, const vr_texture_redirect& redirect);
 
 	// end()
-	void vr_on_draw_begin();          // GPU profiler draw marks
-	bool vr_skip_draw();              // profile hidden_draws, probe hide=, RPCS3_VR_RTDUMP prog= (does the nop draw itself)
-	void vr_before_draw_setup();      // realign blend targets, stereo inspector draw ordinal
+	void vr_on_draw_begin();     // GPU profiler draw marks
+	bool vr_skip_draw();         // profile hidden_draws, probe hide=, RPCS3_VR_RTDUMP prog= (does the nop draw itself)
+	void vr_before_draw_setup(); // realign blend targets, stereo inspector draw ordinal
 
 	// VKGSRender(), ~VKGSRender()
 	void vr_init_before_instance();
@@ -310,8 +317,8 @@
 	void fill_vertex_env_tail(char* buf, f32 vr_keep_depth);
 
 	// prepare_rtts()
-	bool vr_before_prepare_rtts();                                   // early readback copies; true if any was recorded
-	void vr_prepare_right_rtts();                                    // frame boundary, GPU profiler mark, right-eye target set
+	bool vr_before_prepare_rtts(); // early readback copies; true if any was recorded
+	void vr_prepare_right_rtts();  // frame boundary, GPU profiler mark, right-eye target set
 	bool vr_copy_readback_sections(const rsx::gcm_framebuffer_info& info);
 	void vr_submit_early_copies(bool any);
 
@@ -321,20 +328,20 @@
 
 	// frame_context_cleanup(), flip()
 	void vr_remove_overlay_temp_resources(u32 uid);
-	void vr_flip_begin(const rsx::display_flip_info_t& info);        // pending batch, RPCS3_VR_RTDUMP, GPU profiler
+	void vr_flip_begin(const rsx::display_flip_info_t& info); // pending batch, RPCS3_VR_RTDUMP, GPU profiler
 	bool vr_present_right_eye(const vk::present_surface_info& present_info, const rsx::avconf& avconfig, u32 buffer_width, u32 buffer_height, vk::viewable_image*& image_to_flip2);
 	void vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2);
 	bool vr_capturable(vk::viewable_image* image_to_flip, u32 buffer_width, u32 buffer_height);
 	bool vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2, u32 buffer_width, u32 buffer_height);
 	void vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>& calibration_src, u32 buffer_width, u32 buffer_height);
-	u32 m_vr_eye_width = 0;  // resolution-scaled eye size of the last present source
+	u32 m_vr_eye_width = 0; // resolution-scaled eye size of the last present source
 	u32 m_vr_eye_height = 0;
 
 	// Dev GPU profiler: wall time of a scope added to one of the m_gpuprof_*_ms accumulators.
 	struct gpuprof_timer
 	{
 		VKGSRender* r;
-		f64 VKGSRender::* acc;
+		f64 VKGSRender::*acc;
 		std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 		~gpuprof_timer()
 		{

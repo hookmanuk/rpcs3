@@ -48,5 +48,5 @@ namespace rsx::vr
 			~syscall_profile_scope();
 			syscall_profile_scope(const syscall_profile_scope&) = delete;
 		};
-	}
-}
+	} // namespace dev
+} // namespace rsx::vr

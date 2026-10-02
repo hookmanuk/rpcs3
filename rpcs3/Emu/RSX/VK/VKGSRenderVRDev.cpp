@@ -74,7 +74,7 @@ bool VKGSRender::gpuprof_enabled()
 		m_gpuprof_enabled = env && env[0] == '1';
 		if (m_gpuprof_enabled)
 		{
-			VkQueryPoolCreateInfo info{ VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+			VkQueryPoolCreateInfo info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
 			info.queryType = VK_QUERY_TYPE_TIMESTAMP;
 			info.queryCount = 3 * 1024;
 			if (vkCreateQueryPool(*m_device, &info, nullptr, &m_gpuprof_pool) != VK_SUCCESS)
@@ -130,13 +130,13 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 	{
 		std::vector<u64> ts(marks.size() + 1);
 		if (vkGetQueryPoolResults(*m_device, m_gpuprof_pool, m_gpuprof_slot * 1024, ::size32(ts), ts.size() * sizeof(u64), ts.data(), sizeof(u64),
-			VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS)
+				VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS)
 		{
 			const f64 period_ms = m_device->gpu().get_limits().timestampPeriod / 1e6;
 			for (usz i = 0; i < marks.size(); ++i)
 			{
 				const auto& m = marks[i];
-				const u64 key = (u64{ m.addr } << 32) ^ (u64{ m.width } << 20) ^ (u64{ m.height } << 8) ^ m.format;
+				const u64 key = (u64{m.addr} << 32) ^ (u64{m.width} << 20) ^ (u64{m.height} << 8) ^ m.format;
 				auto& sum = m_gpuprof_sum[key];
 				sum.first += (ts[i + 1] - ts[i]) * period_ms;
 				sum.second++;
@@ -165,7 +165,10 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 				m_gpuprof_right_copy_kinds.clear();
 				m_gpuprof_batches = 0;
 				m_gpuprof_draw_sum = 0;
-				const auto rsx_ms = [&](int i) { return m_gpuprof_rsx_us[i] / 1000. / 120; };
+				const auto rsx_ms = [&](int i)
+				{
+					return m_gpuprof_rsx_us[i] / 1000. / 120;
+				};
 				text += fmt::format("; RSX thread ms/frame: setup %.2f, vertex %.2f, textures %.2f, draw %.2f, flip %.2f = %.2f of %.2f between flips",
 					rsx_ms(0), rsx_ms(1), rsx_ms(2), rsx_ms(3), rsx_ms(4), rsx_ms(0) + rsx_ms(1) + rsx_ms(2) + rsx_ms(3) + rsx_ms(4), m_gpuprof_wall_ms / 120);
 				text += fmt::format("; VR on the RSX thread: left-eye constants %.2f, right-eye replay %.2f ms/frame (eye constants, both eyes: fill %.2f, apply %.2f, upload %.2f); RSX thread CPU %.2f ms/frame",
@@ -185,8 +188,7 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 					const auto& m = m_gpuprof_keys[order[i].second];
 					const auto& sum = m_gpuprof_sum[order[i].second];
 					const f64 draws = m_gpuprof_draws[order[i].second] / 120.;
-					text += m.format == umax ? fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  flip/present", sum.first / 120, sum.second / 120., draws)
-						: fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  %08x %ux%u fmt 0x%x", sum.first / 120, sum.second / 120., draws, m.addr, m.width, m.height, m.format);
+					text += m.format == umax ? fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  flip/present", sum.first / 120, sum.second / 120., draws) : fmt::format("\n  %7.3f ms  x%5.1f  d%6.1f  %08x %ux%u fmt 0x%x", sum.first / 120, sum.second / 120., draws, m.addr, m.width, m.height, m.format);
 				}
 				rsx_log.notice("%s", text);
 				m_gpuprof_sum.clear();
@@ -210,7 +212,8 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 		if (GetThreadTimes(GetCurrentThread(), &ctime, &etime, &ktime, &utime))
 		{
 			const u64 t = ((ktime.dwLowDateTime | static_cast<u64>(ktime.dwHighDateTime) << 32) + (utime.dwLowDateTime | static_cast<u64>(utime.dwHighDateTime) << 32));
-			if (m_gpuprof_cpu_last) m_gpuprof_cpu_ms += (t - m_gpuprof_cpu_last) / 10000.;
+			if (m_gpuprof_cpu_last)
+				m_gpuprof_cpu_ms += (t - m_gpuprof_cpu_last) / 10000.;
 			m_gpuprof_cpu_last = t;
 		}
 	}
@@ -225,7 +228,7 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 	m_gpuprof_ended[m_gpuprof_slot] = false;
 	vkCmdResetQueryPool(*m_current_command_buffer, m_gpuprof_pool, m_gpuprof_slot * 1024, 1024);
 	vkCmdWriteTimestamp(*m_current_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, m_gpuprof_pool, m_gpuprof_slot * 1024);
-	marks.push_back({ 0, 0, 0, umax });
+	marks.push_back({0, 0, 0, umax});
 }
 
 void VKGSRender::vr_trace_flush_cam()
@@ -244,7 +247,11 @@ void VKGSRender::vr_trace_flush_cam()
 
 void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string& tag)
 {
-	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
+	static const std::string s_rtdump = []() -> std::string
+	{
+		const char* v = std::getenv("RPCS3_VR_RTDUMP");
+		return v ? v : "";
+	}();
 	static u32 s_dump_index = 0;
 	vr_batch_flush();
 	std::string suffix;
@@ -259,14 +266,15 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 			return;
 		}
 		const u32 w = rt->width(), h = rt->height();
-		const usz size = usz{ w } * h * texel;
+		const usz size = usz{w} * h * texel;
 		vk::buffer buffer(*m_device, utils::align(size, 0x100000), m_device->get_memory_mapping().host_visible_coherent,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
 		VkBufferImageCopy region{};
 		region.bufferRowLength = w;
-		region.imageSubresource = { static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 0, 1 };
-		region.imageExtent = { w, h, 1 };
-		if (vk::is_renderpass_open(*m_current_command_buffer)) vk::end_renderpass(*m_current_command_buffer);
+		region.imageSubresource = {static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 0, 1};
+		region.imageExtent = {w, h, 1};
+		if (vk::is_renderpass_open(*m_current_command_buffer))
+			vk::end_renderpass(*m_current_command_buffer);
 		rt->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read); // resolves an MSAA surface
 		auto* image = rt->get_surface(rsx::surface_access::transfer_read);
 		image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -305,7 +313,7 @@ void VKGSRender::vr_on_draw_begin()
 	if (m_gpuprof_target && m_gpuprof_enabled > 0 && m_framebuffer_layout.color_addresses[0] == m_gpuprof_target)
 	{
 		// Per-draw segment: "fmt" 0x10000 + the draw's index in the frame.
-		gpuprof_mark({ m_gpuprof_target, m_framebuffer_layout.width, m_framebuffer_layout.height, 0x10000u + m_gpuprof_draw });
+		gpuprof_mark({m_gpuprof_target, m_framebuffer_layout.width, m_framebuffer_layout.height, 0x10000u + m_gpuprof_draw});
 	}
 }
 
@@ -320,7 +328,11 @@ void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 	// before the swapchain checks, so it works with a locked desktop, where the flip skips present and
 	// screenshots. The file may list other surface addresses (hex, one per line) to dump instead, as
 	// <file>.<n>.<address>.left / .right.
-	static const std::string s_rtdump = []() -> std::string { const char* v = std::getenv("RPCS3_VR_RTDUMP"); return v ? v : ""; }();
+	static const std::string s_rtdump = []() -> std::string
+	{
+		const char* v = std::getenv("RPCS3_VR_RTDUMP");
+		return v ? v : "";
+	}();
 	// A prog=<hash>#n request counts that program's draws from the start of a frame.
 	if (m_vr_rtdump_program && !m_vr_rtdump_armed)
 	{
@@ -329,7 +341,8 @@ void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 	if (!s_rtdump.empty() && info.buffer < display_buffers_count && fs::is_file(s_rtdump))
 	{
 		std::string request;
-		if (fs::file f{s_rtdump}) request = f.to_string();
+		if (fs::file f{s_rtdump})
+			request = f.to_string();
 		fs::remove_file(s_rtdump);
 		std::vector<u32> addresses;
 		u64 program = 0;
@@ -343,7 +356,8 @@ void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 				m_vr_rtdump_skip = hash != umax ? std::max(1u, static_cast<u32>(std::strtoul(line.c_str() + hash + 1, nullptr, 10))) - 1 : 0;
 				m_vr_rtdump_armed = hash == umax;
 			}
-			else if (const u32 a = static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16))) addresses.push_back(a);
+			else if (const u32 a = static_cast<u32>(std::strtoul(line.c_str(), nullptr, 16)))
+				addresses.push_back(a);
 		}
 		if (program)
 		{
@@ -352,7 +366,8 @@ void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 		}
 		else
 		{
-			if (addresses.empty()) addresses.push_back(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
+			if (addresses.empty())
+				addresses.push_back(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
 			vr_rtdump(addresses, "flip");
 		}
 	}

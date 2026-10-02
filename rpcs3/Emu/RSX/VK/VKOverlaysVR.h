@@ -31,4 +31,4 @@ namespace vk
 
 		void run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9]);
 	};
-}
+} // namespace vk

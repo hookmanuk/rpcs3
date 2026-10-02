@@ -30,7 +30,10 @@ namespace rsx::vr
 		void request();
 
 		// Hot-path gate for record_draw().
-		bool sampling() const { return m_sample_this_frame.load(); }
+		bool sampling() const
+		{
+			return m_sample_this_frame.load();
+		}
 
 		// One draw's vertex constants, by original guest index. constant_ids empty
 		// means the program reads the whole bank (indexed constants). textures: what the
@@ -53,21 +56,27 @@ namespace rsx::vr
 			bool full_bank = false;
 			bool indexed = false;
 			bool depth_test = false;
-			u8 textures = 0;         // bit 0 ordinary textures, bit 1 colour render targets, bit 2 a view-shaped one
-			u32 target = 0;          // colour address 0
-			u64 ucode = 0;           // vertex program ucode hash
+			u8 textures = 0; // bit 0 ordinary textures, bit 1 colour render targets, bit 2 a view-shaped one
+			u32 target = 0;  // colour address 0
+			u64 ucode = 0;   // vertex program ucode hash
 			std::vector<u16> ids;
 			std::vector<std::array<f32, 4>> values;
 		};
 
 		void finish();
 
-		enum class state : u32 { idle, waiting, sampling, analysing };
-		atomic_t<state> m_state{ state::idle };
-		atomic_t<bool> m_sample_this_frame{ false };
+		enum class state : u32
+		{
+			idle,
+			waiting,
+			sampling,
+			analysing
+		};
+		atomic_t<state> m_state{state::idle};
+		atomic_t<bool> m_sample_this_frame{false};
 		u32 m_frame_counter = 0;
 		u32 m_frames_sampled = 0;
-		u32 m_flips = 0;         // game frames within the play time (frame rate)
+		u32 m_flips = 0; // game frames within the play time (frame rate)
 		u64 m_played_us = 0;
 		u64 m_next_sample_us = 0;
 		u64 m_last_frame_us = 0;
@@ -75,4 +84,4 @@ namespace rsx::vr
 		std::mutex m_mutex;
 		std::vector<draw_sample> m_samples;
 	};
-}
+} // namespace rsx::vr

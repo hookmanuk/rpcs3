@@ -57,7 +57,7 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 					continue;
 				}
 				QStringList rates;
-				for (const u32 hz : { 60u, 72u, 75u, 80u, 90u, 100u, 120u, 144u })
+				for (const u32 hz : {60u, 72u, 75u, 80u, 90u, 100u, 120u, 144u})
 				{
 					if (hz % game_rate.default_fps == 0)
 					{
@@ -65,10 +65,18 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 					}
 				}
 				const QString headset = rates.empty() ? QString() : tr(", headset %1 Hz", "VR frame rate").arg(rates.join("/"));
-				tooltip += game_rate.max_fps == game_rate.default_fps
-					? tr("\n%1: %2 FPS (maximum%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset)
-					: headset.isEmpty() ? tr("\n%1: %2 FPS", "VR frame rate").arg(name).arg(game_rate.default_fps)
-					: tr("\n%1: %2 FPS (%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset.mid(2));
+				if (game_rate.max_fps == game_rate.default_fps)
+				{
+					tooltip += tr("\n%1: %2 FPS (maximum%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset);
+				}
+				else if (headset.isEmpty())
+				{
+					tooltip += tr("\n%1: %2 FPS", "VR frame rate").arg(name).arg(game_rate.default_fps);
+				}
+				else
+				{
+					tooltip += tr("\n%1: %2 FPS (%3)", "VR frame rate").arg(name).arg(game_rate.default_fps).arg(headset.mid(2));
+				}
 			}
 		}
 		subscribe_tooltip(ui->gb_vrFrameRate, tooltip);
@@ -106,9 +114,12 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	}
 	{
 		// Percentage sliders with a value label and a reset button.
-		const auto percent_text = [](int value) { return tr("%1%", "VR HUD slider").arg(value); };
+		const auto percent_text = [](int value)
+		{
+			return tr("%1%", "VR HUD slider").arg(value);
+		};
 		const auto enhance_vr_slider = [&](QSlider* slider, QLabel* min, QLabel* max, QLabel* val, QAbstractButton* reset,
-			emu_settings_type type, QGroupBox* group, const QString& tooltip, std::function<QString(int)> format, int snap)
+										   emu_settings_type type, QGroupBox* group, const QString& tooltip, std::function<QString(int)> format, int snap)
 		{
 			m_emu_settings->EnhanceSlider(slider, type);
 			subscribe_tooltip(group, tooltip);
@@ -121,8 +132,14 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			min->setText(format(slider->minimum()));
 			max->setText(format(slider->maximum()));
 			val->setText(text(slider->value()));
-			connect(slider, &QSlider::valueChanged, [text, val](int value) { val->setText(text(value)); });
-			connect(reset, &QAbstractButton::clicked, [def, slider]() { slider->setValue(def); });
+			connect(slider, &QSlider::valueChanged, [text, val](int value)
+				{
+					val->setText(text(value));
+				});
+			connect(reset, &QAbstractButton::clicked, [def, slider]()
+				{
+					slider->setValue(def);
+				});
 			snap_slider(slider, snap);
 		};
 
@@ -134,13 +151,21 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			emu_settings_type::VRHudOffsetY, ui->gb_vrHudOffsetY, tooltips.settings.vr_hud_offset, percent_text, 1);
 		enhance_vr_slider(ui->vrScreenDepth, ui->vrScreenDepthMin, ui->vrScreenDepthMax, ui->vrScreenDepthVal, ui->vrScreenDepthReset,
 			emu_settings_type::VRScreenDepth, ui->gb_vrScreenDepth, tooltips.settings.vr_screen_depth, percent_text, 5);
-		const auto plain_text = [](int value) { return QString::number(value); };
+		const auto plain_text = [](int value)
+		{
+			return QString::number(value);
+		};
 		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
 			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
-		const auto degree_text = [](int value) { return tr("%1\u00b0", "VR slider").arg(value); };
-		enhance_vr_slider(ui->vrReprojectionMargin, ui->vrReprojectionMarginMin, ui->vrReprojectionMarginMax, ui->vrReprojectionMarginVal,
-			ui->vrReprojectionMarginReset, emu_settings_type::VRReprojectionMargin, ui->gb_vrReprojectionMargin,
-			tooltips.settings.vr_reprojection_margin, [degree_text](int value) { return value < 0 ? tr("Auto", "VR reprojection margin") : degree_text(value); }, 1);
+		const auto degree_text = [](int value)
+		{
+			return tr("%1\u00b0", "VR slider").arg(value);
+		};
+		enhance_vr_slider(ui->vrReprojectionMargin, ui->vrReprojectionMarginMin, ui->vrReprojectionMarginMax, ui->vrReprojectionMarginVal, ui->vrReprojectionMarginReset, emu_settings_type::VRReprojectionMargin, ui->gb_vrReprojectionMargin, tooltips.settings.vr_reprojection_margin, [degree_text](int value)
+			{
+				return value < 0 ? tr("Auto", "VR reprojection margin") : degree_text(value);
+			},
+			1);
 
 		const auto enable_vr_options = [this, vr_profiled_title]()
 		{

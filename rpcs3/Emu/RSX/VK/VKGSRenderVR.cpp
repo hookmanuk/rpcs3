@@ -64,8 +64,7 @@ u32 VKGSRender::vr_sampled_pose()
 			pose = std::max(pose, vr_is_feedback_texture(rtt) ? m_vr_applied_pose : rtt->vr_pose);
 			if (trace)
 			{
-				reads += rtt->vr_pose ? fmt::format("%s%x:%d", reads.empty() ? "" : ",", rtt->base_addr, static_cast<s32>(m_vr_applied_pose - rtt->vr_pose))
-					: fmt::format("%s%x:-", reads.empty() ? "" : ",", rtt->base_addr);
+				reads += rtt->vr_pose ? fmt::format("%s%x:%d", reads.empty() ? "" : ",", rtt->base_addr, static_cast<s32>(m_vr_applied_pose - rtt->vr_pose)) : fmt::format("%s%x:-", reads.empty() ? "" : ",", rtt->base_addr);
 			}
 		}
 	};
@@ -183,9 +182,10 @@ bool VKGSRender::vr_shift_feedback_textures(rsx::fragment_program_texture_config
 			continue;
 		}
 
-		vk::image* image = sampler_state->image_handle ? sampler_state->image_handle->image() :
-			sampler_state->external_subresource_desc.external_handle ? sampler_state->external_subresource_desc.external_handle :
-			!sampler_state->external_subresource_desc.sections_to_copy.empty() ? sampler_state->external_subresource_desc.sections_to_copy.front().src : nullptr;
+		vk::image* image = sampler_state->image_handle                                        ? sampler_state->image_handle->image() :
+		                   sampler_state->external_subresource_desc.external_handle           ? sampler_state->external_subresource_desc.external_handle :
+		                   !sampler_state->external_subresource_desc.sections_to_copy.empty() ? sampler_state->external_subresource_desc.sections_to_copy.front().src :
+		                                                                                        nullptr;
 		const auto* rtt = dynamic_cast<const vk::render_target*>(image);
 		f32 du = 0.f, dv = 0.f;
 		if (!vr_is_feedback_texture(rtt) || !vk::xr::render_pose_shift(rtt->vr_pose, m_vr_applied_pose, du, dv))
@@ -219,9 +219,15 @@ bool VKGSRender::vr_shift_feedback_textures(rsx::fragment_program_texture_config
 					if (vk::xr::render_pose_homography(rtt->vr_pose, m_vr_applied_pose, h))
 					{
 						auto& slot = params[j];
-						slot.scale[0] = h[0]; slot.scale[1] = h[1]; slot.scale[2] = h[2];
-						slot.bias[0] = h[3]; slot.bias[1] = h[4]; slot.bias[2] = h[5];
-						slot.clamp_min[0] = h[6]; slot.clamp_min[1] = h[7]; slot.clamp_max[0] = h[8];
+						slot.scale[0] = h[0];
+						slot.scale[1] = h[1];
+						slot.scale[2] = h[2];
+						slot.bias[0] = h[3];
+						slot.bias[1] = h[4];
+						slot.bias[2] = h[5];
+						slot.clamp_min[0] = h[6];
+						slot.clamp_min[1] = h[7];
+						slot.clamp_max[0] = h[8];
 						m_vr_params_extra_mask |= static_cast<u16>(1u << j);
 						homography_slot = j;
 						homography_pose = rtt->vr_pose;
@@ -303,12 +309,12 @@ void VKGSRender::vr_realign_blend_targets()
 			const int dy = static_cast<int>(std::lround(dv * h));
 			if ((!dx && !dy) || std::abs(dx) >= w || std::abs(dy) >= h)
 			{
-				return std::pair<int, int>{ dx, dy };
+				return std::pair<int, int>{dx, dy};
 			}
 			if (image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
 			{
 				// Never written (a right-eye surface): nothing to move.
-				return std::pair<int, int>{ dx, dy };
+				return std::pair<int, int>{dx, dy};
 			}
 			if (exact)
 			{
@@ -326,8 +332,8 @@ void VKGSRender::vr_realign_blend_targets()
 					vk::end_renderpass(*m_current_command_buffer);
 				}
 				vk::get_overlay_pass<vk::vr_homography_warp_pass>()->run(*m_current_command_buffer, image, target.get(), homography);
-				vk::copy_image(*m_current_command_buffer, target.get(), image, areai{ 0, 0, w, h }, areai{ 0, 0, w, h });
-				return std::pair<int, int>{ dx, dy };
+				vk::copy_image(*m_current_command_buffer, target.get(), image, areai{0, 0, w, h}, areai{0, 0, w, h});
+				return std::pair<int, int>{dx, dy};
 			}
 			auto* scratch = vk::get_typeless_helper(image->format(), image->format_class(), w, h);
 			if (scratch->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
@@ -340,11 +346,11 @@ void VKGSRender::vr_realign_blend_targets()
 				}
 				vk::change_image_layout(*m_current_command_buffer, scratch, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 			}
-			vk::copy_image(*m_current_command_buffer, image, scratch, areai{ 0, 0, w, h }, areai{ 0, 0, w, h });
-			const areai src{ std::max(dx, 0), std::max(dy, 0), w + std::min(dx, 0), h + std::min(dy, 0) };
-			const areai dst{ std::max(-dx, 0), std::max(-dy, 0), w - std::max(dx, 0), h - std::max(dy, 0) };
+			vk::copy_image(*m_current_command_buffer, image, scratch, areai{0, 0, w, h}, areai{0, 0, w, h});
+			const areai src{std::max(dx, 0), std::max(dy, 0), w + std::min(dx, 0), h + std::min(dy, 0)};
+			const areai dst{std::max(-dx, 0), std::max(-dy, 0), w - std::max(dx, 0), h - std::max(dy, 0)};
 			vk::copy_image(*m_current_command_buffer, scratch, image, src, dst);
-			return std::pair<int, int>{ dx, dy };
+			return std::pair<int, int>{dx, dy};
 		};
 
 		const auto [dx, dy] = shift(surface);
@@ -379,7 +385,8 @@ bool VKGSRender::vr_is_passthrough_hud()
 		// Unless the profile lists this program as HUD (drawn into the scene's final image).
 		const auto* profile = rsx::vr::camera_probe::get().profile();
 		const u64 hash = profile && !profile->screen_space_hud_programs.empty() ?
-			program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) : 0;
+		                     program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) :
+		                     0;
 		if (!hash || std::find(profile->screen_space_hud_programs.begin(), profile->screen_space_hud_programs.end(), hash) == profile->screen_space_hud_programs.end())
 		{
 			return false;
@@ -415,7 +422,10 @@ f32 VKGSRender::vr_hud_draw_scale()
 	const u16 width = tex.enabled() ? tex.width() : 0;
 	const u16 height = tex.enabled() ? tex.height() : 0;
 	const auto& list = profile->screen_space_scaled_draws;
-	if (std::none_of(list.begin(), list.end(), [&](const auto& d) { return d.width == width && d.height == height; }))
+	if (std::none_of(list.begin(), list.end(), [&](const auto& d)
+			{
+				return d.width == width && d.height == height;
+			}))
 	{
 		return 1.f;
 	}
@@ -562,7 +572,7 @@ bool VKGSRender::vr_hud_vertex_env(f32 eye_sign, u64 preprojected_program)
 		aspect = out.height ? static_cast<f32>(out.width) / out.height : aspect;
 	}
 	if (preprojected_program ? !rsx::vr::camera_probe::get().map_vr_preprojected(box, eye_sign, preprojected_program) :
-		!rsx::vr::camera_probe::get().map_vr_passthrough_hud(box, eye_sign, aspect))
+							   !rsx::vr::camera_probe::get().map_vr_passthrough_hud(box, eye_sign, aspect))
 	{
 		return false;
 	}
@@ -659,7 +669,7 @@ bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
 	}
 	if (batches->used == batches->cbs.size())
 	{
-		VkCommandBufferAllocateInfo alloc{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		VkCommandBufferAllocateInfo alloc{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		alloc.commandPool = batches->pool;
 		alloc.level = VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		alloc.commandBufferCount = 1;
@@ -672,11 +682,11 @@ bool VKGSRender::vr_batch_begin(VkRenderPass pass, vk::framebuffer_holder* fbo)
 	}
 	const VkCommandBuffer secondary = batches->cbs[batches->used];
 
-	VkCommandBufferInheritanceInfo inherit{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
+	VkCommandBufferInheritanceInfo inherit{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 	inherit.renderPass = pass;
 	inherit.subpass = 0;
 	inherit.framebuffer = fbo->value;
-	VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 	begin.pInheritanceInfo = &inherit;
 	if (vkBeginCommandBuffer(secondary, &begin) != VK_SUCCESS)
@@ -735,10 +745,10 @@ void VKGSRender::vr_batch_execute()
 		continuation = m_occlusion_query_manager->allocate_query(primary);
 	}
 
-	VkRenderPassBeginInfo rp_begin{ VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+	VkRenderPassBeginInfo rp_begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
 	rp_begin.renderPass = m_vr_batch_pass;
 	rp_begin.framebuffer = m_vr_batch_fbo->value;
-	rp_begin.renderArea.extent = { m_vr_batch_fbo->width(), m_vr_batch_fbo->height() };
+	rp_begin.renderArea.extent = {m_vr_batch_fbo->width(), m_vr_batch_fbo->height()};
 	vkCmdBeginRenderPass(primary, &rp_begin, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 	vkCmdExecuteCommands(primary, 1, &secondary);
 	vkCmdEndRenderPass(primary);
@@ -853,17 +863,16 @@ bool VKGSRender::vr_apply_box_scissor()
 	}
 
 	f32 rect[4] =
-	{
-		static_cast<f32>(m_scissor.offset.x), static_cast<f32>(m_scissor.offset.y),
-		static_cast<f32>(m_scissor.offset.x + m_scissor.extent.width), static_cast<f32>(m_scissor.offset.y + m_scissor.extent.height)
-	};
+		{
+			static_cast<f32>(m_scissor.offset.x), static_cast<f32>(m_scissor.offset.y),
+			static_cast<f32>(m_scissor.offset.x + m_scissor.extent.width), static_cast<f32>(m_scissor.offset.y + m_scissor.extent.height)};
 	// Only the displayed part of the target: the box can reach past the guest viewport with the head
 	// turned, and Gran Turismo 5 keeps its glyphs in the unshown part of its 2048x1080 buffers.
 	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
 	const f32 shown_w = out.width ? std::min<f32>(clip_w, static_cast<f32>(out.width)) : clip_w;
 	const f32 shown_h = out.height ? std::min<f32>(clip_h, static_cast<f32>(out.height)) : clip_h;
 	if (!rsx::vr::camera_probe::get().map_box_scissor(m_viewport.width / clip_w, m_viewport.height / clip_h,
-		m_viewport.width * shown_w / clip_w, m_viewport.height * shown_h / clip_h, rect))
+			m_viewport.width * shown_w / clip_w, m_viewport.height * shown_h / clip_h, rect))
 	{
 		return false;
 	}
@@ -916,7 +925,8 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	auto t0 = prof ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	const auto lap = [&](int i)
 	{
-		if (!prof) return;
+		if (!prof)
+			return;
 		const auto t = std::chrono::steady_clock::now();
 		m_gpuprof_eye_ms[i] += std::chrono::duration<f64, std::milli>(t - t0).count();
 		t0 = t;
@@ -932,8 +942,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	const usz reloc_size = full_bank ? 0 : m_vertex_prog->constant_ids.size();
 	// Programs indexing a bone palette get the whole bank: match camera blocks on the slots they read directly.
 	const auto* vr_profile = rsx::vr::camera_probe::get().profile();
-	const rsx::vr::full_bank_direct_slots direct_slots(full_bank && m_vertex_prog && vr_profile && vr_profile->camera_slots_read_directly
-		? &m_vertex_prog->constant_ids : nullptr);
+	const rsx::vr::full_bank_direct_slots direct_slots(full_bank && m_vertex_prog && vr_profile && vr_profile->camera_slots_read_directly ? &m_vertex_prog->constant_ids : nullptr);
 	// Programs kept on the game camera: the profile's game_camera_programs, or probe gamecam= (development).
 	const auto& probe_game_camera = rsx::vr::camera_probe::get().game_camera_programs();
 	const auto& probe_game_camera_nocolor = rsx::vr::camera_probe::get().game_camera_nocolor_programs();
@@ -941,14 +950,17 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	if (!probe_game_camera.empty() || !probe_game_camera_nocolor.empty() || (vr_profile && !vr_profile->game_camera_programs.empty()))
 	{
 		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
-		const bool no_colour = std::none_of(std::begin(m_framebuffer_layout.color_write_enabled), std::end(m_framebuffer_layout.color_write_enabled), [](bool b) { return b; }) ||
-			!rsx::method_registers.color_write_enabled(0);
+		const bool no_colour = std::none_of(std::begin(m_framebuffer_layout.color_write_enabled), std::end(m_framebuffer_layout.color_write_enabled), [](bool b)
+								   {
+									   return b;
+								   }) ||
+		                       !rsx::method_registers.color_write_enabled(0);
 		keep_game_camera = std::find(probe_game_camera.begin(), probe_game_camera.end(), hash) != probe_game_camera.end() ||
-			(no_colour && std::find(probe_game_camera_nocolor.begin(), probe_game_camera_nocolor.end(), hash) != probe_game_camera_nocolor.end()) ||
-			(vr_profile && std::find(vr_profile->game_camera_programs.begin(), vr_profile->game_camera_programs.end(), hash) != vr_profile->game_camera_programs.end());
+		                   (no_colour && std::find(probe_game_camera_nocolor.begin(), probe_game_camera_nocolor.end(), hash) != probe_game_camera_nocolor.end()) ||
+		                   (vr_profile && std::find(vr_profile->game_camera_programs.begin(), vr_profile->game_camera_programs.end(), hash) != vr_profile->game_camera_programs.end());
 	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
-		m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
+														   m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
@@ -1001,7 +1013,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			{
 				const f32 kx = static_cast<f32>(surface->width()) / surface->template get_surface_width<rsx::surface_metrics::pixels>();
 				const f32 ky = static_cast<f32>(surface->height()) / surface->template get_surface_height<rsx::surface_metrics::pixels>();
-				return areai{ 0, 0, static_cast<int>(std::min<f32>(w * kx, surface->width())), static_cast<int>(std::min<f32>(h * ky, surface->height())) };
+				return areai{0, 0, static_cast<int>(std::min<f32>(w * kx, surface->width())), static_cast<int>(std::min<f32>(h * ky, surface->height()))};
 			};
 
 			vr_batch_flush();
@@ -1050,8 +1062,8 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 		const f32 kx = static_cast<f32>(surface->width()) / surface_w;
 		const f32 ky = static_cast<f32>(surface->height()) / surface_h;
-		rect = { static_cast<int>(x * kx), static_cast<int>(y * ky),
-			static_cast<int>((x + width) * kx), static_cast<int>((y + height) * ky) };
+		rect = {static_cast<int>(x * kx), static_cast<int>(y * ky),
+			static_cast<int>((x + width) * kx), static_cast<int>((y + height) * ky)};
 		return true;
 	};
 
@@ -1071,10 +1083,9 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	if (src_found && !dst_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
 	{
 		if (auto* left = m_rtts.find_color_surface(dst_address, dst.pitch); left && left->samples() == 1 && !left->is_depth_surface() &&
-			left->get_bpp() == bpp && !m_vr_right_rtts.get_surface_at(left->base_addr))
+																			left->get_bpp() == bpp && !m_vr_right_rtts.get_surface_at(left->base_addr))
 		{
-			const rsx::image_section_attributes_t attr
-			{
+			const rsx::image_section_attributes_t attr{
 				.address = left->base_addr,
 				.gcm_format = left->get_gcm_format(),
 				.pitch = left->get_rsx_pitch(),
@@ -1085,8 +1096,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 				.slice_h = static_cast<u16>(left->template get_surface_height<rsx::surface_metrics::pixels>()),
 				.bpp = bpp,
 				.swizzled = false,
-				.edge_clamped = false
-			};
+				.edge_clamped = false};
 			vr_batch_flush();
 			if (auto* right = m_vr_right_rtts.create_surface_from_rsx_section(*m_current_command_buffer, attr, left->get_resolution_scaling_config());
 				right && right->format() == left->format() && right->width() == left->width() && right->height() == left->height())
@@ -1100,8 +1110,8 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 				}
 				left->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
 				right->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
-				vk::copy_image(*m_current_command_buffer, left, right, areai{ 0, 0, static_cast<int>(left->width()), static_cast<int>(left->height()) },
-					areai{ 0, 0, static_cast<int>(right->width()), static_cast<int>(right->height()) });
+				vk::copy_image(*m_current_command_buffer, left, right, areai{0, 0, static_cast<int>(left->width()), static_cast<int>(left->height())},
+					areai{0, 0, static_cast<int>(right->width()), static_cast<int>(right->height())});
 				dst_found = locate(dst_address, dst.pitch, dst_surface, dst_rect);
 
 				static bool s_reported = false;
@@ -1143,13 +1153,16 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 		// A chunk of a copy already staged: same pitch, starting inside its first row.
 		auto found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
-		{
-			return s.pitch == dst.pitch && s.bpp == bpp && dst_address >= s.address && dst_address < s.address + s.pitch &&
-				s.image && s.image->format() == src_surface->format() && s.image->height() == h && s.image->width() == w;
-		});
+			{
+				return s.pitch == dst.pitch && s.bpp == bpp && dst_address >= s.address && dst_address < s.address + s.pitch &&
+			           s.image && s.image->format() == src_surface->format() && s.image->height() == h && s.image->width() == w;
+			});
 		if (found == m_vr_staged.end())
 		{
-			found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s) { return s.address == dst_address && s.pitch == dst.pitch; });
+			found = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
+				{
+					return s.address == dst_address && s.pitch == dst.pitch;
+				});
 		}
 		auto& staged = found != m_vr_staged.end() ? *found : m_vr_staged.emplace_back();
 		const bool chunk = staged.image && dst_address != staged.address;
@@ -1174,8 +1187,8 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			staged.height = height;
 		}
 		const int x0 = static_cast<int>(((dst_address - staged.address) / bpp) * kx + 0.5f);
-		const areai staged_rect{ x0, 0, std::min<int>(x0 + src_rect.width(), static_cast<int>(w)), static_cast<int>(h) };
-		const areai src_used{ src_rect.x1, src_rect.y1, src_rect.x1 + staged_rect.width(), src_rect.y2 };
+		const areai staged_rect{x0, 0, std::min<int>(x0 + src_rect.width(), static_cast<int>(w)), static_cast<int>(h)};
+		const areai src_used{src_rect.x1, src_rect.y1, src_rect.x1 + staged_rect.width(), src_rect.y2};
 
 		vr_batch_flush();
 		if (staged.image->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
@@ -1195,11 +1208,11 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	if (dst_found)
 	{
 		const auto staged = std::find_if(m_vr_staged.begin(), m_vr_staged.end(), [&](const vr_staged_copy& s)
-		{
-			return s.image && s.pitch == src.pitch && src_address >= s.address && src_address < s.address + s.pitch &&
-				(src_address - s.address) / s.bpp + width <= s.width && s.height >= height &&
-				s.image->height() >= static_cast<u32>(dst_rect.height()) && s.image->format() == dst_surface->format();
-		});
+			{
+				return s.image && s.pitch == src.pitch && src_address >= s.address && src_address < s.address + s.pitch &&
+			           (src_address - s.address) / s.bpp + width <= s.width && s.height >= height &&
+			           s.image->height() >= static_cast<u32>(dst_rect.height()) && s.image->format() == dst_surface->format();
+			});
 		if (staged != m_vr_staged.end())
 		{
 			const f32 kx = static_cast<f32>(staged->image->width()) / staged->width;
@@ -1209,12 +1222,11 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			vr_batch_flush();
 			dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
 			vk::copy_image(*m_current_command_buffer, staged->image.get(), dst_surface,
-				areai{ x0, 0, x1, dst_rect.height() }, areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + (x1 - x0), dst_rect.y2 });
+				areai{x0, 0, x1, dst_rect.height()}, areai{dst_rect.x1, dst_rect.y1, dst_rect.x1 + (x1 - x0), dst_rect.y2});
 			dst_surface->on_write_copy(rsx::get_shared_tag());
 			return;
 		}
 	}
-
 }
 
 bool VKGSRender::vr_reprojects_older_frames() const
@@ -1306,8 +1318,8 @@ void VKGSRender::vr_update_view()
 	f32 width = 0.f;
 	if (located)
 	{
-		const f32 fit_x = std::min({ -eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1] });
-		const f32 fit_y = std::min({ eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3] });
+		const f32 fit_x = std::min({-eye_fov[0][0], eye_fov[0][1], -eye_fov[1][0], eye_fov[1][1]});
+		const f32 fit_y = std::min({eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3]});
 		box_y = std::min(fit_y, fit_x / aspect);
 		width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
 		vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
@@ -1346,13 +1358,17 @@ void VKGSRender::vr_update_view()
 		{
 			// VR fork dev hook: RPCS3_VR_WOBBLE=<degrees> sweeps the rendered head yaw over that range, to
 			// test world-fixed HUD boxes and trails without moving the headset.
-			static const f32 s_wobble = [] { const char* v = ::getenv("RPCS3_VR_WOBBLE"); return v ? static_cast<f32>(std::atof(v)) : 0.f; }();
+			static const f32 s_wobble = []
+			{
+				const char* v = ::getenv("RPCS3_VR_WOBBLE");
+				return v ? static_cast<f32>(std::atof(v)) : 0.f;
+			}();
 			if (s_wobble != 0.f)
 			{
 				static u32 s_n = 0;
 				const f32 a = 0.5f * s_wobble * 3.14159265f / 180.f * std::sin(++s_n * 0.05f);
-				const f32 qy[4] = { 0.f, std::sin(a), 0.f, std::cos(a) };
-				const f32 h[4] = { head[0], head[1], head[2], head[3] };
+				const f32 qy[4] = {0.f, std::sin(a), 0.f, std::cos(a)};
+				const f32 h[4] = {head[0], head[1], head[2], head[3]};
 				head[0] = qy[3] * h[0] + qy[0] * h[3] + qy[1] * h[2] - qy[2] * h[1];
 				head[1] = qy[3] * h[1] - qy[0] * h[2] + qy[1] * h[3] + qy[2] * h[0];
 				head[2] = qy[3] * h[2] + qy[0] * h[1] - qy[1] * h[0] + qy[2] * h[3];
@@ -1361,8 +1377,15 @@ void VKGSRender::vr_update_view()
 		}
 		{
 			// VR fork dev hook: RPCS3_VR_HEAD_OFFSET=x,y,z (metres) moves the rendered head, e.g. 0,0,0.3 leans back.
-			static const std::array<f32, 3> s_offset = [] { std::array<f32, 3> o{}; if (const char* v = ::getenv("RPCS3_VR_HEAD_OFFSET")) std::sscanf(v, "%f,%f,%f", &o[0], &o[1], &o[2]); return o; }();
-			for (u32 i = 0; i < 3; ++i) head_position[i] += s_offset[i];
+			static const std::array<f32, 3> s_offset = []
+			{
+				std::array<f32, 3> o{};
+				if (const char* v = ::getenv("RPCS3_VR_HEAD_OFFSET"))
+					std::sscanf(v, "%f,%f,%f", &o[0], &o[1], &o[2]);
+				return o;
+			}();
+			for (u32 i = 0; i < 3; ++i)
+				head_position[i] += s_offset[i];
 		}
 		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
 			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
@@ -1450,7 +1473,7 @@ void VKGSRender::vr_begin_draw()
 	const auto& draw_call = rsx::method_registers.current_draw_clause;
 
 	d.render = rsx::vr::camera_probe::get().render_enabled() && m_vr_right_draw_fbo &&
-		!draw_call.is_trivial_instanced_draw;
+	           !draw_call.is_trivial_instanced_draw;
 	// A draw that samples a bound render target (a feedback loop) needs the texture barrier
 	// between the earlier writes and its read inside the eye's own pass. In the right-eye batch
 	// the barrier is recorded in the primary buffer before the batch runs, so the right eye
@@ -1465,11 +1488,11 @@ void VKGSRender::vr_begin_draw()
 	// Programmable blending (input attachments), conditional rendering and feedback
 	// loops keep the per-draw replay: none carries over into a secondary command buffer here.
 	d.batch = d.render && m_vr_batching && !vr_feedback &&
-		!(current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
-		!cond_render_ctrl.hw_cond_active;
+	          !(current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING) &&
+	          !cond_render_ctrl.hw_cond_active;
 	d.query_continuation = umax;
 	d.suspend_query = d.render && !d.batch &&
-		(m_current_command_buffer->flags & vk::command_buffer::cb_has_open_query);
+	                  (m_current_command_buffer->flags & vk::command_buffer::cb_has_open_query);
 	if (d.suspend_query)
 	{
 		// A right-eye replay must not contribute samples to the guest's occlusion
@@ -1526,7 +1549,7 @@ void VKGSRender::vr_setup_draw()
 		// Killzone HD draws its menus with depth test on, no depth buffer and ALWAYS; taken as a real
 		// test, the HUD box kept their z while the head moved W, and text near the far plane was clipped.
 		probe.set_draw_depth_test(rsx::method_registers.depth_test_enabled() && m_framebuffer_layout.zeta_address &&
-			rsx::method_registers.depth_func() != rsx::comparison_function::always);
+								  rsx::method_registers.depth_func() != rsx::comparison_function::always);
 	}
 	probe.clear_hud_env_request();
 	const auto vr_left_t0 = d.render && m_gpuprof_enabled > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
@@ -1596,10 +1619,10 @@ void VKGSRender::vr_setup_draw()
 
 	// HUD/menu drawn without a matrix: its own vertex context per eye (restored in vr_end_draw).
 	const bool vr_hud = d.render && !d.camera_draw && (vk::xr::is_running() || vk::xr::fake_hmd()) &&
-		(probe.hud_env_requested() || vr_is_passthrough_hud());
+	                    (probe.hud_env_requested() || vr_is_passthrough_hud());
 	// Dev: probe why=<vertex hash> logs each distinct classification of that program's draws.
 	if (const u64 why = probe.why_program(); why && d.render &&
-		program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == why)
+											 program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program) == why)
 	{
 		const u32 kinds = vr_sampled_textures();
 		const u32 target = m_framebuffer_layout.color_addresses[0];
@@ -1641,7 +1664,8 @@ void VKGSRender::vr_setup_draw()
 		if (s_seen.size() < 16 && s_seen.insert(key).second)
 		{
 			rsx_log.notice("VR: pre-projected program %016llx into 0x%x: depth test %d, HUD %d, scene %d -> %s", vr_listed, vr_target,
-				rsx::method_registers.depth_test_enabled(), vr_hud, vr_in_scene, vr_preprojected ? "eye transform" : vr_hud ? "HUD box" : "as drawn");
+				rsx::method_registers.depth_test_enabled(), vr_hud, vr_in_scene, vr_preprojected ? "eye transform" : vr_hud ? "HUD box" :
+																															  "as drawn");
 		}
 	}
 	d.preprojected = vr_preprojected;
@@ -1689,11 +1713,11 @@ void VKGSRender::vr_clear_shown_region()
 	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
 	const f32 scale = resolution_scaling_config.scale_factor();
 	VkClearRect rect{};
-	rect.rect.extent = { std::min<u32>(static_cast<u32>(out.width * scale), m_draw_fbo->width()), std::min<u32>(static_cast<u32>(out.height * scale), m_draw_fbo->height()) };
+	rect.rect.extent = {std::min<u32>(static_cast<u32>(out.width * scale), m_draw_fbo->width()), std::min<u32>(static_cast<u32>(out.height * scale), m_draw_fbo->height())};
 	rect.layerCount = 1;
 	VkClearAttachment attachment{};
 	attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	attachment.clearValue.color = { { 0.f, 0.f, 0.f, 1.f } };
+	attachment.clearValue.color = {{0.f, 0.f, 0.f, 1.f}};
 	vkCmdClearAttachments(*m_current_command_buffer, 1, &attachment, 1, &rect);
 }
 
@@ -1724,30 +1748,34 @@ void VKGSRender::vr_capture_draw(u32 sub_index, const vk::vertex_upload_info& up
 	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
 	{
 		rsx::vr::draw_capture_input capture_in;
-		capture_in.subdraw_index       = sub_index;
-		capture_in.vertex_draw_count   = upload_info.vertex_draw_count;
-		capture_in.indexed             = !!upload_info.index_info;
-		capture_in.pass_count          = draw_call.pass_count();
-		capture_in.vertex_program      = &current_vertex_program;
-		capture_in.fragment_program    = &current_fragment_program;
-		capture_in.framebuffer         = &m_framebuffer_layout;
+		capture_in.subdraw_index = sub_index;
+		capture_in.vertex_draw_count = upload_info.vertex_draw_count;
+		capture_in.indexed = !!upload_info.index_info;
+		capture_in.pass_count = draw_call.pass_count();
+		capture_in.vertex_program = &current_vertex_program;
+		capture_in.fragment_program = &current_fragment_program;
+		capture_in.framebuffer = &m_framebuffer_layout;
 
 		if (m_vertex_prog)
 		{
-			capture_in.constant_ids          = &m_vertex_prog->constant_ids;
+			capture_in.constant_ids = &m_vertex_prog->constant_ids;
 			capture_in.has_indexed_constants = m_vertex_prog->has_indexed_constants;
-			capture_in.vp_session_id         = m_vertex_prog->id;
+			capture_in.vp_session_id = m_vertex_prog->id;
 		}
 		if (m_fragment_prog)
 		{
-			capture_in.fp_session_id         = m_fragment_prog->id;
+			capture_in.fp_session_id = m_fragment_prog->id;
 		}
 
 		inspector.record_draw(capture_in);
 
 		// The captured frame's shader sources, once per program, next to the capture: the
 		// decompiled GLSL without turning on "Log shader programs" for the whole session.
-		if (static const std::string dir = []() -> std::string { const char* v = std::getenv("RPCS3_STEREO_INSPECT"); return v ? v : ""; }();
+		if (static const std::string dir = []() -> std::string
+			{
+				const char* v = std::getenv("RPCS3_STEREO_INSPECT");
+				return v ? v : "";
+			}();
 			!dir.empty() && m_vertex_prog && m_fragment_prog)
 		{
 			const u64 vp_hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
@@ -2000,7 +2028,7 @@ vk::image_view* VKGSRender::vr_fragment_texture_view(u32 i, vk::texture_cache::s
 		// A copy of a few texels (GT5 binds a 3x3 dummy texture at guest address 0, the corner of the
 		// final render target, for unused samplers: 146 right-eye rebuilds a frame) is no view of the scene.
 		const bool dummy = (desc.op == rsx::deferred_request_command::copy_image_static || desc.op == rsx::deferred_request_command::copy_image_dynamic) &&
-			desc.width <= 4 && desc.height <= 4;
+		                   desc.width <= 4 && desc.height <= 4;
 		if (profile && dummy)
 		{
 			shared_copy = desc.external_handle != nullptr;
@@ -2013,7 +2041,7 @@ vk::image_view* VKGSRender::vr_fragment_texture_view(u32 i, vk::texture_cache::s
 			{
 				auto* rtt = dynamic_cast<vk::render_target*>(src);
 				return rtt && !profile->is_view_target(rtt->get_surface_width<rsx::surface_metrics::pixels>(),
-					rtt->get_surface_height<rsx::surface_metrics::pixels>(), output_aspect);
+								  rtt->get_surface_height<rsx::surface_metrics::pixels>(), output_aspect);
 			};
 			shared_copy = desc.external_handle || !desc.sections_to_copy.empty();
 			if (desc.external_handle)
@@ -2083,9 +2111,7 @@ vk::image_view* VKGSRender::vr_fragment_texture_view(u32 i, vk::texture_cache::s
 			}
 
 			auto* right_image = right_surface->get_surface(rsx::surface_access::shader_read);
-			const auto aspect = sampler_state->image_handle
-				? sampler_state->image_handle->info.subresourceRange.aspectMask
-				: right_image->aspect();
+			const auto aspect = sampler_state->image_handle ? sampler_state->image_handle->info.subresourceRange.aspectMask : right_image->aspect();
 			view = right_image->get_view(rsx::method_registers.fragment_textures[i].decoded_remap(), aspect);
 		}
 	}
@@ -2131,12 +2157,13 @@ VKGSRender::vr_texture_redirect VKGSRender::vr_redirect_texture(u32 i, const rsx
 {
 	vr_texture_redirect redirect;
 	if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && !profile->texture_redirects.empty() &&
-		rsx::vr::camera_probe::get().render_enabled())
+																	  rsx::vr::camera_probe::get().render_enabled())
 	{
 		const u32 address = rsx::get_address(tex.offset(), tex.location());
 		for (const auto& [from, to] : profile->texture_redirects)
 		{
-			if (address != from) continue;
+			if (address != from)
+				continue;
 			auto& regs = rsx::method_registers.registers;
 			redirect.saved[0] = regs[NV4097_SET_TEXTURE_OFFSET + i * 8];
 			redirect.saved[1] = regs[NV4097_SET_TEXTURE_FORMAT + i * 8];
@@ -2164,18 +2191,24 @@ void VKGSRender::vr_restore_texture(u32 i, const vr_texture_redirect& redirect)
 // dev probe key hide=<hash>[@<target>]. Returns true after finishing the draw as a no-op.
 bool VKGSRender::vr_skip_draw()
 {
-	const auto hash = [&]() { return program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program); };
+	const auto hash = [&]()
+	{
+		return program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	};
 
 	if (const auto* profile = g_cfg.video.vr.enabled ? rsx::vr::camera_probe::get().profile() : nullptr; profile && !profile->hidden_draws.empty())
 	{
 		const auto& tex = rsx::method_registers.fragment_textures[0];
 		const u16 width = tex.enabled() ? tex.width() : 0;
 		const u16 height = tex.enabled() ? tex.height() : 0;
-		if (std::any_of(profile->hidden_draws.begin(), profile->hidden_draws.end(), [&](const auto& d) { return d.width == width && d.height == height; }) &&
+		if (std::any_of(profile->hidden_draws.begin(), profile->hidden_draws.end(), [&](const auto& d)
+				{
+					return d.width == width && d.height == height;
+				}) &&
 			std::any_of(profile->hidden_draws.begin(), profile->hidden_draws.end(), [&, h = hash()](const auto& d)
-			{
-				return d.program == h && d.width == width && d.height == height;
-			}))
+				{
+					return d.program == h && d.width == width && d.height == height;
+				}))
 		{
 			execute_nop_draw();
 			rsx::thread::end();
@@ -2196,7 +2229,10 @@ bool VKGSRender::vr_skip_draw()
 	{
 		const u64 h = hash();
 		const u32 target = m_framebuffer_layout.color_addresses[0];
-		if (std::any_of(hidden.begin(), hidden.end(), [&](const auto& entry) { return entry.first == h && (!entry.second || entry.second == target); }))
+		if (std::any_of(hidden.begin(), hidden.end(), [&](const auto& entry)
+				{
+					return entry.first == h && (!entry.second || entry.second == target);
+				}))
 		{
 			execute_nop_draw();
 			rsx::thread::end();
@@ -2331,10 +2367,10 @@ std::optional<areai> VKGSRender::vr_map_clear_rect(u16 fb_width, u16 fb_height, 
 	const bool full_frame = (scissor_w == fb_width && scissor_h == fb_height);
 	if (!full_frame && rsx::vr::camera_probe::get().render_enabled())
 	{
-		f32 rect[4] = { static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h) };
+		f32 rect[4] = {static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h)};
 		f32 right[4];
 		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
-			fb_width, fb_height, rect, right))
+				fb_width, fb_height, rect, right))
 		{
 			scissor_x = static_cast<u16>(std::floor(rect[0]));
 			scissor_y = static_cast<u16>(std::floor(rect[1]));
@@ -2342,7 +2378,7 @@ std::optional<areai> VKGSRender::vr_map_clear_rect(u16 fb_width, u16 fb_height, 
 			scissor_h = static_cast<u16>(std::ceil(rect[3]) - scissor_y);
 			const int rx = static_cast<int>(std::floor(right[0]));
 			const int ry = static_cast<int>(std::floor(right[1]));
-			vr_right_clear = areai{ rx, ry, rx + scissor_w, ry + scissor_h };
+			vr_right_clear = areai{rx, ry, rx + scissor_w, ry + scissor_h};
 		}
 	}
 	return vr_right_clear;
@@ -2392,8 +2428,7 @@ void VKGSRender::vr_after_clear(bool cleared, bool full_frame, bool update_color
 			}
 			const int x2 = std::min<int>(scissor_x + scissor_w, std::min(src->width(), dst->width()));
 			const int y2 = std::min<int>(scissor_y + scissor_h, std::min(src->height(), dst->height()));
-			const areai rect = full_frame ? areai{0, 0, static_cast<int>(src->width()), static_cast<int>(src->height())}
-				: areai{scissor_x, scissor_y, x2, y2};
+			const areai rect = full_frame ? areai{0, 0, static_cast<int>(src->width()), static_cast<int>(src->height())} : areai{scissor_x, scissor_y, x2, y2};
 			if (rect.x2 <= rect.x1 || rect.y2 <= rect.y1)
 			{
 				continue;
@@ -2412,14 +2447,14 @@ void VKGSRender::vr_after_clear(bool cleared, bool full_frame, bool update_color
 				const int w = std::min(dst_rect.width(), rect.width()), hgt = std::min(dst_rect.height(), rect.height());
 				if (w > 0 && hgt > 0)
 				{
-					vk::copy_image(*m_current_command_buffer, src, dst, areai{ rect.x1, rect.y1, rect.x1 + w, rect.y1 + hgt },
-						areai{ dst_rect.x1, dst_rect.y1, dst_rect.x1 + w, dst_rect.y1 + hgt }, {}, aspects, aspects);
+					vk::copy_image(*m_current_command_buffer, src, dst, areai{rect.x1, rect.y1, rect.x1 + w, rect.y1 + hgt},
+						areai{dst_rect.x1, dst_rect.y1, dst_rect.x1 + w, dst_rect.y1 + hgt}, {}, aspects, aspects);
 				}
 				continue;
 			}
 			vk::copy_image(*m_current_command_buffer, src, dst, rect, rect, {}, aspects, aspects);
 		}
-		m_vr_right_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
+		m_vr_right_rtts.on_write({update_color, update_color, update_color, update_color}, update_z);
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	}
 }
@@ -2460,7 +2495,7 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 	*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
 	*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
 	*(reinterpret_cast<f32*>(buf + 84)) = vr_keep_depth; // vertex_context_t::vr_keep_depth
-	std::memset(buf + 88, 0, 8);                          // reserved0, reserved1
+	std::memset(buf + 88, 0, 8);                         // reserved0, reserved1
 }
 
 // prepare_rtts(): surfaces the game reads back (see below) are copied as soon as they are left. The right eye's
@@ -2505,7 +2540,10 @@ bool VKGSRender::vr_before_prepare_rtts()
 			if (m_surface_info[i].pitch)
 			{
 				const auto range = m_surface_info[i].get_memory_range();
-				any = std::any_of(m_vr_readback_ranges.begin(), m_vr_readback_ranges.end(), [&](const auto& listed) { return listed.overlaps(range); });
+				any = std::any_of(m_vr_readback_ranges.begin(), m_vr_readback_ranges.end(), [&](const auto& listed)
+					{
+						return listed.overlaps(range);
+					});
 			}
 		}
 		if (any)
@@ -2542,9 +2580,9 @@ void VKGSRender::vr_prepare_right_rtts()
 
 	if (gpuprof_enabled())
 	{
-		gpuprof_mark({ m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address,
+		gpuprof_mark({m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address,
 			m_framebuffer_layout.width, m_framebuffer_layout.height,
-			m_framebuffer_layout.color_addresses[0] ? static_cast<u32>(m_framebuffer_layout.color_format) : 0x1000u + static_cast<u32>(m_framebuffer_layout.depth_format) });
+			m_framebuffer_layout.color_addresses[0] ? static_cast<u32>(m_framebuffer_layout.color_format) : 0x1000u + static_cast<u32>(m_framebuffer_layout.depth_format)});
 	}
 
 	if (!rsx::vr::camera_probe::get().render_enabled())
@@ -2671,10 +2709,10 @@ void VKGSRender::vr_before_blit(rsx::blit_src_info& src, const rsx::blit_dst_inf
 	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
 	{
 		inspector.record_note("blit", fmt::format("\"src\":%u,\"src_pitch\":%u,\"src_w\":%u,\"src_h\":%u,\"src_fmt\":%u,"
-			"\"dst\":%u,\"dst_pitch\":%u,\"dst_w\":%u,\"dst_h\":%u,\"dst_fmt\":%u,\"scale_x\":%f,\"scale_y\":%f,\"swizzled\":%d,\"clip_x\":%u,\"clip_y\":%u",
-			vm::get_addr(src.pixels), src.pitch, src.width, src.height, static_cast<u32>(src.format),
-			vm::get_addr(dst.pixels), dst.pitch, dst.clip_width, dst.clip_height, static_cast<u32>(dst.format), dst.scale_x, dst.scale_y,
-			dst.swizzled ? 1 : 0, dst.clip_x, dst.clip_y));
+												  "\"dst\":%u,\"dst_pitch\":%u,\"dst_w\":%u,\"dst_h\":%u,\"dst_fmt\":%u,\"scale_x\":%f,\"scale_y\":%f,\"swizzled\":%d,\"clip_x\":%u,\"clip_y\":%u",
+										  vm::get_addr(src.pixels), src.pitch, src.width, src.height, static_cast<u32>(src.format),
+										  vm::get_addr(dst.pixels), dst.pitch, dst.clip_width, dst.clip_height, static_cast<u32>(dst.format), dst.scale_x, dst.scale_y,
+										  dst.swizzled ? 1 : 0, dst.clip_x, dst.clip_y));
 	}
 
 	if (vk::xr::is_running() && vr_tracing())
@@ -2804,8 +2842,7 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 	// tagged with a newer head pose, dragging the world along with the head. A video
 	// frame on the fixed screen has no world to drag: it is published too.
 	const bool vr_video_screen = vr_video_refresh && m_vr_video_on_screen;
-	const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip,
-		image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, m_vr_eye_width, m_vr_eye_height);
+	const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip, image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, m_vr_eye_width, m_vr_eye_height);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
 	// the desktop swapchain below; the headset gets them as a quad layer.
@@ -2824,19 +2861,19 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 		}
 
 		vk::image* overlay_img = m_xr_overlay_img.get();
-		const VkImageSubresourceRange overlay_range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		const VkImageSubresourceRange overlay_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 		const VkClearColorValue transparent{};
 		overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		vkCmdClearColorImage(*m_current_command_buffer, overlay_img->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &transparent, 1, &overlay_range);
 		overlay_img->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 		const VkRenderPass overlay_pass = vk::get_renderpass(*m_device, vk::get_renderpass_key(overlay_format));
-		vk::framebuffer_holder* overlay_fbo = vk::get_framebuffer(*m_device, overlay_width, overlay_height, VK_FALSE, overlay_pass, { overlay_img });
+		vk::framebuffer_holder* overlay_fbo = vk::get_framebuffer(*m_device, overlay_width, overlay_height, VK_FALSE, overlay_pass, {overlay_img});
 		overlay_fbo->add_ref();
 		{
 			auto ui_renderer = vk::get_overlay_pass<vk::ui_overlay_renderer_xr>();
 			std::lock_guard lock(*m_overlay_manager);
-			const areau overlay_area = { 0, 0, overlay_width, overlay_height };
+			const areau overlay_area = {0, 0, overlay_width, overlay_height};
 			for (const auto& view : m_overlay_manager->get_views())
 			{
 				ui_renderer->run(*m_current_command_buffer, overlay_area, overlay_fbo, overlay_pass, m_texture_upload_buffer_ring_info, *view.get());
@@ -2917,8 +2954,8 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 bool VKGSRender::vr_capturable(vk::viewable_image* image_to_flip, u32 buffer_width, u32 buffer_height)
 {
 	const bool capturable = image_to_flip->width() >= buffer_width && image_to_flip->height() >= buffer_height &&
-		vk::get_format_texel_width(image_to_flip->format()) == 4 &&
-		(image_to_flip->current_queue_family == VK_QUEUE_FAMILY_IGNORED || image_to_flip->current_queue_family == m_current_command_buffer->get_queue_family());
+	                        vk::get_format_texel_width(image_to_flip->format()) == 4 &&
+	                        (image_to_flip->current_queue_family == VK_QUEUE_FAMILY_IGNORED || image_to_flip->current_queue_family == m_current_command_buffer->get_queue_family());
 	if (!capturable)
 	{
 		rsx_log.warning("Screenshot/recording skipped: the presented image (%ux%u fmt %d) cannot be captured this frame (buffer %ux%u).",
@@ -2935,7 +2972,7 @@ bool VKGSRender::vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::vie
 		return false;
 	}
 	const bool sbs_shot = vk::get_format_texel_width(image_to_flip2->format()) == 4 &&
-		image_to_flip2->width() >= buffer_width && image_to_flip2->height() >= buffer_height;
+	                      image_to_flip2->width() >= buffer_width && image_to_flip2->height() >= buffer_height;
 	rsx_log.notice("VR screenshot: left %ux%u fmt %d, right %ux%u fmt %d, side by side %d", image_to_flip->width(), image_to_flip->height(), static_cast<int>(image_to_flip->format()),
 		image_to_flip2->width(), image_to_flip2->height(), static_cast<int>(image_to_flip2->format()), sbs_shot);
 	return sbs_shot;
@@ -2968,8 +3005,8 @@ void VKGSRender::vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>
 				0, VMM_ALLOCATION_POOL_SYSTEM);
 			crop->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
-		vk::copy_image(*m_current_command_buffer, img, crop.get(), areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) },
-			areai{ 0, 0, static_cast<int>(w), static_cast<int>(h) });
+		vk::copy_image(*m_current_command_buffer, img, crop.get(), areai{0, 0, static_cast<int>(w), static_cast<int>(h)},
+			areai{0, 0, static_cast<int>(w), static_cast<int>(h)});
 		img = crop.get();
 	}
 }

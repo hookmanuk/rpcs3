@@ -21,8 +21,8 @@ namespace vk
 	vr_homography_warp_pass::vr_homography_warp_pass()
 	{
 		vs_src =
-		#include "../Program/GLSLSnippets/GenericVSPassthrough.glsl"
-		;
+#include "../Program/GLSLSnippets/GenericVSPassthrough.glsl"
+			;
 
 		fs_src =
 			"#version 440\n"
@@ -60,9 +60,7 @@ namespace vk
 				vk::glsl::input_type_push_constant,
 				0,
 				0,
-				glsl::push_constant_ref{ .size = fragment_push_constants_size }
-			)
-		);
+				glsl::push_constant_ref{.size = fragment_push_constants_size}));
 		return result;
 	}
 
@@ -85,10 +83,10 @@ namespace vk
 		target->change_layout(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
 		const VkRenderPass render_pass = vk::get_renderpass(*m_device, vk::get_renderpass_key(target->format()));
-		const areau viewport = { 0, 0, target->width(), target->height() };
+		const areau viewport = {0, 0, target->width(), target->height()};
 		overlay_pass::run(cmd, viewport, target, src->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY)), render_pass);
 		vk::end_renderpass(cmd);
 
 		src->pop_layout(cmd);
 	}
-}
+} // namespace vk
