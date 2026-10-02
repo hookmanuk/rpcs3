@@ -1,0 +1,13 @@
+Version: 1.2
+
+PPU-f18bcdcc6d74a25383d72074e1646352ab53e9d2: # kingdom2.self (Kingdom Hearts II Final Mix)
+  "Unlocked frame rate (VR)":
+    Games:
+      "Kingdom Hearts HD 2.5 ReMIX":
+        BLUS31460: [ 01.00 ]
+    Author: "illusion, BlaGe (community 60 FPS patch); VR fork"
+    Notes: "The community 60 FPS patch (li r3, 0): the game presents every vblank instead of every second one. Community notes: doubles gravity, some things move at double speed. VR fork 2026-10-02: Roxas ran several times as far at 60 as at 30 for the same press: not real-time, so off by default (the VR profile keeps max_fps 30)."
+    Patch Version: 1.0
+    Enabled By Default: false
+    Patch:
+      - [ be32, 0x00076850, 0x38600000 ] # li r3, 0x0
