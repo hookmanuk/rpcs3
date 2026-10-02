@@ -488,6 +488,10 @@ target_sources(rpcs3_emu PRIVATE
 target_sources(rpcs3_emu PRIVATE
     RSX/Capture/rsx_capture.cpp
     RSX/Capture/rsx_replay.cpp
+    RSX/Capture/rsx_camera_probe.cpp
+    RSX/Capture/rsx_stereo_inspector.cpp
+    RSX/Capture/rsx_vr_profile_generator.cpp
+    RSX/Capture/rsx_vr_hooks.cpp
     RSX/Common/BufferUtils.cpp
     RSX/Common/surface_store.cpp
     RSX/Common/TextureUtils.cpp
@@ -658,6 +662,9 @@ if(TARGET 3rdparty_vulkan)
         RSX/VK/VKOverlays.cpp
         RSX/VK/VKPipelineCompiler.cpp
         RSX/VK/VKOpenXR.cpp
+        RSX/VK/VKGSRenderVR.cpp
+        RSX/VK/VKGSRenderVRDev.cpp
+        RSX/VK/VKOverlaysVR.cpp
         RSX/VK/VKPresent.cpp
         RSX/VK/VKProgramPipeline.cpp
         RSX/VK/VKQueryPool.cpp

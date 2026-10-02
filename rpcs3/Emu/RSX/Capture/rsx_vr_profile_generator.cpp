@@ -37,14 +37,14 @@ namespace rsx::vr
 		constexpr u64 max_frame_gap_us = 200'000; // longer gaps (loading, stalls) are not play time
 		constexpr u32 min_frames = 5;
 
-		constexpr f64 rigid_tolerance = 0.1;    // require_rigid_camera's test
-		constexpr f64 aspect_tolerance = 0.1;   // B/A against the output aspect
-		constexpr f64 human_ipd = 0.064;         // metres
-		constexpr f64 reference_near_plane = 0.1; // metres; a common engine near plane (Pure's is exactly 0.1)
+		constexpr f64 rigid_tolerance = 0.1;                                   // require_rigid_camera's test
+		constexpr f64 aspect_tolerance = 0.1;                                  // B/A against the output aspect
+		constexpr f64 human_ipd = 0.064;                                       // metres
+		constexpr f64 reference_near_plane = 0.1;                              // metres; a common engine near plane (Pure's is exactly 0.1)
 		constexpr f64 min_metre_near_plane = 0.01, max_metre_near_plane = 1.0; // near planes that mean metres
 		constexpr f64 convergence_in_baselines = 40.0;
-		constexpr f64 view_aspect_tolerance = 0.05;  // render targets that count as camera views
-		constexpr f64 min_scene_coverage = 0.8;      // below: clip_space_scene_draws
+		constexpr f64 view_aspect_tolerance = 0.05; // render targets that count as camera views
+		constexpr f64 min_scene_coverage = 0.8;     // below: clip_space_scene_draws
 
 		// As VKGSRender's kinds: texture_view_target marks a view-shaped colour target (not a small mask or atlas).
 		constexpr u8 texture_ordinary = 1, texture_colour_target = 2, texture_view_target = 4;
@@ -72,15 +72,22 @@ namespace rsx::vr
 				}
 				for (usz i = 0; i < ids.size(); ++i)
 				{
-					if (ids[i] == slot) return &values[i];
+					if (ids[i] == slot)
+						return &values[i];
 				}
 				return nullptr;
 			}
 		};
 
 		// Matrix layouts, as in the profile's matrix_layout.
-		enum layout : u32 { layout_rows, layout_columns, layout_xyw, layout_count };
-		constexpr const char* layout_names[layout_count] = { "row_vectors", "column_vectors", "column_vectors_xyw" };
+		enum layout : u32
+		{
+			layout_rows,
+			layout_columns,
+			layout_xyw,
+			layout_count
+		};
+		constexpr const char* layout_names[layout_count] = {"row_vectors", "column_vectors", "column_vectors_xyw"};
 
 		// columns: slot i is row i, and z may be absent (z = w, a far-plane sky).
 		// xyw: slots are the x, y and w rows, the shader derives z (NFS Most Wanted).
@@ -88,14 +95,16 @@ namespace rsx::vr
 		std::optional<block_result> read_block(const slot_reader& r, u32 base, u32 layout)
 		{
 			const std::array<f32, 4>* s[4];
-			for (u32 k = 0; k < 4; ++k) s[k] = r.get(base + k);
+			for (u32 k = 0; k < 4; ++k)
+				s[k] = r.get(base + k);
 
 			block_result out;
 			if (layout == layout_xyw)
 			{
-				if (!s[0] || !s[1] || !s[2]) return std::nullopt;
+				if (!s[0] || !s[1] || !s[2])
+					return std::nullopt;
 				out.z_missing = true;
-				const std::array<f32, 4>* rows[4] = { s[0], s[1], s[2], s[2] };
+				const std::array<f32, 4>* rows[4] = {s[0], s[1], s[2], s[2]};
 				for (u32 i = 0; i < 4; ++i)
 					for (u32 j = 0; j < 4; ++j)
 						out.m[i][j] = (*rows[i])[j];
@@ -103,9 +112,10 @@ namespace rsx::vr
 			}
 			if (layout == layout_columns)
 			{
-				if (!s[0] || !s[1] || !s[3]) return std::nullopt;
+				if (!s[0] || !s[1] || !s[3])
+					return std::nullopt;
 				out.z_missing = !s[2];
-				const std::array<f32, 4>* rows[4] = { s[0], s[1], s[2] ? s[2] : s[3], s[3] };
+				const std::array<f32, 4>* rows[4] = {s[0], s[1], s[2] ? s[2] : s[3], s[3]};
 				for (u32 i = 0; i < 4; ++i)
 					for (u32 j = 0; j < 4; ++j)
 						out.m[i][j] = (*rows[i])[j];
@@ -114,7 +124,8 @@ namespace rsx::vr
 
 			for (u32 k = 0; k < 4; ++k)
 			{
-				if (!s[k]) return std::nullopt;
+				if (!s[k])
+					return std::nullopt;
 			}
 			for (u32 i = 0; i < 4; ++i)
 				for (u32 j = 0; j < 4; ++j)
@@ -127,8 +138,10 @@ namespace rsx::vr
 		std::optional<block_result> read_flat_rows(const slot_reader& r, u32 base)
 		{
 			const std::array<f32, 4>* s[4];
-			for (u32 k = 0; k < 4; ++k) s[k] = r.get(base + k);
-			if (!s[0] || !s[1] || s[2] || !s[3]) return std::nullopt;
+			for (u32 k = 0; k < 4; ++k)
+				s[k] = r.get(base + k);
+			if (!s[0] || !s[1] || s[2] || !s[3])
+				return std::nullopt;
 			// As read_block's rows layout: out.m[i] is clip component i, slot k its input-k coefficient.
 			block_result out;
 			for (u32 i = 0; i < 4; ++i)
@@ -141,8 +154,14 @@ namespace rsx::vr
 			return out;
 		}
 
-		f64 len3(const std::array<f64, 4>& v) { return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
-		f64 dot3(const std::array<f64, 4>& a, const std::array<f64, 4>& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+		f64 len3(const std::array<f64, 4>& v)
+		{
+			return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+		}
+		f64 dot3(const std::array<f64, 4>& a, const std::array<f64, 4>& b)
+		{
+			return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+		}
 
 		bool is_perspective(const mat4& m)
 		{
@@ -154,16 +173,17 @@ namespace rsx::vr
 		f64 rigidity(const mat4& m)
 		{
 			const f64 nx = len3(m[0]), ny = len3(m[1]), nw = len3(m[3]);
-			if (nx < 1e-8 || ny < 1e-8 || nw < 1e-8) return 9.0;
-			return std::max({ std::fabs(dot3(m[0], m[1])) / (nx * ny), std::fabs(dot3(m[0], m[3])) / (nx * nw),
-				std::fabs(dot3(m[1], m[3])) / (ny * nw) });
+			if (nx < 1e-8 || ny < 1e-8 || nw < 1e-8)
+				return 9.0;
+			return std::max({std::fabs(dot3(m[0], m[1])) / (nx * ny), std::fabs(dot3(m[0], m[3])) / (nx * nw),
+				std::fabs(dot3(m[1], m[3])) / (ny * nw)});
 		}
 
 		// Projection scales A = |x|/|w|, B = |y|/|w|.
 		std::pair<f64, f64> projection(const mat4& m)
 		{
 			const f64 nw = len3(m[3]);
-			return { len3(m[0]) / nw, len3(m[1]) / nw };
+			return {len3(m[0]) / nw, len3(m[1]) / nw};
 		}
 
 		bool aspect_matches(const mat4& m, f64 output_aspect, f64 tolerance)
@@ -179,17 +199,18 @@ namespace rsx::vr
 		bool is_camera(const mat4& m, f64 output_aspect)
 		{
 			return is_perspective(m) && rigidity(m) <= rigid_tolerance && aspect_matches(m, output_aspect, aspect_tolerance) &&
-				projection(m).first <= 30.0;
+			       projection(m).first <= 30.0;
 		}
 
 		// The eye point in the block's input space: clip x = y = w = 0.
 		std::optional<std::array<f64, 3>> eye_point(const mat4& m)
 		{
-			const f64 a[3][3] = { { m[0][0], m[0][1], m[0][2] }, { m[1][0], m[1][1], m[1][2] }, { m[3][0], m[3][1], m[3][2] } };
-			const f64 b[3] = { -m[0][3], -m[1][3], -m[3][3] };
+			const f64 a[3][3] = {{m[0][0], m[0][1], m[0][2]}, {m[1][0], m[1][1], m[1][2]}, {m[3][0], m[3][1], m[3][2]}};
+			const f64 b[3] = {-m[0][3], -m[1][3], -m[3][3]};
 			const f64 det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
-				a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
-			if (std::fabs(det) < 1e-12) return std::nullopt;
+			                a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+			if (std::fabs(det) < 1e-12)
+				return std::nullopt;
 
 			std::array<f64, 3> x{};
 			for (u32 c = 0; c < 3; ++c)
@@ -199,7 +220,8 @@ namespace rsx::vr
 					for (u32 j = 0; j < 3; ++j)
 						t[i][j] = j == c ? b[i] : a[i][j];
 				x[c] = (t[0][0] * (t[1][1] * t[2][2] - t[1][2] * t[2][1]) - t[0][1] * (t[1][0] * t[2][2] - t[1][2] * t[2][0]) +
-					t[0][2] * (t[1][0] * t[2][1] - t[1][1] * t[2][0])) / det;
+						   t[0][2] * (t[1][0] * t[2][1] - t[1][1] * t[2][0])) /
+				       det;
 			}
 			return x;
 		}
@@ -208,7 +230,8 @@ namespace rsx::vr
 		std::optional<f64> near_plane(const mat4& m)
 		{
 			const f64 ww = dot3(m[3], m[3]);
-			if (ww < 1e-12) return std::nullopt;
+			if (ww < 1e-12)
+				return std::nullopt;
 			const f64 k = dot3(m[2], m[3]) / ww;
 			const f64 t = m[2][3] - k * m[3][3];
 			// Reversed depth with an infinite far plane (MGS4: z = -w + 103.94): z = +w
@@ -228,10 +251,10 @@ namespace rsx::vr
 		{
 			constexpr f64 eps = 1e-5;
 			return std::fabs(m[1][0]) < eps && std::fabs(m[2][0]) < eps && std::fabs(m[3][0]) < eps &&
-				std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
-				std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps &&
-				std::fabs(m[0][3]) < eps && std::fabs(m[1][3]) < eps &&
-				std::fabs(m[3][2]) > eps;
+			       std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
+			       std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps &&
+			       std::fabs(m[0][3]) < eps && std::fabs(m[1][3]) < eps &&
+			       std::fabs(m[3][2]) > eps;
 		}
 
 		bool is_bare_projection(const mat4& m)
@@ -245,8 +268,8 @@ namespace rsx::vr
 		{
 			constexpr f64 eps = 1e-5;
 			const bool diagonal = std::fabs(m[1][0]) < eps && std::fabs(m[2][0]) < eps && std::fabs(m[3][0]) < eps &&
-				std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
-				std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps && std::fabs(m[3][2]) > eps;
+			                      std::fabs(m[0][1]) < eps && std::fabs(m[2][1]) < eps && std::fabs(m[3][1]) < eps &&
+			                      std::fabs(m[0][2]) < eps && std::fabs(m[1][2]) < eps && std::fabs(m[3][2]) > eps;
 			return diagonal && std::fabs(m[3][3]) >= eps;
 		}
 
@@ -260,7 +283,7 @@ namespace rsx::vr
 		{
 			return fmt::format("%.6g", v);
 		}
-	}
+	} // namespace
 
 	profile_generator& profile_generator::get()
 	{
@@ -305,20 +328,23 @@ namespace rsx::vr
 		const auto push = [&](u32 index)
 		{
 			std::array<f32, 4> v;
-			for (u32 k = 0; k < 4; ++k) v[k] = std::bit_cast<f32>(bank[index][k]);
+			for (u32 k = 0; k < 4; ++k)
+				v[k] = std::bit_cast<f32>(bank[index][k]);
 			s.values.push_back(v);
 		};
 
 		if (s.full_bank)
 		{
 			s.values.reserve(468);
-			for (u32 i = 0; i < 468; ++i) push(i);
+			for (u32 i = 0; i < 468; ++i)
+				push(i);
 		}
 		else
 		{
 			s.ids.assign(constant_ids.begin(), constant_ids.end());
 			s.values.reserve(s.ids.size());
-			for (const u16 id : s.ids) push(id);
+			for (const u16 id : s.ids)
+				push(id);
 		}
 
 		// Indexed programs reach blocks they do not read directly. For each directly read 4-slot block, count the
@@ -494,8 +520,9 @@ namespace rsx::vr
 			std::map<std::pair<u16, u16>, u32> camera_draws;
 			for (const auto& s : samples)
 			{
-				if (s.program == umax || s.full_bank || s.width < 256 || !s.height) continue;
-				const slot_reader r{ s.ids, s.values, false };
+				if (s.program == umax || s.full_bank || s.width < 256 || !s.height)
+					continue;
+				const slot_reader r{s.ids, s.values, false};
 				bool found = false;
 				for (const u16 base : s.ids)
 				{
@@ -504,16 +531,23 @@ namespace rsx::vr
 						const auto b = read_block(r, base, layout);
 						found = b && is_camera(b->m, output_aspect);
 					}
-					if (found) break;
+					if (found)
+						break;
 				}
-				if (found) camera_draws[{ s.width, s.height }]++;
+				if (found)
+					camera_draws[{s.width, s.height}]++;
 			}
 			u32 best = 0, at_output = 0;
 			std::pair<u16, u16> best_size{};
 			for (const auto& [size, count] : camera_draws)
 			{
-				if (std::fabs((static_cast<f64>(size.first) / size.second) / output_aspect - 1.0) <= view_aspect_tolerance) at_output += count;
-				if (count > best) { best = count; best_size = size; }
+				if (std::fabs((static_cast<f64>(size.first) / size.second) / output_aspect - 1.0) <= view_aspect_tolerance)
+					at_output += count;
+				if (count > best)
+				{
+					best = count;
+					best_size = size;
+				}
 			}
 			const f64 best_aspect = best ? static_cast<f64>(best_size.first) / best_size.second : output_aspect;
 			if (best && std::fabs(best_aspect / output_aspect - 1.0) > view_aspect_tolerance && best > 2 * at_output)
@@ -527,7 +561,8 @@ namespace rsx::vr
 		std::vector<const draw_sample*> views;
 		for (const auto& s : samples)
 		{
-			if (s.program == umax || !s.height) continue;
+			if (s.program == umax || !s.height)
+				continue;
 			// 5%: NFS Most Wanted renders its 3D scene at 1280x704 (2.3% off 16:9).
 			if (std::fabs((static_cast<f64>(s.width) / s.height) / view_aspect - 1.0) <= view_aspect_tolerance)
 			{
@@ -542,8 +577,9 @@ namespace rsx::vr
 		std::map<std::pair<u32, u32>, u32> candidates;
 		for (const draw_sample* s : views)
 		{
-			if (s->full_bank) continue;
-			const slot_reader r{ s->ids, s->values, false };
+			if (s->full_bank)
+				continue;
+			const slot_reader r{s->ids, s->values, false};
 			for (const u16 base : s->ids)
 			{
 				for (u32 layout = 0; layout < layout_count; ++layout)
@@ -560,7 +596,7 @@ namespace rsx::vr
 								continue;
 							}
 						}
-						candidates[{ layout, base }]++;
+						candidates[{layout, base}]++;
 					}
 				}
 			}
@@ -572,7 +608,10 @@ namespace rsx::vr
 		}
 
 		std::vector<std::pair<std::pair<u32, u32>, u32>> ranked(candidates.begin(), candidates.end());
-		std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+		std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b)
+			{
+				return a.second > b.second;
+			});
 		for (usz i = 0; i < std::min<usz>(ranked.size(), 8); ++i)
 		{
 			vr_gen_log.notice("Candidate %s c[%u]: %u draws", layout_names[ranked[i].first.first],
@@ -591,7 +630,7 @@ namespace rsx::vr
 				std::vector<f64> errors;
 				for (const draw_sample* s : views)
 				{
-					const slot_reader r{ s->ids, s->values, s->full_bank };
+					const slot_reader r{s->ids, s->values, s->full_bank};
 					if (const auto b = read_block(r, base, as_columns); b && is_camera(b->m, output_aspect))
 					{
 						errors.push_back(std::fabs(len3(b->m[3]) - 1.0));
@@ -613,8 +652,12 @@ namespace rsx::vr
 		bool overlapping = false;
 		for (const auto& [key, count] : ranked)
 		{
-			if (key.first != columns || count < 2 || blocks.size() >= 8) continue;
-			if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b) { return key.second + 3 >= b && key.second <= b + 3; }))
+			if (key.first != columns || count < 2 || blocks.size() >= 8)
+				continue;
+			if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b)
+					{
+						return key.second + 3 >= b && key.second <= b + 3;
+					}))
 			{
 				overlapping = true;
 			}
@@ -631,12 +674,13 @@ namespace rsx::vr
 		{
 			for (const auto& [key, count] : ranked)
 			{
-				if (key.first != layout_rows || count < std::max(20u, ranked.front().second / 20) || blocks.size() >= 8) continue;
+				if (key.first != layout_rows || count < std::max(20u, ranked.front().second / 20) || blocks.size() >= 8)
+					continue;
 				// The same base may have passed weakly as a column block too (Bayonetta c[24]: 31 draws as
 				// columns, 4630 as rows): the row reading wins when it is far more common.
 				if (const auto same = std::find(blocks.begin(), blocks.end(), key.second); same != blocks.end())
 				{
-					const auto col = candidates.find({ columns, key.second });
+					const auto col = candidates.find({columns, key.second});
 					if (col != candidates.end() && col->second * 4 < count)
 					{
 						vr_gen_log.notice("c[%u] reads as a row-layout camera in %u draws, as %s in %u: row_vector_blocks.", key.second, count, layout_names[columns], col->second);
@@ -644,7 +688,11 @@ namespace rsx::vr
 					}
 					continue;
 				}
-				if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b) { return key.second + 3 >= b && key.second <= b + 3; })) continue;
+				if (std::any_of(blocks.begin(), blocks.end(), [&](u32 b)
+						{
+							return key.second + 3 >= b && key.second <= b + 3;
+						}))
+					continue;
 				vr_gen_log.notice("Row-layout camera c[%u] (%u draws) beside the %s blocks: row_vector_blocks.", key.second, count, layout_names[columns]);
 				blocks.push_back(key.second);
 				row_blocks.push_back(key.second);
@@ -662,7 +710,7 @@ namespace rsx::vr
 		std::map<u32, u32> linked_hits;
 		for (const draw_sample* s : views)
 		{
-			const slot_reader r{ s->ids, s->values, false };
+			const slot_reader r{s->ids, s->values, false};
 			std::optional<block_result> cam;
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
@@ -674,23 +722,32 @@ namespace rsx::vr
 					break;
 				}
 			}
-			if (!cam) continue;
+			if (!cam)
+				continue;
 			f64 scale = 0.0;
-			for (const auto& row : cam->m) for (const f64 v : row) scale = std::max(scale, std::fabs(v));
+			for (const auto& row : cam->m)
+				for (const f64 v : row)
+					scale = std::max(scale, std::fabs(v));
 			for (const u16 base : s->ids)
 			{
-				if (base + 3 >= cam_base && base <= cam_base + 3) continue;
+				if (base + 3 >= cam_base && base <= cam_base + 3)
+					continue;
 				const auto b = read_block(r, base, layout_of(cam_base));
-				if (!b || b->z_missing || !is_perspective(b->m)) continue;
+				if (!b || b->z_missing || !is_perspective(b->m))
+					continue;
 				f64 diff = 0.0;
-				for (u32 i = 0; i < 4; ++i) for (u32 j = 0; j < 4; ++j) diff = std::max(diff, std::fabs(b->m[i][j] - cam->m[i][j]));
-				if (diff <= 0.02 * scale) linked_hits[base]++;
+				for (u32 i = 0; i < 4; ++i)
+					for (u32 j = 0; j < 4; ++j)
+						diff = std::max(diff, std::fabs(b->m[i][j] - cam->m[i][j]));
+				if (diff <= 0.02 * scale)
+					linked_hits[base]++;
 			}
 		}
 		std::vector<u32> linked_blocks;
 		for (const auto& [base, hits] : linked_hits)
 		{
-			if (hits < 5) continue;
+			if (hits < 5)
+				continue;
 			vr_gen_log.notice("c[%u] holds another view of the camera beside it (%u draws, a previous-frame matrix for motion vectors): linked_camera_blocks.", base, hits);
 			linked_blocks.push_back(base);
 			// It passed the camera test too (Bayonetta's c[36]); as a camera block it would keep the game's view.
@@ -713,11 +770,12 @@ namespace rsx::vr
 		{
 			const bool scene = s->depth_test && !(s->textures & 2);
 			const bool pass = !s->depth_test && (s->textures & 2);
-			const slot_reader r{ s->ids, s->values, s->full_bank };
+			const slot_reader r{s->ids, s->values, s->full_bank};
 			for (const u32 base : blocks)
 			{
 				const auto b = read_block(r, base, layout_of(base));
-				if (!b || !is_perspective(b->m)) continue;
+				if (!b || !is_perspective(b->m))
+					continue;
 				if (scene)
 				{
 					nonrigid_scene_draws[base] += rigidity(b->m) > 0.3;
@@ -767,17 +825,17 @@ namespace rsx::vr
 		u32 eye_points = 0;
 		u32 static_eye_points = 0;
 		u32 covered_draws = 0;
-		std::map<u32, u32> bound_blocks; // camera block -> draws that bind it (the first listed block a draw reads)
+		std::map<u32, u32> bound_blocks;        // camera block -> draws that bind it (the first listed block a draw reads)
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		for (const draw_sample* s : views)
 		{
-			const slot_reader r{ s->ids, s->values, s->full_bank };
+			const slot_reader r{s->ids, s->values, s->full_bank};
 			std::optional<block_result> cam;
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
 			{
 				if (auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
-					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
+																   (!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					cam = b;
 					cam_base = base;
@@ -823,13 +881,15 @@ namespace rsx::vr
 				}
 				const f64 a = projection(cam->m).first;
 				bare_scale_a_by_width[s->width].push_back(a);
-				if (const auto n = near_plane(cam->m)) bare_near_planes.push_back(*n);
+				if (const auto n = near_plane(cam->m))
+					bare_near_planes.push_back(*n);
 			}
 			else if (rigidity(cam->m) <= rigid_tolerance)
 			{
 				const f64 a = projection(cam->m).first;
 				scale_a_by_width[s->width].push_back(a);
-				if (const auto n = near_plane(cam->m)) near_planes.push_back(*n);
+				if (const auto n = near_plane(cam->m))
+					near_planes.push_back(*n);
 				camera_target_aspect_error = std::max(camera_target_aspect_error,
 					std::fabs((static_cast<f64>(s->width) / s->height) / view_aspect - 1.0));
 			}
@@ -853,13 +913,16 @@ namespace rsx::vr
 				const f64 tolerance = 0.002 * std::max(1.0, std::sqrt((*e)[0] * (*e)[0] + (*e)[1] * (*e)[1] + (*e)[2] * (*e)[2]));
 				const auto check = [&](u32 slot, const std::array<f32, 4>& v)
 				{
-					if (slot >= cam_base && slot < cam_base + 4) return;
-					if (std::fabs(v[3] - 1.0) > 1e-4) return;
+					if (slot >= cam_base && slot < cam_base + 4)
+						return;
+					if (std::fabs(v[3] - 1.0) > 1e-4)
+						return;
 					const f64 d = std::sqrt((v[0] - (*e)[0]) * (v[0] - (*e)[0]) + (v[1] - (*e)[1]) * (v[1] - (*e)[1]) + (v[2] - (*e)[2]) * (v[2] - (*e)[2]));
 					if (d < tolerance)
 					{
 						position_hits[slot]++;
-						if (!s->full_bank) static_position_hits[slot]++;
+						if (!s->full_bank)
+							static_position_hits[slot]++;
 					}
 				};
 				if (s->full_bank)
@@ -868,12 +931,14 @@ namespace rsx::vr
 					// matrices, whose rows can match the eye point (Bayonetta: c[43] beat the real c[15]).
 					for (const u16 id : s->ids)
 					{
-						if (id < s->values.size()) check(id, s->values[id]);
+						if (id < s->values.size())
+							check(id, s->values[id]);
 					}
 				}
 				else
 				{
-					for (usz i = 0; i < s->ids.size(); ++i) check(s->ids[i], s->values[i]);
+					for (usz i = 0; i < s->ids.size(); ++i)
+						check(s->ids[i], s->values[i]);
 				}
 			}
 		}
@@ -882,8 +947,10 @@ namespace rsx::vr
 		// block (ICO; Anarchy Reigns: model-view c[20], projection c[4], and a few object-scaled
 		// MVPs in c[24] whose near plane is in object units), so the projection is the camera.
 		usz rigid_count = 0, bare_count = 0;
-		for (const auto& [width, values] : scale_a_by_width) rigid_count += values.size();
-		for (const auto& [width, values] : bare_scale_a_by_width) bare_count += values.size();
+		for (const auto& [width, values] : scale_a_by_width)
+			rigid_count += values.size();
+		for (const auto& [width, values] : bare_scale_a_by_width)
+			bare_count += values.size();
 		if (bare_count > rigid_count)
 		{
 			if (rigid_count)
@@ -921,7 +988,11 @@ namespace rsx::vr
 			usz most = 0;
 			for (const auto& [width, values] : scale_a_by_width)
 			{
-				if (values.size() > most) { most = values.size(); main_width = width; }
+				if (values.size() > most)
+				{
+					most = values.size();
+					main_width = width;
+				}
 			}
 			vr_gen_log.notice("No rigid camera draws at the output width %u: using the projection of %u-wide targets (%u draws).",
 				eye.width, main_width, static_cast<u32>(most));
@@ -951,14 +1022,22 @@ namespace rsx::vr
 		// include the base of its bone array, whose translation row can match the eye point
 		// (Bayonetta: c[43], bone 0, beat the real c[15]).
 		const bool use_static = static_eye_points >= 10 && std::any_of(static_position_hits.begin(), static_position_hits.end(),
-			[&](const auto& e) { return e.second >= std::max(10u, static_eye_points / 20); });
+															   [&](const auto& e)
+															   {
+																   return e.second >= std::max(10u, static_eye_points / 20);
+															   });
 		const auto& hits_used = use_static ? static_position_hits : position_hits;
-		if (use_static) eye_points = static_eye_points;
+		if (use_static)
+			eye_points = static_eye_points;
 		u32 position_slot = umax;
 		u32 best_hits = 0;
 		for (const auto& [slot, hits] : hits_used)
 		{
-			if (hits > best_hits) { best_hits = hits; position_slot = slot; }
+			if (hits > best_hits)
+			{
+				best_hits = hits;
+				position_slot = slot;
+			}
 		}
 		// Most draws fold an object matrix into the camera block, so their eye point
 		// is in object space and matches nothing; a real camera position still
@@ -989,21 +1068,28 @@ namespace rsx::vr
 		std::map<u32, u32> hud_hits, pass_hits, mask_hits;
 		for (const draw_sample* s : hud_views)
 		{
-			if (s->full_bank) continue;
-			const slot_reader r{ s->ids, s->values, false };
+			if (s->full_bank)
+				continue;
+			const slot_reader r{s->ids, s->values, false};
 			for (const u16 base : s->ids)
 			{
 				// A row_vector_blocks camera block is read in rows here too (Bayonetta's 2D draws use c[24..27]).
 				const u32 layout = layout_of(base);
 				auto b = read_block(r, base, layout);
-				if (!b && layout == layout_rows) b = read_flat_rows(r, base);
-				if (!b || (b->z_missing && layout != layout_rows) || is_perspective(b->m)) continue;
+				if (!b && layout == layout_rows)
+					b = read_flat_rows(r, base);
+				if (!b || (b->z_missing && layout != layout_rows) || is_perspective(b->m))
+					continue;
 				const f64 sx = std::fabs(b->m[0][0]), sy = std::fabs(b->m[1][1]);
-				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01)) continue;
+				if (!(sx > 0 && sx < 0.01 && sy > 0 && sy < 0.01))
+					continue;
 				// The renderer boxes a HUD draw sampling a small render target (Anarchy Reigns' gauge mask): HUD art.
-				if (s->textures & texture_view_target) pass_hits[base]++;
-				else if (s->textures & (texture_ordinary | texture_colour_target)) hud_hits[base]++;
-				if ((s->textures & texture_colour_target) && !(s->textures & texture_view_target)) mask_hits[base]++;
+				if (s->textures & texture_view_target)
+					pass_hits[base]++;
+				else if (s->textures & (texture_ordinary | texture_colour_target))
+					hud_hits[base]++;
+				if ((s->textures & texture_colour_target) && !(s->textures & texture_view_target))
+					mask_hits[base]++;
 			}
 		}
 		u32 hud_block = umax;
@@ -1013,7 +1099,11 @@ namespace rsx::vr
 		// would also box axis-aligned scene sprites.
 		for (const auto& [base, hits] : hud_hits)
 		{
-			if (!offaspect_projection && hits > hud_best) { hud_best = hits; hud_block = base; }
+			if (!offaspect_projection && hits > hud_best)
+			{
+				hud_best = hits;
+				hud_block = base;
+			}
 		}
 		// Full-screen passes reading the HUD block too: the renderer must leave them as drawn.
 		const bool hud_skips_passes = hud_block != umax && pass_hits.contains(hud_block);
@@ -1037,11 +1127,11 @@ namespace rsx::vr
 		// hud_programs (Ridge Racer 7 and SotC draw the HUD into the scene's final image).
 		const auto camera_draw = [&](const draw_sample& s)
 		{
-			const slot_reader r{ s.ids, s.values, s.full_bank };
+			const slot_reader r{s.ids, s.values, s.full_bank};
 			for (const u32 base : blocks)
 			{
 				if (const auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
-					(!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
+																		 (!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					return true;
 				}
@@ -1050,15 +1140,18 @@ namespace rsx::vr
 		};
 		const auto matrix_less = [&](const draw_sample& s)
 		{
-			if (s.full_bank) return false;
-			const slot_reader r{ s.ids, s.values, false };
+			if (s.full_bank)
+				return false;
+			const slot_reader r{s.ids, s.values, false};
 			for (const u16 base : s.ids)
 			{
 				for (u32 layout = 0; layout < layout_count; ++layout)
 				{
-					if (read_block(r, base, layout)) return false;
+					if (read_block(r, base, layout))
+						return false;
 				}
-				if (read_flat_rows(r, base)) return false;
+				if (read_flat_rows(r, base))
+					return false;
 			}
 			return true;
 		};
@@ -1121,14 +1214,15 @@ namespace rsx::vr
 				frame_camera_targets.clear(); // frame marker
 				continue;
 			}
-			if (!s.height) continue;
+			if (!s.height)
+				continue;
 			if (camera_draw(s))
 			{
 				frame_camera_targets.insert(s.target);
 				continue;
 			}
 			const bool full_frame = std::fabs((static_cast<f64>(s.width) / s.height) / output_aspect - 1.0) <= view_aspect_tolerance &&
-				s.width * 20u >= eye.width * 19u;
+			                        s.width * 20u >= eye.width * 19u;
 			if (!full_frame || s.depth_test || !(s.textures & texture_ordinary) || (s.textures & texture_colour_target) || !matrix_less(s))
 			{
 				continue;
@@ -1178,9 +1272,11 @@ namespace rsx::vr
 		std::vector<std::pair<u32, f64>> width_rules; // divisor, separation
 		for (const auto& [width, values] : scale_a_by_width)
 		{
-			if (width == main_width || !width || eye.width % width || values.size() < 3) continue;
+			if (width == main_width || !width || eye.width % width || values.size() < 3)
+				continue;
 			const f64 ratio = median(values) / a;
-			if (std::fabs(ratio - 1.0) <= 0.02) continue;
+			if (std::fabs(ratio - 1.0) <= 0.02)
+				continue;
 			width_rules.emplace_back(eye.width / width, separation * ratio);
 			vr_gen_log.notice("Targets %u wide use %.3fx the projection: own stereo rule.", width, ratio);
 		}
@@ -1190,7 +1286,8 @@ namespace rsx::vr
 		// and c[19], a window across a world and a view matrix that passed the camera test).
 		for (const u32 b : std::vector<u32>(blocks))
 		{
-			if (bound_blocks.contains(b)) continue;
+			if (bound_blocks.contains(b))
+				continue;
 			vr_gen_log.notice("c[%u] is never bound (its draws all read an earlier camera block): left out.", b);
 			std::erase(blocks, b);
 			std::erase(row_blocks, b);
@@ -1198,19 +1295,22 @@ namespace rsx::vr
 		}
 
 		std::string blocks_text;
-		for (const u32 b : blocks) blocks_text += fmt::format("%s%u", blocks_text.empty() ? "" : ", ", b);
+		for (const u32 b : blocks)
+			blocks_text += fmt::format("%s%u", blocks_text.empty() ? "" : ", ", b);
 
 		std::string json = "{\n";
 		json += "  \"schema\": 1,\n";
 		json += fmt::format("  \"title_id\": \"%s\",\n", title);
-		if (!Emu.GetAppVersion().empty()) json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
+		if (!Emu.GetAppVersion().empty())
+			json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
 		if (!Emu.GetTitle().empty())
 		{
 			// The game's name, so the file can be identified; quotes and backslashes escaped.
 			std::string name;
 			for (const char c : Emu.GetTitle())
 			{
-				if (c == '"' || c == '\\') name += '\\';
+				if (c == '"' || c == '\\')
+					name += '\\';
 				name += c;
 			}
 			json += fmt::format("  \"name\": \"%s\",\n", name);
@@ -1218,7 +1318,8 @@ namespace rsx::vr
 		if (max_fps)
 		{
 			json += fmt::format("  \"max_fps\": %u,\n  \"default_fps\": %u,\n", max_fps, max_fps);
-			if (vblanks_per_frame > 1) json += fmt::format("  \"vblanks_per_frame\": %u,\n", vblanks_per_frame);
+			if (vblanks_per_frame > 1)
+				json += fmt::format("  \"vblanks_per_frame\": %u,\n", vblanks_per_frame);
 		}
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
@@ -1227,36 +1328,47 @@ namespace rsx::vr
 		if (!row_blocks.empty())
 		{
 			std::string rows_text;
-			for (const u32 b : row_blocks) rows_text += fmt::format("%s%u", rows_text.empty() ? "" : ", ", b);
+			for (const u32 b : row_blocks)
+				rows_text += fmt::format("%s%u", rows_text.empty() ? "" : ", ", b);
 			json += fmt::format("  \"row_vector_blocks\": [%s],\n", rows_text);
 		}
 		if (!linked_blocks.empty())
 		{
 			std::string linked_text;
-			for (const u32 b : linked_blocks) linked_text += fmt::format("%s%u", linked_text.empty() ? "" : ", ", b);
+			for (const u32 b : linked_blocks)
+				linked_text += fmt::format("%s%u", linked_text.empty() ? "" : ", ", b);
 			json += fmt::format("  \"linked_camera_blocks\": [%s],\n", linked_text);
 		}
-		if (require_rigid) json += "  \"require_rigid_camera\": true,\n";
+		if (require_rigid)
+			json += "  \"require_rigid_camera\": true,\n";
 		if (!nonrigid_blocks.empty())
 		{
 			std::string nonrigid_text;
-			for (const u32 b : nonrigid_blocks) nonrigid_text += fmt::format("%s%u", nonrigid_text.empty() ? "" : ", ", b);
+			for (const u32 b : nonrigid_blocks)
+				nonrigid_text += fmt::format("%s%u", nonrigid_text.empty() ? "" : ", ", b);
 			json += fmt::format("  \"nonrigid_camera_blocks\": [%s],\n", nonrigid_text);
 		}
-		if (overlapping) json += "  \"require_camera_aspect\": true,\n";
+		if (overlapping)
+			json += "  \"require_camera_aspect\": true,\n";
 		// Indexed programs were sampled by the slots they read directly; the renderer gets their whole
 		// bank, where bone matrices can pass for a camera block (Dragon's Dogma: bones at c[3]).
-		if (std::any_of(samples.begin(), samples.end(), [](const draw_sample& s) { return s.indexed && !s.ids.empty(); }))
+		if (std::any_of(samples.begin(), samples.end(), [](const draw_sample& s)
+				{
+					return s.indexed && !s.ids.empty();
+				}))
 		{
 			json += "  \"camera_slots_read_directly\": true,\n";
 		}
 		const f64 aspect_tolerance_out = camera_target_aspect_error > 0.019 ? std::ceil((camera_target_aspect_error + 0.005) * 100.0) / 100.0 : 0.02;
 		json += fmt::format("  \"output_aspect_tolerance\": %s,\n", fmt_number(aspect_tolerance_out));
-		if (clip_space_scene_draws) json += "  \"clip_space_scene_draws\": true,\n";
-		if (view_aspect != output_aspect) json += fmt::format("  \"camera_target_aspect\": %s,\n", fmt_number(view_aspect));
+		if (clip_space_scene_draws)
+			json += "  \"clip_space_scene_draws\": true,\n";
+		if (view_aspect != output_aspect)
+			json += fmt::format("  \"camera_target_aspect\": %s,\n", fmt_number(view_aspect));
 		json += "\n";
 		json += "  \"camera_position\": {\n";
-		if (position_slot != umax) json += fmt::format("    \"slot\": %u,\n", position_slot);
+		if (position_slot != umax)
+			json += fmt::format("    \"slot\": %u,\n", position_slot);
 		json += fmt::format("    \"eye_baseline\": %s\n  },\n\n", fmt_number(baseline));
 		json += "  \"stereo\": {\n    \"formula\": \"clip_x_shear\",\n";
 		json += fmt::format("    \"per_eye_separation\": %s,\n    \"convergence\": %s", fmt_number(separation), fmt_number(convergence));
@@ -1283,21 +1395,30 @@ namespace rsx::vr
 		if (hud_block != umax || bare_projection || depth_offset_projection || offaspect_projection || passthrough_hud)
 		{
 			std::vector<std::string> entries;
-			if (passthrough_hud) entries.push_back("    \"passthrough_hud\": true");
+			if (passthrough_hud)
+				entries.push_back("    \"passthrough_hud\": true");
 			if (!hud_programs.empty())
 			{
 				std::string list;
-				for (const u64 p : hud_programs) list += fmt::format("%s\"%016llx\"", list.empty() ? "" : ", ", p);
+				for (const u64 p : hud_programs)
+					list += fmt::format("%s\"%016llx\"", list.empty() ? "" : ", ", p);
 				entries.push_back(fmt::format("    \"hud_programs\": [%s]", list));
 			}
-			if (hud_block != umax) entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
-			if (hud_skips_passes) entries.push_back("    \"hud_skips_passes\": true");
-			if (hud_box_after_shader) entries.push_back("    \"hud_box_after_shader\": true");
-			if (bare_projection) entries.push_back("    \"bare_projection\": true");
-			if (depth_offset_projection) entries.push_back("    \"depth_offset_projection\": true");
-			if (offaspect_projection) entries.push_back("    \"offaspect_projection\": true");
+			if (hud_block != umax)
+				entries.push_back(fmt::format("    \"orthographic_block\": %u", hud_block));
+			if (hud_skips_passes)
+				entries.push_back("    \"hud_skips_passes\": true");
+			if (hud_box_after_shader)
+				entries.push_back("    \"hud_box_after_shader\": true");
+			if (bare_projection)
+				entries.push_back("    \"bare_projection\": true");
+			if (depth_offset_projection)
+				entries.push_back("    \"depth_offset_projection\": true");
+			if (offaspect_projection)
+				entries.push_back("    \"offaspect_projection\": true");
 			json += ",\n\n  \"screen_space\": {\n";
-			for (usz i = 0; i < entries.size(); ++i) json += entries[i] + (i + 1 < entries.size() ? ",\n" : "\n");
+			for (usz i = 0; i < entries.size(); ++i)
+				json += entries[i] + (i + 1 < entries.size() ? ",\n" : "\n");
 			json += "  }";
 		}
 		json += "\n}\n";
@@ -1334,11 +1455,11 @@ namespace rsx::vr
 		{
 			g_cfg.video.vr.enabled.set(true);
 			Emu.CallFromMainThread([title]()
-			{
-				Emulator::SaveSettings(g_cfg.to_string(), title);
-			});
+				{
+					Emulator::SaveSettings(g_cfg.to_string(), title);
+				});
 		}
 
 		rsx::overlays::queue_message(localized_string_id::VR_PROFILE_CREATED, 8'000'000);
 	}
-}
+} // namespace rsx::vr

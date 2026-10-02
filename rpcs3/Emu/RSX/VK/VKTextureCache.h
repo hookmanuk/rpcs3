@@ -6,7 +6,8 @@
 #include "VKRenderPass.h"
 #include "vkutils/image_helpers.h"
 
-#include "../Capture/rsx_camera_probe.h"
+#include "../Capture/rsx_camera_probe.h" // VR fork
+#include <span>
 #include "../Common/texture_cache.h"
 #include "../Common/tiled_dma_copy.hpp"
 #include "../Utils/image_utils.hpp"
@@ -304,7 +305,7 @@ namespace vk
 			// Calculate smallest range to flush - for framebuffers, the raster region is enough
 			const auto range = (context == rsx::texture_upload_context::framebuffer_storage) ? get_section_range() : get_confirmed_range();
 
-			// VR: a depth readback the game uses for occlusion culling is answered at once with
+			// VR fork: a depth readback the game uses for occlusion culling is answered at once with
 			// far depth (the eye's depth would hide visible objects; see occlusion_depth_readback).
 			if (rsx::vr::occlusion_depth_readback(range.start, range.end))
 			{
@@ -314,7 +315,6 @@ namespace vk
 
 			// Synchronize, reset dma_fence after waiting
 			vk::wait_for_event(dma_fence.get(), GENERAL_WAIT_TIMEOUT);
-
 			auto flush_length = range.length();
 
 			const auto tiled_region = rsx::get_current_renderer()->get_tiled_memory_region(range);
@@ -550,7 +550,7 @@ namespace vk
 
 		vk::viewable_image* upload_image_simple(vk::command_buffer& cmd, VkFormat format, u32 address, u32 width, u32 height, u32 pitch);
 
-		// Dispose the previous flip's uploads (call at the start of a flip).
+		// VR fork: dispose the previous flip's uploads (call at the start of a flip).
 		void release_flip_uploads();
 
 		bool blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& m_rtts, vk::command_buffer& cmd);
@@ -558,6 +558,30 @@ namespace vk
 		// VR fork: repeat a blit inside the right-eye surface store. Only when both ends are
 		// surfaces there, and never flushed to guest memory (the left eye owns memory).
 		bool blit_vr_right(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate, vk::surface_cache& store, vk::command_buffer& cmd);
+
+		// VR fork: copy the unsynchronized sections overlapping range whose section range is listed (read back
+		// before), without asking the predictor. See VKGSRender::vr_before_prepare_rtts.
+		bool flush_listed_sections(vk::command_buffer& cmd, const utils::address_range32& range, std::span<const utils::address_range32> listed)
+		{
+			auto& block = m_storage.block_for(range);
+			if (block.empty())
+				return false;
+
+			reader_lock lock(m_cache_mutex);
+			bool result = false;
+			for (auto& region : block)
+			{
+				if (region.is_dirty() || region.is_synchronized() || !region.is_flushable() || !region.get_section_range().overlaps(range))
+					continue;
+				if (std::find(listed.begin(), listed.end(), region.get_section_range()) == listed.end())
+					continue;
+
+				lock.upgrade();
+				region.copy_texture(cmd, false);
+				result = true;
+			}
+			return result;
+		}
 
 		u32 get_unreleased_textures_count() const override;
 

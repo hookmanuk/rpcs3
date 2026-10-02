@@ -96,7 +96,7 @@ namespace rsx::vr
 	// A profile fragment_constant_overrides entry (see title_profile).
 	struct fragment_constant_override
 	{
-		u64 program = 0; // vertex program ucode hash
+		u64 program = 0;  // vertex program ucode hash
 		u32 constant = 0; // index into the fragment program's constants (_fetch_constant(n))
 		std::array<f32, 4> value{};
 	};
@@ -106,8 +106,8 @@ namespace rsx::vr
 	struct title_profile
 	{
 		std::string title_id;
-		std::string app_version;             // expected game version; a mismatch is logged
-		std::string name;                    // the game's name, for the settings (optional)
+		std::string app_version; // expected game version; a mismatch is logged
+		std::string name;        // the game's name, for the settings (optional)
 
 		// 4-slot camera matrices, tried in order; the first perspective one is
 		// the draw's camera.
@@ -162,7 +162,7 @@ namespace rsx::vr
 		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn
 		// without colour). Probe gamecam= tries candidates live.
 		std::vector<u64> game_camera_programs;
-		f32 output_aspect_tolerance = 0.f;  // camera views share the output aspect
+		f32 output_aspect_tolerance = 0.f; // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
 		// it to 16:9. 0 = the output aspect.
@@ -177,17 +177,17 @@ namespace rsx::vr
 		// both eyes: views that are not the player's, e.g. Blur's rear-view mirror.
 		std::vector<u32> game_camera_target_widths;
 
-		u32 camera_position_slot = umax;     // umax: the game has none
-		f32 eye_baseline = 0.f;              // native eye distance, world units
+		u32 camera_position_slot = umax; // umax: the game has none
+		f32 eye_baseline = 0.f;          // native eye distance, world units
 
 		// clip.x += sep * (clip.w - conv), sep = -/+ per_eye_separation.
 		struct stereo_rule
 		{
-			u32 output_width_divisor = 1;    // applies to targets output_width / divisor wide
+			u32 output_width_divisor = 1; // applies to targets output_width / divisor wide
 			f32 per_eye_separation = 0.f;
 			f32 convergence = 0.f;
 		};
-		stereo_rule stereo;                          // default
+		stereo_rule stereo; // default
 		std::vector<stereo_rule> stereo_by_target_width;
 
 		// Headset eyes offset by eye_baseline in world units, taken from each camera
@@ -202,7 +202,7 @@ namespace rsx::vr
 		// are per-object MVPs with different scales (Jak 1).
 		bool stereo_eye_offset_per_w = false;
 
-		u32 screen_space_block = umax;       // orthographic block => HUD/menu box
+		u32 screen_space_block = umax; // orthographic block => HUD/menu box
 		// The HUD block is read in rows whatever matrix_layout says (orthographic_block_layout "row_vectors"),
 		// for a HUD that stores its pixel matrix in the other layout from the scene's camera.
 		bool screen_space_block_rows = false;
@@ -254,7 +254,12 @@ namespace rsx::vr
 		std::vector<u64> screen_space_hud_programs;
 		// Draws never boxed, by vertex program ucode hash and the size of texture 0: full-screen overlays drawn with the
 		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
-		struct unboxed_draw { u64 program = 0; u16 width = 0; u16 height = 0; };
+		struct unboxed_draw
+		{
+			u64 program = 0;
+			u16 width = 0;
+			u16 height = 0;
+		};
 		std::vector<unboxed_draw> screen_space_unboxed_draws;
 		// A frame containing one of these draws (same match as unboxed_draws) is shown whole on the fixed screen, the
 		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
@@ -265,7 +270,13 @@ namespace rsx::vr
 		std::vector<unboxed_draw> hidden_draws;
 		// HUD draws resized about the game screen's centre before the HUD box (same match as unboxed_draws).
 		// Killzone HD's aiming reticule filled much of the headset view: 0.25.
-		struct scaled_draw { u64 program = 0; u16 width = 0; u16 height = 0; f32 scale = 1.f; };
+		struct scaled_draw
+		{
+			u64 program = 0;
+			u16 width = 0;
+			u16 height = 0;
+			f32 scale = 1.f;
+		};
 		std::vector<scaled_draw> screen_space_scaled_draws;
 		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
 		// lays its HUD out in 1920x1080 units and clears and fades the screen in 1280x720 pixels. Boxed,
@@ -286,7 +297,7 @@ namespace rsx::vr
 		// unscaled, at 600% that smeared every edge of the scene over about three pixels.
 		struct scaled_constants
 		{
-			u64 program = 0; // vertex program ucode hash
+			u64 program = 0;                 // vertex program ucode hash
 			std::vector<u16> constant_slots; // ("slots" in the file; a Qt macro in C++)
 		};
 		std::vector<scaled_constants> resolution_scaled_constants;
@@ -304,10 +315,15 @@ namespace rsx::vr
 		// displayed buffer holds no 3D content either; a paused game re-showing its last 3D frame (Pure, WipEout: the
 		// pause HUD was drawn twice on the screen) stays in the headset view. true: every frame without camera draws
 		// (Ico, Demon's Souls, God of War). false: never.
-		enum class frames_without_3d_mode : u8 { automatic, always, never };
+		enum class frames_without_3d_mode : u8
+		{
+			automatic,
+			always,
+			never
+		};
 		frames_without_3d_mode screen_space_frames_without_3d_as_screen = frames_without_3d_mode::automatic;
 
-		f32 reference_screen_width = 0.f;    // metres; 0 = no Fixed Screen depth scaling
+		f32 reference_screen_width = 0.f; // metres; 0 = no Fixed Screen depth scaling
 
 		// Frame rate in VR (with the default patches). max_fps: the most the game works at
 		// (0 = no maximum; ICO 30); the VR "Frame Rate" setting offers nothing above it.
@@ -371,7 +387,11 @@ namespace rsx::vr
 		// screen_frame_draws: for a front end drawn with the same programs and textures as gameplay, so no draw marks
 		// it (Super Stardust HD: its state word is 8 on the title, menus and game over, 9 in play and pause; the menus'
 		// 3D chrome text and slowly rolling background were uncomfortable in the headset).
-		struct screen_frames_when_rule { guest_address address; std::vector<u32> values; };
+		struct screen_frames_when_rule
+		{
+			guest_address address;
+			std::vector<u32> values;
+		};
 		std::vector<screen_frames_when_rule> screen_space_screen_frames_when;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
 		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
@@ -502,43 +522,90 @@ namespace rsx::vr
 		}
 
 		// Hot-path gate. False unless a perturbation is currently configured.
-		bool enabled() const { return m_active.load(); }
+		bool enabled() const
+		{
+			return m_active.load();
+		}
 		bool render_enabled() const;
 		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
-		const std::vector<std::pair<u64, u32>>& hidden_programs() const { return m_hidden_programs; }
-		u64 why_program() const { return m_why_program; } // probe why=<vertex hash>: log that program's VR classification
+		const std::vector<std::pair<u64, u32>>& hidden_programs() const
+		{
+			return m_hidden_programs;
+		}
+		u64 why_program() const
+		{
+			return m_why_program;
+		} // probe why=<vertex hash>: log that program's VR classification
 		// Probe gamecam=<hash>[+<hash>...]: these vertex programs keep the game camera in the right eye (development).
-		const std::vector<u64>& game_camera_programs() const { return m_game_camera_programs; }
+		const std::vector<u64>& game_camera_programs() const
+		{
+			return m_game_camera_programs;
+		}
 		// gamecam=<hash>@nocolor: only that program's draws with every colour write off (depth/stencil passes).
-		const std::vector<u64>& game_camera_nocolor_programs() const { return m_game_camera_nocolor_programs; }
+		const std::vector<u64>& game_camera_nocolor_programs() const
+		{
+			return m_game_camera_nocolor_programs;
+		}
 		// Probe "dev=<bits>": renderer switches for live A/B measurements (see their users). 0 unless set.
-		u32 dev_flags() const { return m_dev_flags; }
+		u32 dev_flags() const
+		{
+			return m_dev_flags;
+		}
 		// Probe "unboxfp=<id>[+<id>...]": fragment program session ids (inspector fp_session_id) left out of the HUD box.
-		bool unboxed_fragment_program(u32 id) const { return std::find(m_unbox_fp.begin(), m_unbox_fp.end(), id) != m_unbox_fp.end(); }
+		bool unboxed_fragment_program(u32 id) const
+		{
+			return std::find(m_unbox_fp.begin(), m_unbox_fp.end(), id) != m_unbox_fp.end();
+		}
 		// The draw about to be bound samples a colour render target (post-processing).
-		void set_draw_samples_colour_target(bool v) const { m_draw_samples_colour_target = v; }
+		void set_draw_samples_colour_target(bool v) const
+		{
+			m_draw_samples_colour_target = v;
+		}
 		// Any colour render target, also a small one (a luminance chain, a mask): see m_draw_samples_any_colour_target.
-		void set_draw_samples_any_colour_target(bool v) const { m_draw_samples_any_colour_target = v; }
-		void set_draw_into_display_buffer(bool v) const { m_draw_into_display_buffer = v; }
-		// The vertex program ucode hash of the draw about to be bound (only set while the profile needs it).
+		void set_draw_samples_any_colour_target(bool v) const
+		{
+			m_draw_samples_any_colour_target = v;
+		}
+		void set_draw_into_display_buffer(bool v) const
+		{
+			m_draw_into_display_buffer = v;
+		}
 		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
-		bool hud_env_requested() const { return m_hud_env_request; }
+		bool hud_env_requested() const
+		{
+			return m_hud_env_request;
+		}
 		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
 		// rear-view mirror's) moves into the box with the draws. rect: host pixels x1, y1, x2, y2, in
 		// the left eye; right_rect receives the right eye's (shifted by the HUD parallax).
 		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4]) const;
-		void clear_hud_env_request() const { m_hud_env_request = false; }
+		void clear_hud_env_request() const
+		{
+			m_hud_env_request = false;
+		}
 		// The draw about to be bound has depth test enabled.
-		void set_draw_depth_test(bool v) const { m_draw_depth_test = v; }
+		void set_draw_depth_test(bool v) const
+		{
+			m_draw_depth_test = v;
+		}
 		// Profile screen_space.scaled_draws: this draw's size factor in the HUD box (1 = as drawn).
-		void set_draw_hud_scale(f32 v) const { m_draw_hud_scale = v; }
+		void set_draw_hud_scale(f32 v) const
+		{
+			m_draw_hud_scale = v;
+		}
 		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
 		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
 		// anything the game parked outside its screen stays clipped. Call clear before each eye.
-		void clear_box_mapped() const { m_box_mapped = false; }
+		void clear_box_mapped() const
+		{
+			m_box_mapped = false;
+		}
 		// The draw just bound (since clear_box_mapped) was mapped into the HUD box through its constants.
-		bool box_mapped() const { return m_box_mapped; }
+		bool box_mapped() const
+		{
+			return m_box_mapped;
+		}
 		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
 		bool scene_draws_by_clip_space() const;
@@ -568,7 +635,10 @@ namespace rsx::vr
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 
 		// Human-readable description of the active probe, for logging.
-		const std::string& description() const { return m_description; }
+		const std::string& description() const
+		{
+			return m_description;
+		}
 
 		// The running title's VR profile, loaded on first use for each title.
 		// Null when the title has none.
@@ -609,7 +679,10 @@ namespace rsx::vr
 		// (including fov_scale). False until a rigid camera block has been seen.
 		// Also the readiness test for the headset-FOV remap.
 		bool get_vr_fov(f32& tan_half_x, f32& tan_half_y) const;
-		bool vr_hud_fixed() const { return m_vr_hud_fixed; }
+		bool vr_hud_fixed() const
+		{
+			return m_vr_hud_fixed;
+		}
 
 	private:
 		camera_probe();
@@ -620,8 +693,8 @@ namespace rsx::vr
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 		void map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const;
 
-		bool m_enabled = false;          // subsystem on (default render path or probe config)
-		atomic_t<bool> m_active{false};  // a perturbation is configured right now
+		bool m_enabled = false;         // subsystem on (default render path or probe config)
+		atomic_t<bool> m_active{false}; // a perturbation is configured right now
 
 		std::string m_config_path;
 		u64 m_config_stamp = 0;
@@ -661,7 +734,7 @@ namespace rsx::vr
 		std::vector<u64> m_game_camera_nocolor_programs;
 		u32 m_dev_flags = 0;
 		std::vector<u32> m_unbox_fp;
-		s32 m_scene_override = -1;           // probe file scene=0/1; -1 = the profile's
+		s32 m_scene_override = -1; // probe file scene=0/1; -1 = the profile's
 		mutable bool m_draw_samples_colour_target = false;
 		// A bare-projection quad sampling any colour render target is a pass (The Darkness' HDR luminance chain
 		// reads 324x18 targets); the HUD ortho path counts only view-shaped ones (m_draw_samples_colour_target).
@@ -699,8 +772,8 @@ namespace rsx::vr
 		// fixed screen-space box, which lives at a known distance.
 		std::array<f32, 3> m_vr_head_units{};
 		std::array<f32, 3> m_vr_head_m{};
-		f32 m_vr_hud_depth = 0.f;   // metres
-		f32 m_vr_hud_parallax = 0.f; // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
+		f32 m_vr_hud_depth = 0.f;         // metres
+		f32 m_vr_hud_parallax = 0.f;      // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
 		f32 m_vr_eye_fov[2][4]{};         // rendered
 		f32 m_vr_eye_fov_visible[2][4]{}; // shown by the headset
 		// Projection x/y scales relative to w, from the latest rigid camera block.
@@ -745,11 +818,11 @@ namespace rsx::vr
 		// latest camera draw. False when the program is not listed or no camera draw
 		// was transformed yet.
 		bool map_vr_preprojected(f32 m[4][4], f32 eye_sign, u64 program_hash) const;
-	private:
 
+	private:
 		bool m_have_xform = false;
 		bool m_require_cam = false;
-		bool m_column_vectors = false;  // layout=columns (probe only; profiles set their own)
+		bool m_column_vectors = false; // layout=columns (probe only; profiles set their own)
 
 		// One-frame classifier report, logged on the first full frame after arming.
 		mutable atomic_t<u32> m_stat_perturbed{0};
@@ -763,4 +836,4 @@ namespace rsx::vr
 		u32 m_raw_comp = 0;
 		f32 m_raw_add = 0.f;
 	};
-}
+} // namespace rsx::vr

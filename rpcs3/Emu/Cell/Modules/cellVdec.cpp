@@ -1432,7 +1432,10 @@ static error_code vdecOpen(ppu_thread& ppu, T type, U res, vm::cptr<CellVdecCb> 
 u32 vdec_open_count()
 {
 	u32 count = 0;
-	idm::select<vdec_context>([&](u32, vdec_context&) { count++; });
+	idm::select<vdec_context>([&](u32, vdec_context&)
+		{
+			count++;
+		});
 	return count;
 }
 

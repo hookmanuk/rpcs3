@@ -50,7 +50,7 @@ namespace rsx
 			const std::vector<u16>* constant_ids = nullptr;
 			bool has_indexed_constants = false;
 			u32 vp_session_id = 0;
-			u32 fp_session_id = 0;   // shaderlog/FragmentProgram<id> with "Log shader programs"
+			u32 fp_session_id = 0; // shaderlog/FragmentProgram<id> with "Log shader programs"
 
 			const framebuffer_layout* framebuffer = nullptr;
 		};
@@ -61,10 +61,16 @@ namespace rsx
 			static stereo_inspector& get();
 
 			// Hot-path gate. False unless RPCS3_STEREO_INSPECT was set.
-			bool enabled() const { return m_enabled; }
+			bool enabled() const
+			{
+				return m_enabled;
+			}
 
 			// True only during the single armed frame.
-			bool capturing() const { return m_capturing.load(); }
+			bool capturing() const
+			{
+				return m_capturing.load();
+			}
 
 			// Frame boundary: finalize an in-flight capture, then arm if requested.
 			void on_frame_end();
@@ -102,5 +108,5 @@ namespace rsx
 			u32 m_vk_draw_commands = 0;
 			std::unordered_set<usz> m_seen_shaders;
 		};
-	}
-}
+	} // namespace vr
+} // namespace rsx

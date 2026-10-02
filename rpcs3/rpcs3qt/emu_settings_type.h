@@ -85,16 +85,6 @@ enum class emu_settings_type
 	StereoRenderEnabled,
 	StereoRenderMode,
 	ScreenSize,
-	VREnabled,
-	VRHudFixed,
-	VRFixedScreen,
-	VRFrameRate,
-	VRScreenDepth,
-	VRHudScale,
-	VRHudOffsetX,
-	VRHudOffsetY,
-	VRCameraDepth,
-	VRReprojectionMargin,
 	AnisotropicFilterOverride,
 	TextureLodBias,
 	ResolutionScale,
@@ -246,6 +236,18 @@ enum class emu_settings_type
 
 	// Log
 	Log,
+
+	// VR fork
+	VREnabled,
+	VRHudFixed,
+	VRFixedScreen,
+	VRFrameRate,
+	VRScreenDepth,
+	VRHudScale,
+	VRHudOffsetX,
+	VRHudOffsetY,
+	VRCameraDepth,
+	VRReprojectionMargin,
 };
 
 /** A helper map that keeps track of where a given setting type is located*/

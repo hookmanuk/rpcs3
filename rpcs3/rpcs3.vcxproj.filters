@@ -582,7 +582,13 @@
     <ClCompile Include="QTGeneratedFiles\Debug\moc_anaglyph_settings_dialog.cpp">
       <Filter>Generated Files\Debug</Filter>
     </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Debug\moc_vr_settings_widget.cpp">
+      <Filter>Generated Files\Debug</Filter>
+    </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Release\moc_anaglyph_settings_dialog.cpp">
+      <Filter>Generated Files\Release</Filter>
+    </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Release\moc_vr_settings_widget.cpp">
       <Filter>Generated Files\Release</Filter>
     </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Debug\moc_guest_memory_dumper.cpp">
@@ -727,6 +733,9 @@
       <Filter>Io\DS3</Filter>
     </ClCompile>
     <ClCompile Include="Input\keyboard_pad_handler.cpp">
+      <Filter>Io\Keyboard</Filter>
+    </ClCompile>
+    <ClCompile Include="Input\keyboard_pad_handler_vr.cpp">
       <Filter>Io\Keyboard</Filter>
     </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Debug\moc_tooltips.cpp">
@@ -1320,6 +1329,9 @@
     <ClCompile Include="rpcs3qt\anaglyph_settings_dialog.cpp">
       <Filter>Gui\settings</Filter>
     </ClCompile>
+    <ClCompile Include="rpcs3qt\vr_settings_widget.cpp">
+      <Filter>Gui\settings</Filter>
+    </ClCompile>
     <ClCompile Include="rpcs3qt\guest_memory_dumper.cpp">
       <Filter>Gui\utils</Filter>
     </ClCompile>
@@ -1592,6 +1604,9 @@
       <Filter>Resource Files</Filter>
     </CustomBuild>
     <CustomBuild Include="rpcs3qt\about_dialog.ui">
+      <Filter>Form Files</Filter>
+    </CustomBuild>
+    <CustomBuild Include="rpcs3qt\vr_settings_widget.ui">
       <Filter>Form Files</Filter>
     </CustomBuild>
     <CustomBuild Include="rpcs3qt\main_window.ui">
@@ -1943,6 +1958,9 @@
       <Filter>Gui\game list</Filter>
     </CustomBuild>
     <CustomBuild Include="rpcs3qt\anaglyph_settings_dialog.h">
+      <Filter>Gui\settings</Filter>
+    </CustomBuild>
+    <CustomBuild Include="rpcs3qt\vr_settings_widget.h">
       <Filter>Gui\settings</Filter>
     </CustomBuild>
     <CustomBuild Include="rpcs3qt\guest_memory_dumper.h">

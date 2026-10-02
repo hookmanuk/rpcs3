@@ -214,6 +214,7 @@
     <ClCompile Include="Input\ds4_pad_handler.cpp" />
     <ClCompile Include="Input\evdev_joystick_handler.cpp" />
     <ClCompile Include="Input\keyboard_pad_handler.cpp" />
+    <ClCompile Include="Input\keyboard_pad_handler_vr.cpp" />
     <ClCompile Include="Input\mm_joystick_handler.cpp" />
     <ClCompile Include="Input\pad_thread.cpp" />
     <ClCompile Include="Input\product_info.cpp" />
@@ -228,6 +229,9 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Debug\moc_anaglyph_settings_dialog.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Debug\moc_vr_settings_widget.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Debug\moc_guest_memory_dumper.cpp">
@@ -545,6 +549,9 @@
     <ClCompile Include="QTGeneratedFiles\Release\moc_anaglyph_settings_dialog.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="QTGeneratedFiles\Release\moc_vr_settings_widget.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="QTGeneratedFiles\Release\moc_guest_memory_dumper.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
@@ -845,6 +852,7 @@
     <ClCompile Include="rpcs3.cpp" />
     <ClCompile Include="rpcs3qt\about_dialog.cpp" />
     <ClCompile Include="rpcs3qt\anaglyph_settings_dialog.cpp" />
+    <ClCompile Include="rpcs3qt\vr_settings_widget.cpp" />
     <ClCompile Include="rpcs3qt\auto_scroll_label.cpp" />
     <ClCompile Include="rpcs3qt\basic_mouse_settings_dialog.cpp" />
     <ClCompile Include="rpcs3qt\breakpoint_handler.cpp" />
@@ -1003,6 +1011,7 @@
     <ClInclude Include="Input\gui_pad_thread.h" />
     <ClInclude Include="Input\hid_pad_handler.h" />
     <ClInclude Include="Input\keyboard_pad_handler.h" />
+    <ClInclude Include="Input\keyboard_pad_handler_vr.inl" />
     <CustomBuild Include="rpcs3qt\gs_frame.h">
       <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Moc%27ing gs_frame.h...</Message>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp</Outputs>
@@ -1207,6 +1216,16 @@
     </CustomBuild>
     <ClInclude Include="rpcs3.h" />
     <CustomBuild Include="rpcs3qt\anaglyph_settings_dialog.h">
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(QTDIR)\bin\moc.exe;%(FullPath)</AdditionalInputs>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Moc%27ing %(Identity)...</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"$(QTDIR)\bin\moc.exe"  "%(FullPath)" -o ".\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp"  -D_WINDOWS -DUNICODE -DWIN32 -DWIN64 -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -DQT_CONCURRENT_LIB -D%(PreprocessorDefinitions)  "-I.\..\3rdparty\wolfssl\wolfssl" "-I.\..\3rdparty\curl\curl\include" "-I.\..\3rdparty\libusb\libusb\libusb" "-I$(VULKAN_SDK)\Include" "-I$(QTDIR)\include" "-I$(QTDIR)\include\QtWidgets" "-I$(QTDIR)\include\QtGui" "-I$(QTDIR)\include\QtCore" "-I.\debug" "-I.\QTGeneratedFiles\$(ConfigurationName)" "-I.\QTGeneratedFiles" "-I$(QTDIR)\include\QtConcurrent"</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(QTDIR)\bin\moc.exe;%(FullPath)</AdditionalInputs>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Moc%27ing %(Identity)...</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"$(QTDIR)\bin\moc.exe"  "%(FullPath)" -o ".\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp"  -D_WINDOWS -DUNICODE -DWIN32 -DWIN64 -DWITH_DISCORD_RPC -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_CORE_LIB -DNDEBUG -DQT_CONCURRENT_LIB -D%(PreprocessorDefinitions)  "-I.\..\3rdparty\wolfssl\wolfssl" "-I.\..\3rdparty\curl\curl\include" "-I.\..\3rdparty\libusb\libusb\libusb" "-I$(VULKAN_SDK)\Include" "-I$(QTDIR)\include" "-I$(QTDIR)\include\QtWidgets" "-I$(QTDIR)\include\QtGui" "-I$(QTDIR)\include\QtCore" "-I.\release" "-I.\QTGeneratedFiles\$(ConfigurationName)" "-I.\QTGeneratedFiles" "-I$(QTDIR)\include\QtConcurrent"</Command>
+    </CustomBuild>
+    <CustomBuild Include="rpcs3qt\vr_settings_widget.h">
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(QTDIR)\bin\moc.exe;%(FullPath)</AdditionalInputs>
       <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Moc%27ing %(Identity)...</Message>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.\QTGeneratedFiles\$(ConfigurationName)\moc_%(Filename).cpp</Outputs>
@@ -2123,6 +2142,16 @@
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="rpcs3qt\about_dialog.ui">
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(QTDIR)\bin\uic.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Uic%27ing %(Identity)...</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.\QTGeneratedFiles\ui_%(Filename).h;%(Outputs)</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"$(QTDIR)\bin\uic.exe" -o ".\QTGeneratedFiles\ui_%(Filename).h" "%(FullPath)"</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(QTDIR)\bin\uic.exe;%(AdditionalInputs)</AdditionalInputs>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Uic%27ing %(Identity)...</Message>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.\QTGeneratedFiles\ui_%(Filename).h;%(Outputs)</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"$(QTDIR)\bin\uic.exe" -o ".\QTGeneratedFiles\ui_%(Filename).h" "%(FullPath)"</Command>
+    </CustomBuild>
+    <CustomBuild Include="rpcs3qt\vr_settings_widget.ui">
       <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(QTDIR)\bin\uic.exe;%(AdditionalInputs)</AdditionalInputs>
       <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Uic%27ing %(Identity)...</Message>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.\QTGeneratedFiles\ui_%(Filename).h;%(Outputs)</Outputs>

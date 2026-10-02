@@ -10,7 +10,7 @@ namespace vk
 {
 	class command_buffer;
 	class image;
-}
+} // namespace vk
 
 // Gate 6 first light: present the generated stereo pair to an OpenXR headset.
 //
@@ -87,10 +87,10 @@ namespace vk::xr
 	// Projection mode (default; RPCS3_OPENXR_MODE=quad selects the virtual screen).
 	bool projection_mode();
 	bool fake_hmd(); // RPCS3_VR_FAKE_HMD: headset view rendered on the desktop without a session (development)
-	f32 eye_scale();  // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
-	f32 fov_scale();  // RPCS3_OPENXR_FOV_SCALE, game-FOV mode only
-	bool hmd_fov();   // RPCS3_OPENXR_FOV=game keeps the game's FOV; default renders the headset's
-	bool flip_y();    // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
+	f32 eye_scale(); // RPCS3_OPENXR_EYE_SCALE, default 1 (the game's own separation)
+	f32 fov_scale(); // RPCS3_OPENXR_FOV_SCALE, game-FOV mode only
+	bool hmd_fov();  // RPCS3_OPENXR_FOV=game keeps the game's FOV; default renders the headset's
+	bool flip_y();   // RPCS3_OPENXR_FLIP_Y=1 if head pitch/roll come out inverted
 
 	// Locate the head for the next game frame (predicted one 60 Hz frame after
 	// the latest headset display time). Returns its id for commit_eyes() (the
@@ -123,4 +123,4 @@ namespace vk::xr
 	// centred at (x, y, -distance) in LOCAL space, or in VIEW space (following the
 	// head) when !world_locked. Takes effect on the next headset frame.
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance);
-}
+} // namespace vk::xr

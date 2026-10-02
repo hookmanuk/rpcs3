@@ -45,7 +45,7 @@ namespace rsx::vr
 			{
 				switch (c)
 				{
-				case '"':  out += "\\\""; break;
+				case '"': out += "\\\""; break;
 				case '\\': out += "\\\\"; break;
 				case '\n': out += "\\n"; break;
 				case '\r': out += "\\r"; break;
@@ -68,24 +68,27 @@ namespace rsx::vr
 		}
 
 		// Emits one constant slot as its original guest index, raw bits, and floats.
-		void append_constant(std::ostringstream& os, u32 guest_index, const u32(&slot)[4], bool first)
+		void append_constant(std::ostringstream& os, u32 guest_index, const u32 (&slot)[4], bool first)
 		{
-			if (!first) os << ',';
+			if (!first)
+				os << ',';
 			os << "{\"c\":" << guest_index << ",\"raw\":[";
 			for (int i = 0; i < 4; ++i)
 			{
-				if (i) os << ',';
+				if (i)
+					os << ',';
 				os << slot[i];
 			}
 			os << "],\"f\":[";
 			for (int i = 0; i < 4; ++i)
 			{
-				if (i) os << ',';
+				if (i)
+					os << ',';
 				os << json_float(std::bit_cast<f32>(slot[i]));
 			}
 			os << "]}";
 		}
-	}
+	} // namespace
 
 	stereo_inspector& stereo_inspector::get()
 	{
@@ -161,7 +164,8 @@ namespace rsx::vr
 		if (++s_arm_poll % 30 == 0 && fs::is_file(m_arm_path))
 		{
 			std::string count;
-			if (fs::file f{m_arm_path}) count = f.to_string();
+			if (fs::file f{m_arm_path})
+				count = f.to_string();
 			if (!fs::remove_file(m_arm_path))
 			{
 				vr_log.error("Could not consume arm file '%s'; refusing to capture to avoid a runaway trace.", m_arm_path);
@@ -201,14 +205,14 @@ namespace rsx::vr
 		   << ",\"app_version\":\"" << json_escape(Emu.GetAppVersion()) << '"'
 		   << ",\"capture_frame\":" << m_capture_frame
 		   << ",\"avconf\":{"
-		   <<   "\"stereo_enabled\":" << (avconf.stereo_enabled ? "true" : "false")
-		   <<   ",\"resolution_id\":" << static_cast<u32>(avconf.resolution_id)
-		   <<   ",\"resolution_x\":" << avconf.resolution_x
-		   <<   ",\"resolution_y\":" << avconf.resolution_y
-		   <<   ",\"eye_width\":" << eye_size.width
-		   <<   ",\"eye_height\":" << eye_size.height
-		   <<   ",\"format\":" << static_cast<u32>(avconf.format)
-		   <<   ",\"aspect\":" << static_cast<u32>(avconf.aspect)
+		   << "\"stereo_enabled\":" << (avconf.stereo_enabled ? "true" : "false")
+		   << ",\"resolution_id\":" << static_cast<u32>(avconf.resolution_id)
+		   << ",\"resolution_x\":" << avconf.resolution_x
+		   << ",\"resolution_y\":" << avconf.resolution_y
+		   << ",\"eye_width\":" << eye_size.width
+		   << ",\"eye_height\":" << eye_size.height
+		   << ",\"format\":" << static_cast<u32>(avconf.format)
+		   << ",\"aspect\":" << static_cast<u32>(avconf.aspect)
 		   << "}}";
 
 		m_capturing = true;
@@ -294,7 +298,8 @@ namespace rsx::vr
 			bool first = true;
 			for (u16 id : *in.constant_ids)
 			{
-				if (!first) os << ',';
+				if (!first)
+					os << ',';
 				os << id;
 				first = false;
 			}
@@ -348,8 +353,10 @@ namespace rsx::vr
 		for (u32 i = 0, n = 0; i < rsx::limits::fragment_textures_count; ++i)
 		{
 			const auto& tex = regs.fragment_textures[i];
-			if (!tex.enabled()) continue;
-			if (n++) os << ',';
+			if (!tex.enabled())
+				continue;
+			if (n++)
+				os << ',';
 			os << "{\"unit\":" << i << ",\"address\":" << rsx::get_address(tex.offset(), tex.location())
 			   << ",\"width\":" << tex.width() << ",\"height\":" << tex.height() << ",\"format\":" << static_cast<u32>(tex.format()) << '}';
 		}
@@ -360,19 +367,22 @@ namespace rsx::vr
 		os << ",\"rt\":{\"color_addresses\":[";
 		for (int i = 0; i < 4; ++i)
 		{
-			if (i) os << ',';
+			if (i)
+				os << ',';
 			os << fb.color_addresses[i];
 		}
 		os << "],\"color_pitch\":[";
 		for (int i = 0; i < 4; ++i)
 		{
-			if (i) os << ',';
+			if (i)
+				os << ',';
 			os << fb.color_pitch[i];
 		}
 		os << "],\"color_write_enabled\":[";
 		for (int i = 0; i < 4; ++i)
 		{
-			if (i) os << ',';
+			if (i)
+				os << ',';
 			os << (fb.color_write_enabled[i] ? "true" : "false");
 		}
 		os << "],\"zeta_address\":" << fb.zeta_address
@@ -388,14 +398,14 @@ namespace rsx::vr
 
 		// Render state used by the draw classifier.
 		os << ",\"state\":{"
-		   <<   "\"viewport\":[" << regs.viewport_origin_x() << ',' << regs.viewport_origin_y()
-		   <<     ',' << regs.viewport_width() << ',' << regs.viewport_height() << ']'
-		   <<   ",\"scissor\":[" << regs.scissor_origin_x() << ',' << regs.scissor_origin_y()
-		   <<     ',' << regs.scissor_width() << ',' << regs.scissor_height() << ']'
-		   <<   ",\"depth_test\":" << (regs.depth_test_enabled() ? "true" : "false")
-		   <<   ",\"depth_write\":" << (regs.depth_write_enabled() ? "true" : "false")
-		   <<   ",\"depth_func\":" << static_cast<u32>(regs.depth_func())
-		   <<   ",\"blend\":" << (regs.blend_enabled() ? "true" : "false")
+		   << "\"viewport\":[" << regs.viewport_origin_x() << ',' << regs.viewport_origin_y()
+		   << ',' << regs.viewport_width() << ',' << regs.viewport_height() << ']'
+		   << ",\"scissor\":[" << regs.scissor_origin_x() << ',' << regs.scissor_origin_y()
+		   << ',' << regs.scissor_width() << ',' << regs.scissor_height() << ']'
+		   << ",\"depth_test\":" << (regs.depth_test_enabled() ? "true" : "false")
+		   << ",\"depth_write\":" << (regs.depth_write_enabled() ? "true" : "false")
+		   << ",\"depth_func\":" << static_cast<u32>(regs.depth_func())
+		   << ",\"blend\":" << (regs.blend_enabled() ? "true" : "false")
 		   << "}";
 
 		// Transform constants, by ORIGINAL guest index (c[0]..c[467]).
@@ -437,4 +447,4 @@ namespace rsx::vr
 
 		write_line(os.str());
 	}
-}
+} // namespace rsx::vr

@@ -5,7 +5,10 @@
 #include "vkutils/image.h"
 #include "vkutils/image_helpers.h"
 #include "../Capture/rsx_camera_probe.h"
+#include "Utilities/Thread.h"
 
+// Configuration macros read by openxr.h: no prototypes (the loader below resolves every
+// function at run time) and the Vulkan graphics binding. These have to be preprocessor defines.
 #define XR_NO_PROTOTYPES
 #define XR_USE_GRAPHICS_API_VULKAN
 #include "../../../../3rdparty/OpenXR/include/openxr/openxr.h"
@@ -21,6 +24,8 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
+#include <memory>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -47,7 +52,7 @@ namespace vk::xr
 			VkImage image[2]{};
 			VkDeviceMemory memory[2]{};
 			bool pose_valid = false;
-			XrQuaternionf orientation{ 0.f, 0.f, 0.f, 1.f };
+			XrQuaternionf orientation{0.f, 0.f, 0.f, 1.f};
 			XrVector3f eye_position[2]{};
 			XrFovf eye_fov[2]{};
 			bool have_fov = false;
@@ -67,8 +72,8 @@ namespace vk::xr
 			XrSpace space = XR_NULL_HANDLE;
 			XrSpace view_space = XR_NULL_HANDLE;
 			XrSessionState session_state = XR_SESSION_STATE_UNKNOWN;
-			std::atomic<bool> session_running{ false };
-			std::atomic<bool> lost{ false };
+			std::atomic<bool> session_running{false};
+			std::atomic<bool> lost{false};
 
 			std::vector<std::string> instance_exts;
 			std::vector<std::string> device_exts;
@@ -122,21 +127,21 @@ namespace vk::xr
 			VkFence ready_fences[8]{};
 			bool ready_submitted[8]{};
 			u32 ready_next = 0;
-			s32 ready_pending = -1;               // under slot_mutex: fence of the last publishing flip
-			s32 overlay_ready[3]{ -1, -1, -1 };   // under slot_mutex
-			std::thread thread;
-			std::atomic<bool> stop{ false };
+			s32 ready_pending = -1;                                      // under slot_mutex: fence of the last publishing flip
+			s32 overlay_ready[3]{-1, -1, -1};                            // under slot_mutex
+			std::unique_ptr<named_thread<std::function<void()>>> thread; // the frame thread (xrWaitFrame/xrEndFrame never run on the RSX thread)
+			std::atomic<bool> stop{false};
 
 			std::mutex slot_mutex;
 			std::condition_variable slot_cv;
-			u64 commit_seq = 0;  // bumped by commit_eyes(); the frame thread paces on it
+			u64 commit_seq = 0; // bumped by commit_eyes(); the frame thread paces on it
 			slot_t slots[3];
 			u32 slot_w = 0;
 			u32 slot_h = 0;
 			VkFormat slot_format = VK_FORMAT_UNDEFINED;
-			s32 latest = -1;   // newest committed slot
-			s32 in_use = -1;   // slot the frame thread is copying from
-			s32 writing = -1;  // slot the RSX thread is filling
+			s32 latest = -1;  // newest committed slot
+			s32 in_use = -1;  // slot the frame thread is copying from
+			s32 writing = -1; // slot the RSX thread is filling
 
 			// Presentation of the virtual stereo screen (metres, LOCAL space)
 			f32 screen_distance = 2.0f;
@@ -155,26 +160,27 @@ namespace vk::xr
 			bool flip_y = false;
 			bool hmd_fov = true;
 			bool position_tracking = true;
-			std::atomic<XrTime> last_display_time{ 0 };
+			std::atomic<XrTime> last_display_time{0};
 			// Display refresh rate, only from XR_FB_display_refresh_rate. Not from
 			// XrFrameState::predictedDisplayPeriod: that is the app's pacing, a multiple
 			// of the refresh period whenever the app runs late (SteamVR reports
 			// 45/30/22.5 Hz), and following it spirals the game down.
-			bool fb_refresh_rate = false;  // extension enabled
-			f32 fb_display_hz = 0.f;       // updated on change events
+			bool fb_refresh_rate = false; // extension enabled
+			f32 fb_display_hz = 0.f;      // updated on change events
 			f32 ipd = 0.063f;
 			// Recently located render poses, by id (RSX thread). A game frame is declared
 			// with the pose its camera draws used, which need not be the newest one.
 			struct render_pose_t
 			{
 				u32 id = 0;
-				XrQuaternionf orientation{ 0.f, 0.f, 0.f, 1.f };
+				XrQuaternionf orientation{0.f, 0.f, 0.f, 1.f};
 				XrVector3f eye_position[2]{};
 				XrFovf eye_fov[2]{};
 			};
 			render_pose_t render_poses[8]{};
 			u32 render_pose_count = 0;
 
+// Declares the function pointer of an OpenXR entry point (token pasting: a macro by necessity).
 #define XR_FN(name) PFN_##name name = nullptr
 			XR_FN(xrCreateInstance);
 			XR_FN(xrDestroyInstance);
@@ -219,14 +225,18 @@ namespace vk::xr
 		// External synchronization of the OpenXR queue (the runtime's calls and our submits).
 		void lock_queue()
 		{
-			if (g_xr.own_queue) g_xr.queue_mutex.lock();
-			else vk::acquire_global_submit_lock();
+			if (g_xr.own_queue)
+				g_xr.queue_mutex.lock();
+			else
+				vk::acquire_global_submit_lock();
 		}
 
 		void unlock_queue()
 		{
-			if (g_xr.own_queue) g_xr.queue_mutex.unlock();
-			else vk::release_global_submit_lock();
+			if (g_xr.own_queue)
+				g_xr.queue_mutex.unlock();
+			else
+				vk::release_global_submit_lock();
 		}
 
 		// Frame thread: RPCS3's copy into a slot (signalled by ready fence `ready`) is done.
@@ -312,7 +322,8 @@ namespace vk::xr
 			}
 			return {};
 #else
-			if (const char* v = ::getenv(name)) return v;
+			if (const char* v = ::getenv(name))
+				return v;
 			return {};
 #endif
 		}
@@ -387,7 +398,8 @@ namespace vk::xr
 			{
 				for (const s64 v : g_xr.swapchain_formats)
 				{
-					if (v == static_cast<s64>(f)) return true;
+					if (v == static_cast<s64>(f))
+						return true;
 				}
 				return false;
 			};
@@ -402,14 +414,16 @@ namespace vk::xr
 			default: break;
 			}
 
-			if (srgb != VK_FORMAT_UNDEFINED && supported(srgb)) return srgb;
-			if (supported(source)) return source;
+			if (srgb != VK_FORMAT_UNDEFINED && supported(srgb))
+				return srgb;
+			if (supported(source))
+				return source;
 			return VK_FORMAT_UNDEFINED;
 		}
 
 		bool create_chain(eye_swapchain& chain, u32 width, u32 height, VkFormat format)
 		{
-			XrSwapchainCreateInfo info{ XR_TYPE_SWAPCHAIN_CREATE_INFO };
+			XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
 			// TRANSFER_SRC lets API layers read the images back (OFXR Bridge copies each eye out for frame generation).
 			info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 			info.format = static_cast<s64>(format);
@@ -428,9 +442,10 @@ namespace vk::xr
 
 			u32 count = 0;
 			g_xr.xrEnumerateSwapchainImages(chain.handle, 0, &count, nullptr);
-			chain.images.assign(count, { XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR });
+			chain.images.assign(count, {XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR});
 			return check(g_xr.xrEnumerateSwapchainImages(chain.handle, count, &count,
-				reinterpret_cast<XrSwapchainImageBaseHeader*>(chain.images.data())), "xrEnumerateSwapchainImages");
+							 reinterpret_cast<XrSwapchainImageBaseHeader*>(chain.images.data())),
+				"xrEnumerateSwapchainImages");
 		}
 
 		void destroy_overlay_chain()
@@ -518,7 +533,7 @@ namespace vk::xr
 
 		void poll_events()
 		{
-			XrEventDataBuffer event{ XR_TYPE_EVENT_DATA_BUFFER };
+			XrEventDataBuffer event{XR_TYPE_EVENT_DATA_BUFFER};
 			while (g_xr.xrPollEvent(g_xr.instance, &event) == XR_SUCCESS)
 			{
 				switch (event.type)
@@ -531,7 +546,7 @@ namespace vk::xr
 
 					if (changed.state == XR_SESSION_STATE_READY)
 					{
-						XrSessionBeginInfo begin{ XR_TYPE_SESSION_BEGIN_INFO };
+						XrSessionBeginInfo begin{XR_TYPE_SESSION_BEGIN_INFO};
 						begin.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 						lock_queue();
 						g_xr.session_running = check(g_xr.xrBeginSession(g_xr.session, &begin), "xrBeginSession");
@@ -569,10 +584,10 @@ namespace vk::xr
 				default:
 					break;
 				}
-				event = { XR_TYPE_EVENT_DATA_BUFFER };
+				event = {XR_TYPE_EVENT_DATA_BUFFER};
 			}
 		}
-	}
+	} // namespace
 
 	namespace
 	{
@@ -580,7 +595,7 @@ namespace vk::xr
 		void destroy_slots();
 		void destroy_overlay_images();
 		void destroy_overlay_chain();
-	}
+	} // namespace
 
 	bool prepare()
 	{
@@ -614,7 +629,7 @@ namespace vk::xr
 		{
 			u32 count = 0;
 			enumerate(nullptr, 0, &count, nullptr);
-			std::vector<XrExtensionProperties> available(count, { XR_TYPE_EXTENSION_PROPERTIES });
+			std::vector<XrExtensionProperties> available(count, {XR_TYPE_EXTENSION_PROPERTIES});
 			if (count && XR_SUCCEEDED(enumerate(nullptr, count, &count, available.data())))
 			{
 				for (const auto& ext : available)
@@ -624,8 +639,8 @@ namespace vk::xr
 			}
 		}
 
-		const char* extensions[] = { XR_KHR_VULKAN_ENABLE_EXTENSION_NAME, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME };
-		XrInstanceCreateInfo create{ XR_TYPE_INSTANCE_CREATE_INFO };
+		const char* extensions[] = {XR_KHR_VULKAN_ENABLE_EXTENSION_NAME, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
+		XrInstanceCreateInfo create{XR_TYPE_INSTANCE_CREATE_INFO};
 		std::memcpy(create.applicationInfo.applicationName, "RPCS3", sizeof("RPCS3"));
 		std::memcpy(create.applicationInfo.engineName, "RPCS3", sizeof("RPCS3"));
 		create.applicationInfo.apiVersion = XR_API_VERSION_1_0;
@@ -639,6 +654,7 @@ namespace vk::xr
 		}
 
 		bool ok = true;
+// Resolves one entry point by its name (stringising: a macro by necessity).
 #define XR_LOAD(name) ok = ok && load_fn(g_xr.name, #name)
 		XR_LOAD(xrDestroyInstance);
 		XR_LOAD(xrGetSystem);
@@ -687,7 +703,7 @@ namespace vk::xr
 			return false;
 		}
 
-		XrSystemGetInfo system_info{ XR_TYPE_SYSTEM_GET_INFO };
+		XrSystemGetInfo system_info{XR_TYPE_SYSTEM_GET_INFO};
 		system_info.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
 		if (!check(g_xr.xrGetSystem(g_xr.instance, &system_info, &g_xr.system), "xrGetSystem (is the headset connected?)"))
 		{
@@ -695,7 +711,7 @@ namespace vk::xr
 			return false;
 		}
 
-		XrSystemProperties props{ XR_TYPE_SYSTEM_PROPERTIES };
+		XrSystemProperties props{XR_TYPE_SYSTEM_PROPERTIES};
 		g_xr.xrGetSystemProperties(g_xr.instance, g_xr.system, &props);
 
 		u32 size = 0;
@@ -713,7 +729,7 @@ namespace vk::xr
 		g_xr.device_exts = split_extensions(list);
 
 		// Mandatory before xrCreateSession.
-		XrGraphicsRequirementsVulkanKHR requirements{ XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR };
+		XrGraphicsRequirementsVulkanKHR requirements{XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR};
 		check(g_xr.xrGetVulkanGraphicsRequirementsKHR(g_xr.instance, g_xr.system, &requirements), "xrGetVulkanGraphicsRequirementsKHR");
 
 		g_xr.screen_distance = env_float("RPCS3_OPENXR_DISTANCE", 2.0f);
@@ -781,14 +797,14 @@ namespace vk::xr
 			xr_log.notice("OpenXR queue: shared with RPCS3 (no spare graphics queue)");
 		}
 
-		XrGraphicsBindingVulkanKHR binding{ XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR };
+		XrGraphicsBindingVulkanKHR binding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
 		binding.instance = instance;
 		binding.physicalDevice = pdev;
 		binding.device = device;
 		binding.queueFamilyIndex = queue_family;
 		binding.queueIndex = queue_index;
 
-		XrSessionCreateInfo create{ XR_TYPE_SESSION_CREATE_INFO };
+		XrSessionCreateInfo create{XR_TYPE_SESSION_CREATE_INFO};
 		create.next = &binding;
 		create.systemId = g_xr.system;
 
@@ -802,7 +818,7 @@ namespace vk::xr
 			return false;
 		}
 
-		XrReferenceSpaceCreateInfo space{ XR_TYPE_REFERENCE_SPACE_CREATE_INFO };
+		XrReferenceSpaceCreateInfo space{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
 		space.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
 		space.poseInReferenceSpace.orientation.w = 1.f;
 		if (!check(g_xr.xrCreateReferenceSpace(g_xr.session, &space, &g_xr.space), "xrCreateReferenceSpace"))
@@ -825,24 +841,27 @@ namespace vk::xr
 		g_xr.physical_device = pdev;
 		g_xr.queue = queue;
 
-		VkCommandPoolCreateInfo pool_info{ VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
 		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 		pool_info.queueFamilyIndex = queue_family;
-		VkCommandBufferAllocateInfo cmd_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		VkCommandBufferAllocateInfo cmd_info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		cmd_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 		cmd_info.commandBufferCount = 1;
-		VkFenceCreateInfo fence_info{ VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+		VkFenceCreateInfo fence_info{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 		if (vkCreateCommandPool(device, &pool_info, nullptr, &g_xr.cmd_pool) != VK_SUCCESS ||
 			(cmd_info.commandPool = g_xr.cmd_pool, vkAllocateCommandBuffers(device, &cmd_info, &g_xr.cmd) != VK_SUCCESS) ||
 			vkCreateFence(device, &fence_info, nullptr, &g_xr.fence) != VK_SUCCESS ||
 			std::any_of(std::begin(g_xr.ready_fences), std::end(g_xr.ready_fences),
-				[&](VkFence& f) { return vkCreateFence(device, &fence_info, nullptr, &f) != VK_SUCCESS; }))
+				[&](VkFence& f)
+				{
+					return vkCreateFence(device, &fence_info, nullptr, &f) != VK_SUCCESS;
+				}))
 		{
 			xr_log.error("Could not create the OpenXR frame thread's Vulkan objects");
 			return false;
 		}
 
-		g_xr.thread = std::thread(frame_thread);
+		g_xr.thread = std::make_unique<named_thread<std::function<void()>>>("OpenXR Frame Thread"sv, std::function<void()>(frame_thread));
 
 		if (g_xr.projection)
 		{
@@ -866,8 +885,10 @@ namespace vk::xr
 			{
 				for (u32 i = 0; i < 2; ++i)
 				{
-					if (slot.image[i]) vkDestroyImage(g_xr.device, slot.image[i], nullptr);
-					if (slot.memory[i]) vkFreeMemory(g_xr.device, slot.memory[i], nullptr);
+					if (slot.image[i])
+						vkDestroyImage(g_xr.device, slot.image[i], nullptr);
+					if (slot.memory[i])
+						vkFreeMemory(g_xr.device, slot.memory[i], nullptr);
 					slot.image[i] = VK_NULL_HANDLE;
 					slot.memory[i] = VK_NULL_HANDLE;
 				}
@@ -880,10 +901,10 @@ namespace vk::xr
 		// Device-local transfer image (the frame thread copies it into a swapchain).
 		bool create_device_image(u32 width, u32 height, VkFormat format, VkImage& image, VkDeviceMemory& memory)
 		{
-			VkImageCreateInfo info{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+			VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 			info.imageType = VK_IMAGE_TYPE_2D;
 			info.format = format;
-			info.extent = { width, height, 1 };
+			info.extent = {width, height, 1};
 			info.mipLevels = 1;
 			info.arrayLayers = 1;
 			info.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -913,11 +934,11 @@ namespace vk::xr
 				}
 			}
 
-			VkMemoryAllocateInfo alloc{ VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO };
+			VkMemoryAllocateInfo alloc{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
 			alloc.allocationSize = req.size;
 			alloc.memoryTypeIndex = type;
 			return type != umax && vkAllocateMemory(g_xr.device, &alloc, nullptr, &memory) == VK_SUCCESS &&
-				vkBindImageMemory(g_xr.device, image, memory, 0) == VK_SUCCESS;
+			       vkBindImageMemory(g_xr.device, image, memory, 0) == VK_SUCCESS;
 		}
 
 		bool create_slots(u32 width, u32 height, VkFormat format)
@@ -944,8 +965,10 @@ namespace vk::xr
 		{
 			for (u32 i = 0; i < 3; ++i)
 			{
-				if (g_xr.overlay_image[i]) vkDestroyImage(g_xr.device, g_xr.overlay_image[i], nullptr);
-				if (g_xr.overlay_memory[i]) vkFreeMemory(g_xr.device, g_xr.overlay_memory[i], nullptr);
+				if (g_xr.overlay_image[i])
+					vkDestroyImage(g_xr.device, g_xr.overlay_image[i], nullptr);
+				if (g_xr.overlay_memory[i])
+					vkFreeMemory(g_xr.device, g_xr.overlay_memory[i], nullptr);
 				g_xr.overlay_image[i] = VK_NULL_HANDLE;
 				g_xr.overlay_memory[i] = VK_NULL_HANDLE;
 			}
@@ -975,7 +998,7 @@ namespace vk::xr
 		void image_barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout from, VkImageLayout to,
 			VkAccessFlags src_access, VkAccessFlags dst_access, VkPipelineStageFlags src_stage, VkPipelineStageFlags dst_stage)
 		{
-			VkImageMemoryBarrier barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+			VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
 			barrier.srcAccessMask = src_access;
 			barrier.dstAccessMask = dst_access;
 			barrier.oldLayout = from;
@@ -983,7 +1006,7 @@ namespace vk::xr
 			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.image = image;
-			barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 			vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 		}
 
@@ -998,8 +1021,8 @@ namespace vk::xr
 			}
 
 			auto& chain = g_xr.overlay_chain;
-			XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-			XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+			XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+			XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
 			wait.timeout = 100'000'000; // 100 ms
 			lock_queue();
 			bool ok = check(g_xr.xrAcquireSwapchainImage(chain.handle, &acquire, &chain.acquired), "xrAcquireSwapchainImage");
@@ -1009,7 +1032,7 @@ namespace vk::xr
 			if (ok)
 			{
 				wait_ready(ready);
-				VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+				VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 				begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 				vkResetCommandBuffer(g_xr.cmd, 0);
 				vkBeginCommandBuffer(g_xr.cmd, &begin);
@@ -1018,9 +1041,9 @@ namespace vk::xr
 					0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 				VkImageCopy region{};
-				region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-				region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-				region.extent = { g_xr.overlay_w, g_xr.overlay_h, 1 };
+				region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+				region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+				region.extent = {g_xr.overlay_w, g_xr.overlay_h, 1};
 				vkCmdCopyImage(g_xr.cmd, g_xr.overlay_image[index], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 					target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
@@ -1029,7 +1052,7 @@ namespace vk::xr
 					VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 				vkEndCommandBuffer(g_xr.cmd);
 
-				VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+				VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
 				submit.commandBufferCount = 1;
 				submit.pCommandBuffers = &g_xr.cmd;
 				lock_queue();
@@ -1041,7 +1064,7 @@ namespace vk::xr
 
 			if (chain.acquired != umax)
 			{
-				XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+				XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
 				lock_queue();
 				ok = check(g_xr.xrReleaseSwapchainImage(chain.handle, &release), "xrReleaseSwapchainImage") && ok;
 				unlock_queue();
@@ -1052,7 +1075,7 @@ namespace vk::xr
 
 		void run_frame()
 		{
-			XrFrameState frame_state{ XR_TYPE_FRAME_STATE };
+			XrFrameState frame_state{XR_TYPE_FRAME_STATE};
 			if (!check(g_xr.xrWaitFrame(g_xr.session, nullptr, &frame_state), "xrWaitFrame"))
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -1077,7 +1100,7 @@ namespace vk::xr
 			s32 index = -1;
 			bool screen_mode = !g_xr.projection;
 			bool screen_world = true;
-			f32 screen_pos[3] = { 0.f, 0.f, -g_xr.screen_distance };
+			f32 screen_pos[3] = {0.f, 0.f, -g_xr.screen_distance};
 			f32 screen_width = g_xr.screen_width;
 			s32 overlay_index = -1;
 			s32 overlay_ready = -1;
@@ -1116,8 +1139,8 @@ namespace vk::xr
 
 			XrCompositionLayerQuad quads[2]{};
 			XrCompositionLayerProjectionView views[2]{};
-			XrCompositionLayerProjection projection{ XR_TYPE_COMPOSITION_LAYER_PROJECTION };
-			XrCompositionLayerQuad overlay_quad{ XR_TYPE_COMPOSITION_LAYER_QUAD };
+			XrCompositionLayerProjection projection{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+			XrCompositionLayerQuad overlay_quad{XR_TYPE_COMPOSITION_LAYER_QUAD};
 			const XrCompositionLayerBaseHeader* layers[3]{};
 			u32 layer_count = 0;
 
@@ -1126,8 +1149,8 @@ namespace vk::xr
 				bool ok = true;
 				for (auto& eye : g_xr.eyes)
 				{
-					XrSwapchainImageAcquireInfo acquire{ XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-					XrSwapchainImageWaitInfo wait{ XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+					XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+					XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
 					wait.timeout = 100'000'000; // 100 ms
 					lock_queue();
 					ok = ok && check(g_xr.xrAcquireSwapchainImage(eye.handle, &acquire, &eye.acquired), "xrAcquireSwapchainImage");
@@ -1138,7 +1161,7 @@ namespace vk::xr
 				if (ok)
 				{
 					wait_ready(meta.ready);
-					VkCommandBufferBeginInfo begin{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+					VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 					begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 					vkResetCommandBuffer(g_xr.cmd, 0);
 					vkBeginCommandBuffer(g_xr.cmd, &begin);
@@ -1149,9 +1172,9 @@ namespace vk::xr
 							0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 						VkImageCopy region{};
-						region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-						region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-						region.extent = { g_xr.slot_w, g_xr.slot_h, 1 };
+						region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+						region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+						region.extent = {g_xr.slot_w, g_xr.slot_h, 1};
 						vkCmdCopyImage(g_xr.cmd, meta.image[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 							target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
@@ -1162,7 +1185,7 @@ namespace vk::xr
 					}
 					vkEndCommandBuffer(g_xr.cmd);
 
-					VkSubmitInfo submit{ VK_STRUCTURE_TYPE_SUBMIT_INFO };
+					VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
 					submit.commandBufferCount = 1;
 					submit.pCommandBuffers = &g_xr.cmd;
 					lock_queue();
@@ -1180,7 +1203,7 @@ namespace vk::xr
 				{
 					if (eye.acquired != umax)
 					{
-						XrSwapchainImageReleaseInfo release{ XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+						XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
 						ok = check(g_xr.xrReleaseSwapchainImage(eye.handle, &release), "xrReleaseSwapchainImage") && ok;
 						eye.acquired = umax;
 					}
@@ -1200,9 +1223,9 @@ namespace vk::xr
 						view.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 						view.pose.orientation = meta.orientation;
 						view.pose.position = meta.eye_position[i];
-						view.fov = g_xr.hmd_fov ? meta.eye_fov[i] : XrFovf{ -half_x, half_x, half_y, -half_y };
+						view.fov = g_xr.hmd_fov ? meta.eye_fov[i] : XrFovf{-half_x, half_x, half_y, -half_y};
 						view.subImage.swapchain = g_xr.eyes[i].handle;
-						view.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
+						view.subImage.imageRect = {{0, 0}, {static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h)}};
 						view.subImage.imageArrayIndex = 0;
 					}
 					projection.space = g_xr.space;
@@ -1229,12 +1252,12 @@ namespace vk::xr
 						quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
 						quad.eyeVisibility = i == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
 						quad.subImage.swapchain = g_xr.eyes[i].handle;
-						quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h) } };
+						quad.subImage.imageRect = {{0, 0}, {static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h)}};
 						quad.subImage.imageArrayIndex = 0;
 						quad.pose.orientation.w = 1.f;
 						quad.space = screen_world ? g_xr.space : g_xr.view_space;
-						quad.pose.position = { screen_pos[0], screen_pos[1], screen_pos[2] };
-						quad.size = { screen_width, height };
+						quad.pose.position = {screen_pos[0], screen_pos[1], screen_pos[2]};
+						quad.size = {screen_width, height};
 						layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quad);
 					}
 				}
@@ -1246,12 +1269,12 @@ namespace vk::xr
 				overlay_quad.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
 				overlay_quad.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
 				overlay_quad.subImage.swapchain = g_xr.overlay_chain.handle;
-				overlay_quad.subImage.imageRect = { { 0, 0 }, { static_cast<s32>(g_xr.overlay_chain_w), static_cast<s32>(g_xr.overlay_chain_h) } };
+				overlay_quad.subImage.imageRect = {{0, 0}, {static_cast<s32>(g_xr.overlay_chain_w), static_cast<s32>(g_xr.overlay_chain_h)}};
 				overlay_quad.subImage.imageArrayIndex = 0;
 				overlay_quad.space = overlay_world ? g_xr.space : g_xr.view_space;
 				overlay_quad.pose.orientation.w = 1.f;
-				overlay_quad.pose.position = { overlay_pos[0], overlay_pos[1], overlay_pos[2] };
-				overlay_quad.size = { overlay_width, overlay_width * g_xr.overlay_chain_h / g_xr.overlay_chain_w };
+				overlay_quad.pose.position = {overlay_pos[0], overlay_pos[1], overlay_pos[2]};
+				overlay_quad.size = {overlay_width, overlay_width * g_xr.overlay_chain_h / g_xr.overlay_chain_w};
 				layers[layer_count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&overlay_quad);
 			}
 
@@ -1261,7 +1284,7 @@ namespace vk::xr
 				g_xr.overlay_in_use = -1;
 			}
 
-			XrFrameEndInfo end{ XR_TYPE_FRAME_END_INFO };
+			XrFrameEndInfo end{XR_TYPE_FRAME_END_INFO};
 			end.displayTime = frame_state.predictedDisplayTime;
 			end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			end.layerCount = layer_count;
@@ -1281,7 +1304,7 @@ namespace vk::xr
 		{
 			u64 presented_seq = 0;
 			u64 presented_overlay_seq = 0;
-			while (!g_xr.stop.load())
+			while (!g_xr.stop.load() && thread_ctrl::state() != thread_state::aborting)
 			{
 				poll_events();
 				if (!g_xr.session_running.load() || g_xr.lost)
@@ -1298,7 +1321,10 @@ namespace vk::xr
 				{
 					std::unique_lock lock(g_xr.slot_mutex);
 					g_xr.slot_cv.wait_for(lock, std::chrono::milliseconds(100),
-						[&] { return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.stop.load(); });
+						[&]
+						{
+							return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.stop.load();
+						});
 					presented_seq = g_xr.commit_seq;
 					presented_overlay_seq = g_xr.overlay_seq;
 				}
@@ -1309,15 +1335,15 @@ namespace vk::xr
 				run_frame();
 			}
 		}
-	}
+	} // namespace
 
 	void destroy()
 	{
-		if (g_xr.thread.joinable())
+		if (g_xr.thread)
 		{
 			g_xr.stop.store(true);
 			g_xr.slot_cv.notify_all();
-			g_xr.thread.join();
+			g_xr.thread.reset(); // joins
 		}
 		rsx::vr::set_headset_refresh_rate(0);
 		rsx::vr::set_headset_active(false);
@@ -1326,14 +1352,18 @@ namespace vk::xr
 		{
 			destroy_swapchains();
 			destroy_overlay_chain();
-			if (g_xr.view_space) g_xr.xrDestroySpace(g_xr.view_space);
-			if (g_xr.space) g_xr.xrDestroySpace(g_xr.space);
+			if (g_xr.view_space)
+				g_xr.xrDestroySpace(g_xr.view_space);
+			if (g_xr.space)
+				g_xr.xrDestroySpace(g_xr.space);
 			if (g_xr.session)
 			{
-				if (g_xr.session_running.load()) g_xr.xrEndSession(g_xr.session);
+				if (g_xr.session_running.load())
+					g_xr.xrEndSession(g_xr.session);
 				g_xr.xrDestroySession(g_xr.session);
 			}
-			if (g_xr.xrDestroyInstance) g_xr.xrDestroyInstance(g_xr.instance);
+			if (g_xr.xrDestroyInstance)
+				g_xr.xrDestroyInstance(g_xr.instance);
 		}
 
 		if (g_xr.device)
@@ -1345,12 +1375,15 @@ namespace vk::xr
 			}
 			destroy_slots();
 			destroy_overlay_images();
-			if (g_xr.fence) vkDestroyFence(g_xr.device, g_xr.fence, nullptr);
+			if (g_xr.fence)
+				vkDestroyFence(g_xr.device, g_xr.fence, nullptr);
 			for (VkFence f : g_xr.ready_fences)
 			{
-				if (f) vkDestroyFence(g_xr.device, f, nullptr);
+				if (f)
+					vkDestroyFence(g_xr.device, f, nullptr);
 			}
-			if (g_xr.cmd_pool) vkDestroyCommandPool(g_xr.device, g_xr.cmd_pool, nullptr);
+			if (g_xr.cmd_pool)
+				vkDestroyCommandPool(g_xr.device, g_xr.cmd_pool, nullptr);
 		}
 
 		void* loader = g_xr.loader;
@@ -1373,8 +1406,8 @@ namespace vk::xr
 		}
 
 		right = right ? right : left;
-		width = std::min({ width, left->width(), right->width() });
-		height = std::min({ height, left->height(), right->height() });
+		width = std::min({width, left->width(), right->width()});
+		height = std::min({height, left->height(), right->height()});
 		const VkFormat format = left->format();
 
 		std::unique_lock lock(g_xr.slot_mutex);
@@ -1405,8 +1438,8 @@ namespace vk::xr
 		g_xr.writing = slot;
 		lock.unlock();
 
-		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-		vk::image* sources[2] = { left, right };
+		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+		vk::image* sources[2] = {left, right};
 		for (u32 i = 0; i < 2; ++i)
 		{
 			const VkImage target = g_xr.slots[slot].image[i];
@@ -1416,9 +1449,9 @@ namespace vk::xr
 			vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
 
 			VkImageCopy region{};
-			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			region.extent = { width, height, 1 };
+			region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+			region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+			region.extent = {width, height, 1};
 			vkCmdCopyImage(cmd, source->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 			// Left in TRANSFER_SRC for the OpenXR thread's copy into the swapchain.
@@ -1540,15 +1573,15 @@ namespace vk::xr
 		g_xr.overlay_writing = slot;
 		lock.unlock();
 
-		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 		const VkImage target = g_xr.overlay_image[slot];
 		source->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 		vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
 
 		VkImageCopy region{};
-		region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		region.extent = { width, height, 1 };
+		region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+		region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+		region.extent = {width, height, 1};
 		vkCmdCopyImage(cmd, source->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 		vk::change_image_layout(cmd, target, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, range);
@@ -1597,14 +1630,36 @@ namespace vk::xr
 		g_xr.overlay_distance = distance;
 	}
 
-	bool projection_mode() { return g_xr.projection; }
-	bool fake_hmd() { static const bool s_fake = !read_env("RPCS3_VR_FAKE_HMD").empty(); return s_fake && !is_running(); }
-	f32 eye_scale() { return g_xr.eye_scale; }
-	f32 fov_scale() { return g_xr.fov_scale; }
-	bool hmd_fov() { return g_xr.hmd_fov; }
-	bool flip_y() { return g_xr.flip_y; }
+	bool projection_mode()
+	{
+		return g_xr.projection;
+	}
+	bool fake_hmd()
+	{
+		static const bool s_fake = !read_env("RPCS3_VR_FAKE_HMD").empty();
+		return s_fake && !is_running();
+	}
+	f32 eye_scale()
+	{
+		return g_xr.eye_scale;
+	}
+	f32 fov_scale()
+	{
+		return g_xr.fov_scale;
+	}
+	bool hmd_fov()
+	{
+		return g_xr.hmd_fov;
+	}
+	bool flip_y()
+	{
+		return g_xr.flip_y;
+	}
 
-	f32 ipd() { return g_xr.ipd; }
+	f32 ipd()
+	{
+		return g_xr.ipd;
+	}
 
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance)
 	{
@@ -1637,10 +1692,10 @@ namespace vk::xr
 				a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
 				a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
 				a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-				a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z };
+				a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
 		};
 		const XrQuaternionf& f = from.orientation;
-		const XrQuaternionf q = mul({ -f.x, -f.y, -f.z, f.w }, to.orientation);
+		const XrQuaternionf q = mul({-f.x, -f.y, -f.z, f.w}, to.orientation);
 		// Rotate (0, 0, -1) by q.
 		const f32 vx = -(2.f * (q.x * q.z + q.w * q.y));
 		const f32 vy = -(2.f * (q.y * q.z - q.w * q.x));
@@ -1701,7 +1756,7 @@ namespace vk::xr
 		const f32 q[9] = {
 			1.f - 2.f * (y * y + z * z), 2.f * (x * y - w * z), 2.f * (x * z + w * y),
 			2.f * (x * y + w * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - w * x),
-			2.f * (x * z - w * y), 2.f * (y * z + w * x), 1.f - 2.f * (x * x + y * y) };
+			2.f * (x * z - w * y), 2.f * (y * z + w * x), 1.f - 2.f * (x * x + y * y)};
 
 		// The rendered eye frustum (both eyes averaged): T maps (u, v, 1), v down, to
 		// view tangents (tx, ty, 1); the direction is (tx, ty, -1) = S (tx, ty, 1).
@@ -1720,9 +1775,9 @@ namespace vk::xr
 		}
 
 		// H = T^-1 S Q S T
-		const f32 t[9] = { sx, 0.f, l, 0.f, -sy, up, 0.f, 0.f, 1.f };
-		const f32 ti[9] = { 1.f / sx, 0.f, -l / sx, 0.f, -1.f / sy, up / sy, 0.f, 0.f, 1.f };
-		const f32 s[3] = { 1.f, 1.f, -1.f };
+		const f32 t[9] = {sx, 0.f, l, 0.f, -sy, up, 0.f, 0.f, 1.f};
+		const f32 ti[9] = {1.f / sx, 0.f, -l / sx, 0.f, -1.f / sy, up / sy, 0.f, 0.f, 1.f};
+		const f32 s[3] = {1.f, 1.f, -1.f};
 		f32 sqs[9];
 		for (u32 i = 0; i < 3; ++i)
 			for (u32 j = 0; j < 3; ++j)
@@ -1759,7 +1814,11 @@ namespace vk::xr
 			// headset view (head transform, HUD box, headset FOV) into the desktop side-by-side window: a fixed
 			// forward pose with a symmetric FOV, for testing HUD and menu handling. RPCS3_VR_WOBBLE and
 			// RPCS3_VR_HEAD_OFFSET move it.
-			static const f32 s_fake_fov = [] { const std::string v = read_env("RPCS3_VR_FAKE_HMD"); return v.empty() ? 0.f : static_cast<f32>(std::atof(v.c_str())); }();
+			static const f32 s_fake_fov = []
+			{
+				const std::string v = read_env("RPCS3_VR_FAKE_HMD");
+				return v.empty() ? 0.f : static_cast<f32>(std::atof(v.c_str()));
+			}();
 			if (s_fake_fov <= 0.f || s_fake_fov >= 170.f)
 			{
 				return 0;
@@ -1769,14 +1828,20 @@ namespace vk::xr
 			const u32 id = ++g_xr.render_pose_count;
 			auto& pose = g_xr.render_poses[id % std::size(g_xr.render_poses)];
 			pose.id = id;
-			pose.orientation = { 0.f, 0.f, 0.f, 1.f };
+			pose.orientation = {0.f, 0.f, 0.f, 1.f};
 			for (u32 i = 0; i < 2; ++i)
 			{
-				pose.eye_position[i] = { i ? 0.0315f : -0.0315f, 0.f, 0.f };
-				pose.eye_fov[i] = { -half - margin, half + margin, half + margin, -half - margin };
+				pose.eye_position[i] = {i ? 0.0315f : -0.0315f, 0.f, 0.f};
+				pose.eye_fov[i] = {-half - margin, half + margin, half + margin, -half - margin};
 				const f32 t = std::tan(half), r = std::tan(half + margin);
-				eye_fov[i][0] = -t; eye_fov[i][1] = t; eye_fov[i][2] = t; eye_fov[i][3] = -t;
-				render_fov[i][0] = -r; render_fov[i][1] = r; render_fov[i][2] = r; render_fov[i][3] = -r;
+				eye_fov[i][0] = -t;
+				eye_fov[i][1] = t;
+				eye_fov[i][2] = t;
+				eye_fov[i][3] = -t;
+				render_fov[i][0] = -r;
+				render_fov[i][1] = r;
+				render_fov[i][2] = r;
+				render_fov[i][3] = -r;
 			}
 			position_xyz[0] = position_xyz[1] = position_xyz[2] = 0.f;
 			quat_xyzw[0] = quat_xyzw[1] = quat_xyzw[2] = 0.f;
@@ -1789,19 +1854,19 @@ namespace vk::xr
 		// display time. The compositor corrects any prediction error.
 		const XrTime time = last_display + 16666667;
 
-		XrSpaceLocation head{ XR_TYPE_SPACE_LOCATION };
+		XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
 		if (!XR_SUCCEEDED(g_xr.xrLocateSpace(g_xr.view_space, g_xr.space, time, &head)) ||
 			!(head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT))
 		{
 			return 0;
 		}
 
-		XrViewLocateInfo info{ XR_TYPE_VIEW_LOCATE_INFO };
+		XrViewLocateInfo info{XR_TYPE_VIEW_LOCATE_INFO};
 		info.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 		info.displayTime = time;
 		info.space = g_xr.space;
-		XrViewState state{ XR_TYPE_VIEW_STATE };
-		XrView located[2]{ { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+		XrViewState state{XR_TYPE_VIEW_STATE};
+		XrView located[2]{{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 		u32 count = 0;
 		if (!XR_SUCCEEDED(g_xr.xrLocateViews(g_xr.session, &info, &state, 2, &count, located)) || count != 2)
 		{
@@ -1859,4 +1924,4 @@ namespace vk::xr
 		quat_xyzw[3] = head.pose.orientation.w;
 		return id;
 	}
-}
+} // namespace vk::xr
