@@ -57,6 +57,8 @@ measured yet.
 | Demon's Souls | BLUS30443 | Headset refresh rate | 120 Hz |
 | Bayonetta | BLUS30367 | Headset refresh rate | 120 Hz |
 | Killzone HD | BCES01743 | 90 FPS | 90 Hz |
+| Tales of Xillia | BLUS31006 | Headset refresh rate | 120 Hz |
+| Super Stardust HD | NPUA80068 | Headset refresh rate | 120 Hz |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -165,6 +167,25 @@ measured yet.
   in the same file). The HUD sits at 4 m by default; change it with **HUD Depth** in the home menu's VR tab.
 - **Recommended settings:** `Resolution Scale` 300% held 88-90 FPS in testing.
 
+### 9. Tales of Xillia (BLUS31006, US disc 01.00): headset refresh rate
+
+- **Frame rate:** turn on the community patch *60 FPS* in `Manage > Game Patches` (download the patches there
+  first if the list is empty). The VR build's patch *Frame rate follows VR* is on by default: the game advances
+  one 60 FPS step per frame, so above 60 FPS it ran fast; with the patch it runs at real speed at the headset
+  rate (walking speed measured the same at 60 and 90). Patches apply when the game boots, not when a savestate
+  is loaded.
+- **In the headset:** menus show on a flat screen in front of you.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing (the first field).
+
+### 10. Super Stardust HD (NPUA80068, PSN): headset refresh rate
+
+- A PSN game: install it with `File > Install Packages/Raps/Edats`, with its licence (`.rap`).
+- **Frame rate:** the headset's refresh rate by default, at real-time speed at any rate. No patch needed.
+- **In the headset:** the planet floats in front of you like a tabletop model; **World Scale** in the home
+  menu's VR tab changes its size. The title, menus, demo and game over screens show on a flat screen in front
+  of you; play and the pause menu are in 3D.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
+
 ---
 
 
@@ -209,7 +230,6 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | MotorStorm: Pacific Rift | BCUS98155 | - | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
 | Dragon's Dogma: Dark Arisen | BLUS31155 | below 72 (~68, prologue) | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. Only the prologue has been tested; the open world is untested. |
 | Ratchet & Clank Collection | BCUS98282 | below 72 in heavy scenes (R&C 1 ~67, R&C 3 ~70) | All three games run at real-time speed at the headset rate (the profiles set their frame-time values; no patch). Heavy scenes do not hold 72 Hz at 4K per eye yet. Ratchet & Clank 1's pause-menu frames turn with your head. Not tested in a headset. |
-| Tales of Xillia | BLUS31006 | 90 Hz | Enable the community patch *60 FPS*; the VR build's *Frame rate follows VR* (on by default) keeps the game at real-time speed at the headset rate (walking speed measured equal at 60 and 90). Field exploration checked on the desktop only; battles not checked. |
 | The Darkness | BLUS30035 | below 72 (~48) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
 | Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
 | Jak and Daxter Collection | BCUS98281 | Jak 1 72 Hz; Jak II below 72 (~69); Jak 3 ~43 | Jak 1 and Jak II run at the headset rate with no patch (real-time); Jak 1's lens flares are hidden in VR. Jak 3 is too slow (~43 FPS) and has no profile. Checked on the desktop only. |
@@ -218,9 +238,10 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | Dante's Inferno | BLUS30405 | 120 Hz | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
 | Puppeteer | BCUS98227 | 72 Hz | No patch needed: runs at real-time speed at the headset rate (the profile sets the game's frame time). The game post-processes each frame on the SPUs, which only ever sees the left eye: in VR the profile reads the frame from before that step, so its anti-aliasing is skipped. The stage looks small in the headset (the game's narrow theatre camera). Not tested in a headset. |
+| God of War Collection | BCES00800 | 120 Hz (GoW 1, GoW II) | No patch needed: both games run at real-time speed at the headset rate (the profile sets the game's frame rate). In testing: QTEs in God of War 1 cannot be passed at 90 FPS (they need a patch). |
+| Killzone 2 | BCUS98116 | - | Needs `Write Color Buffers` and `Read Color Buffers` on. Runs at 45 FPS by default (stereo reaches about 60). Not tested in a headset. |
 | Kingdom Hearts HD 1.5 ReMIX | BLUS31212 | 120 Hz | Kingdom Hearts Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
 | Kingdom Hearts HD 2.5 ReMIX | BLUS31460 | 72 Hz | Kingdom Hearts II Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
-| Super Stardust HD | NPUA80068 | 120 Hz | PSN game. No patch needed: runs at real-time speed at the headset rate. The planet floats in front of you as a tabletop diorama (World Scale changes its size). Not tested in a headset. |
 
 ---
 

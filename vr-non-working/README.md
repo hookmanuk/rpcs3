@@ -18,7 +18,6 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Need for Speed Most Wanted | BLUS31010 | `vr_profiles/BLUS31010.json` | `patches/BLUS31010_patch.yml` |
 | Dragon's Dogma: Dark Arisen (update 01.02) | BLUS31155 | `vr_profiles/BLUS31155.json` | `patches/BLUS31155_patch.yml` (full screen, on by default); also enable the community *Unlock FPS* |
 | Ratchet & Clank Collection (R&C 1 tested) | BCUS98282 | `vr_profiles/BCUS98282.json` | |
-| Tales of Xillia | BLUS31006 | `vr_profiles/BLUS31006.json` | community *60 FPS* + `patches/BLUS31006_patch.yml` (*Frame rate follows VR*, on by default) |
 | The Darkness | BLUS30035 | `vr_profiles/BLUS30035.json` (stereo lighting broken) | community *60 FPS* patch |
 | Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
 | Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (90 FPS real-time; stereo via `texture_redirects`) | |
@@ -27,8 +26,9 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |
 | Dante's Inferno (disc 01.00) | BLUS30405 | `vr_profiles/BLUS30405.json` (frame rate from the profile, no patch) | |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
+| God of War Collection (GoW 1, GoW II) | BCES00800 | `vr_profiles/BCES00800.json` (launcher), `BCES00800.gow1.json`, `BCES00800.gow2.json` | |
+| Killzone 2 | BCUS98116 | `vr_profiles/BCUS98116.json` (needs Write and Read Color Buffers) | |
 | Kingdom Hearts HD 1.5 ReMIX (KH Final Mix) | BLUS31212 | `vr_profiles/BLUS31212.json` (launcher), `BLUS31212.kingdom.json` | `patches/BLUS31212_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
 | Kingdom Hearts HD 2.5 ReMIX (KH II Final Mix) | BLUS31460 | `vr_profiles/BLUS31460.json` (launcher), `BLUS31460.kingdom2.json` | `patches/BLUS31460_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
-| Super Stardust HD (PSN) | NPUA80068 | `vr_profiles/NPUA80068.json` (real-time, no patch) | |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).
