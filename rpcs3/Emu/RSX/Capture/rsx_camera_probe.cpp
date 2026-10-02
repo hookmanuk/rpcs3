@@ -861,50 +861,83 @@ namespace rsx::vr
 		{
 			profile->reproject_older_frames = reproject == "true";
 		}
+		// "0xADDR", "[0xPTR]" or "[0xPTR]+0xOFF"
+		const auto parse_guest_address = [&](const char* key, const std::string& text, title_profile::guest_address& a) -> bool
+		{
+			std::string rest = text;
+			if (rest.starts_with("["))
+			{
+				const usz close = rest.find(']');
+				if (close == umax)
+				{
+					fail(std::string(key) + ": '" + text + "' has no closing ]");
+					return false;
+				}
+				a.deref = true;
+				a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
+				rest = rest.substr(close + 1);
+				if (rest.starts_with("+"))
+				{
+					a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
+				}
+				else if (!rest.empty())
+				{
+					fail(std::string(key) + ": '" + text + "' expected +offset after ]");
+					return false;
+				}
+			}
+			else
+			{
+				a.address = static_cast<u32>(std::strtoul(rest.c_str(), nullptr, 16));
+			}
+			if (!a.address)
+			{
+				fail(std::string(key) + ": '" + text + "' is not an address");
+				return false;
+			}
+			return true;
+		};
 		const auto read_guest_addresses = [&](const char* key, std::vector<title_profile::guest_address>& list)
 		{
 			if (const YAML::Node targets = child(root, key); targets && targets.IsSequence())
 			{
 				for (const auto& target : targets)
 				{
-					// "0xADDR", "[0xPTR]" or "[0xPTR]+0xOFF"
-					const std::string text = target.as<std::string>();
 					title_profile::guest_address a;
-					std::string rest = text;
-					if (rest.starts_with("["))
+					if (parse_guest_address(key, target.as<std::string>(), a))
 					{
-						const usz close = rest.find(']');
-						if (close == umax)
-						{
-							fail(std::string(key) + ": '" + text + "' has no closing ]");
-							continue;
-						}
-						a.deref = true;
-						a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
-						rest = rest.substr(close + 1);
-						if (rest.starts_with("+"))
-						{
-							a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
-						}
-						else if (!rest.empty())
-						{
-							fail(std::string(key) + ": '" + text + "' expected +offset after ]");
-							continue;
-						}
+						list.push_back(a);
 					}
-					else
-					{
-						a.address = static_cast<u32>(std::strtoul(rest.c_str(), nullptr, 16));
-					}
-					if (!a.address)
-					{
-						fail(std::string(key) + ": '" + text + "' is not an address");
-						continue;
-					}
-					list.push_back(a);
 				}
 			}
 		};
+		if (const YAML::Node rules = child(screen_space, "screen_frames_when"); rules && rules.IsSequence())
+		{
+			// [{ "address": "0x332b7ec0", "values": [8] }]
+			for (const YAML::Node& node : rules)
+			{
+				std::string address;
+				read(node, "address", address);
+				title_profile::screen_frames_when_rule rule;
+				if (!parse_guest_address("screen_space.screen_frames_when", address, rule.address))
+				{
+					continue;
+				}
+				if (const YAML::Node values = child(node, "values"); values && values.IsSequence())
+				{
+					for (const auto& v : values)
+					{
+						rule.values.push_back(static_cast<u32>(std::strtoul(v.as<std::string>().c_str(), nullptr, 0)));
+					}
+				}
+				if (rule.values.empty())
+				{
+					fail("screen_space.screen_frames_when: expected {\"address\": \"0x...\", \"values\": [n, ...]}");
+					continue;
+				}
+				profile->screen_space_screen_frames_when.push_back(std::move(rule));
+			}
+		}
 		read_guest_addresses("game_refresh_rate_f32", profile->game_refresh_rate_f32);
 		read_guest_addresses("game_frame_time_f32", profile->game_frame_time_f32);
 		read_guest_addresses("game_frame_time_sq_f32", profile->game_frame_time_sq_f32);
@@ -991,7 +1024,7 @@ namespace rsx::vr
 			"game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides" });
 		check_keys(camera_position, " in camera_position", { "slot", "eye_baseline" });
 		check_keys(stereo, " in stereo", { "formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset" });
-		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "scaled_draws" });
+		check_keys(screen_space, " in screen_space", { "orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws" });
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1242,6 +1275,38 @@ namespace rsx::vr
 				{
 					vr_probe_log.notice("VR: occlusion depth readback at 0x%x..0x%x answered with far depth (occlusion_depth_readback).", base, base + size - 1);
 				}
+				return true;
+			}
+		}
+		return false;
+	}
+
+	bool screen_frame_by_game_state()
+	{
+		const title_profile* profile = camera_probe::get().profile();
+		if (!profile || profile->screen_space_screen_frames_when.empty())
+		{
+			return false;
+		}
+
+		for (const auto& rule : profile->screen_space_screen_frames_when)
+		{
+			u32 address = rule.address.address;
+			if (rule.address.deref)
+			{
+				if (!vm::check_addr(address, vm::page_readable, 4) || !(address = vm::_ref<be_t<u32>>(address)))
+				{
+					continue;
+				}
+				address += rule.address.offset;
+			}
+			if (!vm::check_addr(address, vm::page_readable, 4))
+			{
+				continue;
+			}
+			const u32 value = vm::_ref<be_t<u32>>(address);
+			if (std::find(rule.values.begin(), rule.values.end(), value) != rule.values.end())
+			{
 				return true;
 			}
 		}

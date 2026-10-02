@@ -19,5 +19,9 @@
     "per_eye_separation": 0.0139659,
     "convergence": 128.128,
     "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "screen_frames_when": [ { "address": "0x332b7ec0", "values": [8] } ]
   }
 }

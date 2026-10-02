@@ -367,6 +367,12 @@ namespace rsx::vr
 		// u32s holding the game frame rate itself (Ridge Racer 7's VR patch advances its
 		// 60 Hz frame counters by 60/fps per frame from it).
 		std::vector<guest_address> game_fps_u32;
+		// Frames while a guest u32 holds one of the values are shown whole on the fixed screen, as with
+		// screen_frame_draws: for a front end drawn with the same programs and textures as gameplay, so no draw marks
+		// it (Super Stardust HD: its state word is 8 on the title, menus and game over, 9 in play and pause; the menus'
+		// 3D chrome text and slowly rolling background were uncomfortable in the headset).
+		struct screen_frames_when_rule { guest_address address; std::vector<u32> values; };
+		std::vector<screen_frames_when_rule> screen_space_screen_frames_when;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
 		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
 		// times this factor (through a patch that reads it), so it stays real-time at the headset's rate.
@@ -460,6 +466,10 @@ namespace rsx::vr
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.
 	void update_game_refresh_rate();
+
+	// True while one of the profile's screen_frames_when words holds one of its values (the frame goes on the fixed
+	// screen). Reads guest memory: call once per frame.
+	bool screen_frame_by_game_state();
 
 	// Reprojection Margin in degrees: the configured value, or for "Auto" (-1) 10 degrees
 	// when the game runs below the headset's refresh rate and 0 when it does not.
