@@ -27,5 +27,8 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |
 | Dante's Inferno (disc 01.00) | BLUS30405 | `vr_profiles/BLUS30405.json` (frame rate from the profile, no patch) | |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
+| Kingdom Hearts HD 1.5 ReMIX (KH Final Mix) | BLUS31212 | `vr_profiles/BLUS31212.json` (launcher), `BLUS31212.kingdom.json` | `patches/BLUS31212_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
+| Kingdom Hearts HD 2.5 ReMIX (KH II Final Mix) | BLUS31460 | `vr_profiles/BLUS31460.json` (launcher), `BLUS31460.kingdom2.json` | `patches/BLUS31460_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
+| Super Stardust HD (PSN) | NPUA80068 | `vr_profiles/NPUA80068.json` (real-time, no patch) | |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

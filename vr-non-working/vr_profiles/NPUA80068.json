@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "title_id": "NPUA80068",
+  "app_version": "06.00",
+  "name": "SUPER STARDUST™ HD",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [32],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 3.20321
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0139659,
+    "convergence": 128.128,
+    "eye_offset": "baseline"
+  }
+}

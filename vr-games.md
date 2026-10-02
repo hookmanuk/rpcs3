@@ -218,6 +218,9 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | Dante's Inferno | BLUS30405 | 120 Hz | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
 | Puppeteer | BCUS98227 | 72 Hz | No patch needed: runs at real-time speed at the headset rate (the profile sets the game's frame time). The game post-processes each frame on the SPUs, which only ever sees the left eye: in VR the profile reads the frame from before that step, so its anti-aliasing is skipped. The stage looks small in the headset (the game's narrow theatre camera). Not tested in a headset. |
+| Kingdom Hearts HD 1.5 ReMIX | BLUS31212 | 120 Hz | Kingdom Hearts Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
+| Kingdom Hearts HD 2.5 ReMIX | BLUS31460 | 72 Hz | Kingdom Hearts II Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
+| Super Stardust HD | NPUA80068 | 120 Hz | PSN game. No patch needed: runs at real-time speed at the headset rate. The planet floats in front of you as a tabletop diorama (World Scale changes its size). Not tested in a headset. |
 
 ---
 
