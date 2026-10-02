@@ -203,6 +203,15 @@ namespace rsx::vr
 		bool stereo_eye_offset_per_w = false;
 
 		u32 screen_space_block = umax; // orthographic block => HUD/menu box
+		// Programs whose HUD matrix is in another block (by vertex program ucode hash): their draws use that block as
+		// the orthographic HUD block. Dante's Inferno's tooltip text reads a unit-square matrix in c[256], a slot its
+		// 3D draws use for their world matrix (identity, so a block-wide rule would box the scene).
+		struct hud_block_program
+		{
+			u64 program = 0;
+			u32 block = 0;
+		};
+		std::vector<hud_block_program> screen_space_hud_block_programs;
 		// The HUD block is read in rows whatever matrix_layout says (orthographic_block_layout "row_vectors"),
 		// for a HUD that stores its pixel matrix in the other layout from the scene's camera.
 		bool screen_space_block_rows = false;
@@ -571,6 +580,12 @@ namespace rsx::vr
 		{
 			m_draw_into_display_buffer = v;
 		}
+		// The vertex program ucode hash of the draw about to be bound (only set while the profile needs it:
+		// screen_space.hud_block_programs).
+		void set_draw_program(u64 v) const
+		{
+			m_draw_program = v;
+		}
 		// hud_box_after_shader: the last bound draw is a HUD draw whose box the renderer applies.
 		bool hud_env_requested() const
 		{
@@ -740,6 +755,7 @@ namespace rsx::vr
 		// reads 324x18 targets); the HUD ortho path counts only view-shaped ones (m_draw_samples_colour_target).
 		mutable bool m_draw_samples_any_colour_target = false;
 		mutable bool m_draw_into_display_buffer = true;
+		mutable u64 m_draw_program = 0;
 		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
 		mutable f32 m_draw_hud_scale = 1.f;

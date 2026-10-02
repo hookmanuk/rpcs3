@@ -582,6 +582,25 @@ namespace rsx::vr
 
 		const YAML::Node screen_space = child(root, "screen_space");
 		read(screen_space, "orthographic_block", profile->screen_space_block, false);
+		if (const YAML::Node programs = child(screen_space, "hud_block_programs"); programs && programs.IsSequence())
+		{
+			// [{ "program": "<vertex ucode hash>", "block": 256 }]
+			for (const YAML::Node& node : programs)
+			{
+				std::string program;
+				u32 block = umax;
+				read(node, "program", program);
+				read(node, "block", block);
+				char* end = nullptr;
+				const u64 hash = std::strtoull(program.c_str(), &end, 16);
+				if (program.empty() || !end || *end || block >= 468)
+				{
+					fail("screen_space.hud_block_programs: expected {\"program\": \"<vertex ucode hash>\", \"block\": <slot>}");
+					continue;
+				}
+				profile->screen_space_hud_block_programs.push_back({hash, block});
+			}
+		}
 		if (std::string layout; read(screen_space, "orthographic_block_layout", layout, false))
 		{
 			if (layout == "row_vectors")
@@ -1062,7 +1081,7 @@ namespace rsx::vr
 		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "game_camera_target_widths", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
-		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
+		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -2612,7 +2631,17 @@ namespace rsx::vr
 		// The box needs only the headset view, not a game camera: requiring one (m_vr_proj_valid) left
 		// menus full-view until the game first drew 3D, and boxed after, so Killzone HD's main menu
 		// looked different from run to run depending on what had been drawn before it.
-		if (!m_vr_view || !m_vr_hmd_fov || profile.screen_space_block == umax ||
+		// The HUD block: the profile's, or a listed program's own (hud_block_programs).
+		u32 hud_block = profile.screen_space_block;
+		for (const auto& entry : profile.screen_space_hud_block_programs)
+		{
+			if (entry.program == m_draw_program)
+			{
+				hud_block = entry.block;
+				break;
+			}
+		}
+		if (!m_vr_view || !m_vr_hmd_fov || hud_block == umax ||
 			(profile.screen_space_hud_skips_passes && m_draw_samples_colour_target) ||
 			(profile.screen_space_hud_display_buffers_only && !m_draw_into_display_buffer))
 		{
@@ -2633,8 +2662,8 @@ namespace rsx::vr
 
 		matrix_block block;
 		const bool hud_rows = profile.screen_space_block_rows ||
-		                      std::find(profile.row_vector_blocks.begin(), profile.row_vector_blocks.end(), profile.screen_space_block) != profile.row_vector_blocks.end();
-		if (!block.bind(buffer, reloc, reloc_size, profile.screen_space_block, profile.column_vectors && !hud_rows, false, nullptr, true))
+		                      std::find(profile.row_vector_blocks.begin(), profile.row_vector_blocks.end(), hud_block) != profile.row_vector_blocks.end();
+		if (!block.bind(buffer, reloc, reloc_size, hud_block, profile.column_vectors && !hud_rows, false, nullptr, true))
 		{
 			return;
 		}

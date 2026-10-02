@@ -1627,6 +1627,10 @@ void VKGSRender::vr_setup_draw()
 			}
 		}
 		probe.set_draw_into_display_buffer(display_target);
+		if (const auto* profile = probe.profile(); profile && !profile->screen_space_hud_block_programs.empty())
+		{
+			probe.set_draw_program(vr_vertex_program_hash());
+		}
 		// Depth test that can reject something: a depth buffer bound and a compare other than ALWAYS.
 		// Killzone HD draws its menus with depth test on, no depth buffer and ALWAYS; taken as a real
 		// test, the HUD box kept their z while the head moved W, and text near the far plane was clipped.
