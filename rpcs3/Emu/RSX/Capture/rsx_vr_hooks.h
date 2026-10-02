@@ -17,6 +17,8 @@ namespace fs
 namespace rsx::vr
 {
 	u64 effective_vblank_rate(); // rsx_camera_probe.cpp
+	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
+	bool multiview_active();
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();

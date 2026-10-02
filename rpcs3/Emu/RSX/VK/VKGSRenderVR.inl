@@ -239,6 +239,40 @@
 	u64 m_vr_last_emu_flip_us = 0;     // last game flip (not an overlay/UI refresh)
 	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
 
+	// ---- Multiview stereo (plans/7-multiview-plan.md): both eyes in one draw --------------------
+	// Render targets have two layers (layer 0 the guest's picture, layer 1 the right eye), every draw
+	// pass is a two-view multiview pass, the vertex shader picks each view's draw parameters by
+	// gl_ViewIndex and guest shaders sample 2D textures as arrays. The two-draw path above stays as
+	// the fallback (device without multiview, RPCS3_VR_MULTIVIEW=0).
+	bool m_vr_multiview_supported = false;
+	bool m_vr_multiview = false;             // active: follows camera_probe::render_enabled() (vr_update_multiview_mode)
+	bool m_vr_mv_box_scissor = false;        // the current draw clips each eye to its own HUD-box rectangle
+	VkRect2D m_vr_mv_scissor[2]{};           // per-eye scissors of the current draw (HUD box) ...
+	VkRect2D m_vr_mv_bound_scissor[2]{};     // ... and the ones last bound
+	u64 m_vr_mv_right_xform_offset = 0;      // the right eye's transform constants, relative to the bound window (bytes)
+	u32 m_vr_mv_open_query = umax;           // first slot of the query pair open in the current pass
+	u8 m_vr_draw_view_mask = 0;              // the render pass variant of the bound targets (1 = both views)
+	std::unique_ptr<vk::viewable_image> m_vr_mv_right_eye; // layer 1 of the display surface, copied out for presentation
+	static void vr_mv_on_before_end_renderpass(const vk::command_buffer& cmd);
+	void vr_update_multiview_mode();         // prepare_rtts(): follow render_enabled(), dropping every surface on a change
+	bool bind_vr_eye_constants_pair(usz source_size); // both eyes' constants in one allocation; records the per-eye box scissors
+	bool vr_box_scissor_rect(VkRect2D& scissor);      // the HUD-box scissor of the eye whose constants were just transformed
+	void vr_mv_begin_query_segment();        // begin the guest's query (two slots) inside the open multiview pass
+	void vr_mv_end_query_segment(const vk::command_buffer& cmd); // the pass ends: end the open pair, continue with the next draw
+	void vr_mv_clear_eye_rects(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& left, const VkClearRect& right);
+	vk::viewable_image* vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image);
+	// Multiview hooks in upstream functions
+	bool vr_bind_viewport();                 // bind_viewport(): one viewport and scissor per view; true when handled
+	void vr_after_render_pass_bound();       // emit_geometry(): a pending guest query begins inside the multiview pass
+	vk::image_view* vr_array_view(vk::image_view* view, rsx::texture_dimension_extended dimension); // bind_texture_env(): 2D samplers read arrays
+	vk::image_view* vr_array_view(vk::image_view* view);
+	VkImageViewType vr_null_view_type(rsx::texture_dimension_extended dimension); // bind_texture_env(): the null view an array sampler takes
+	bool vr_clear_attachments(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& region, const std::optional<areai>& right_clear); // clear_surface(): true when cleared per eye
+	u8 vr_image_view_mask(vk::image* image); // the multiview variant of a pass over this image (stencil clears)
+	u8 vr_draw_view_mask();                  // prepare_rtts(): the variant of the bound targets, into m_vr_draw_view_mask
+	u32 vr_query_slot_result(const vk::occlusion_data& data, u32 occlusion_id); // get_occlusion_query_result(): a pair's average
+	void vr_free_query_pairs(vk::occlusion_data& data);
+
 	// ---- Hooks called from upstream functions (see VKGSRenderVR.cpp) -------------------------
 
 	// Per-draw VR state shared by the emit_geometry() hooks.
@@ -255,6 +289,9 @@
 		bool right_box_scissor = false;     // the right (per-draw replay) did too
 		u32 query_continuation = umax;
 		u64 preprojected = 0;
+		bool mv = false;                    // multiview: both eyes in this one draw
+		bool eye_constants_bound = false;   // bind_vr_eye_constants_pair bound the eyes' allocation (restored in vr_end_draw)
+		u64 mv_env_right = 0;               // the right eye's vertex context, relative to the bound (left) window
 		VkDescriptorBufferInfoEx guest_constants_info{};
 		u64 guest_constants_dynamic_offset = 0;
 		u64 guest_constants_source_offset = 0;
@@ -340,7 +377,7 @@
 	// frame_context_cleanup(), flip()
 	void vr_remove_overlay_temp_resources(u32 uid);
 	void vr_flip_begin(const rsx::display_flip_info_t& info); // pending batch, RPCS3_VR_RTDUMP, GPU profiler
-	bool vr_present_right_eye(const vk::present_surface_info& present_info, const rsx::avconf& avconfig, u32 buffer_width, u32 buffer_height, vk::viewable_image*& image_to_flip2);
+	bool vr_present_right_eye(const vk::present_surface_info& present_info, const rsx::avconf& avconfig, u32 buffer_width, u32 buffer_height, vk::viewable_image* image_to_flip, vk::viewable_image*& image_to_flip2);
 	void vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2);
 	bool vr_capturable(vk::viewable_image* image_to_flip, u32 buffer_width, u32 buffer_height);
 	bool vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2, u32 buffer_width, u32 buffer_height);

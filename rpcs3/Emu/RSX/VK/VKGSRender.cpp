@@ -1238,6 +1238,7 @@ void VKGSRender::bind_viewport()
 		m_graphics_state.clear(rsx::pipeline_state::zclip_config_state_dirty);
 	}
 
+	if (vr_bind_viewport()) return; // VR fork: multiview, one viewport and scissor per view
 	vkCmdSetViewport(*m_current_command_buffer, 0, 1, &m_viewport);
 	vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
 }
@@ -1508,13 +1509,16 @@ void VKGSRender::clear_surface(u32 mask)
 		{
 			// Partial stencil clear. Disables fast stencil clear
 			auto ds = std::get<1>(m_rtts.m_bound_depth_stencil);
-			auto key = vk::get_renderpass_key({ ds });
+			auto key = vk::get_renderpass_key({ ds }, {}, vr_image_view_mask(ds)); // VR fork: both layers of a stereo target
 			auto renderpass = vk::get_renderpass(*m_device, key);
 
-			vk::get_overlay_pass<vk::stencil_clear_pass>()->run(
+			auto* stencil_clear = vk::get_overlay_pass<vk::stencil_clear_pass>();
+			stencil_clear->m_target_view_mask = vr_image_view_mask(ds); // VR fork
+			stencil_clear->run(
 				*m_current_command_buffer, ds, region.rect,
 				depth_stencil_clear_values.depthStencil.stencil,
 				rsx::method_registers.stencil_mask(), renderpass);
+			stencil_clear->m_target_view_mask = 0; // VR fork
 
 			depth_stencil_mask &= ~VK_IMAGE_ASPECT_STENCIL_BIT;
 		}
@@ -1532,7 +1536,7 @@ void VKGSRender::clear_surface(u32 mask)
 		m_rtts.on_write({ update_color, update_color, update_color, update_color }, update_z);
 	}
 
-	if (!clear_descriptors.empty())
+	if (!clear_descriptors.empty() && !vr_clear_attachments(clear_descriptors, region, vr_right_clear)) // VR fork: multiview clears per eye
 	{
 		begin_render_pass();
 		vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), 1, &region);
@@ -2504,6 +2508,7 @@ void VKGSRender::close_and_submit_command_buffer(vk::fence* pFence, VkSemaphore 
 void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 {
 	const bool clipped_scissor = (context == rsx::framebuffer_creation_context::context_draw);
+	vr_update_multiview_mode(); // VR fork: multiview stereo on or off with the renderer
 	if (m_current_framebuffer_context == context && !m_graphics_state.test(rsx::rtt_config_dirty) && m_draw_fbo)
 	{
 		// Fast path
@@ -2712,7 +2717,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		std::iota(input_attachments.begin(), input_attachments.end(), 0);
 	}
 
-	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments);
+	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments, vr_draw_view_mask()); // VR fork: multiview
 	m_cached_renderpass = vk::get_renderpass(*m_device, m_current_renderpass_key);
 
 	// Search old framebuffers for this same configuration
@@ -2724,7 +2729,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_draw_fbo->release();
 	}
 
-	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, m_fbo_images);
+	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, m_fbo_images, m_vr_draw_view_mask, 0, m_vr_draw_view_mask ? 2 : 0); // VR fork: both layers
 	m_draw_fbo->add_ref();
 
 	set_viewport();
@@ -2858,7 +2863,7 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 		// Gather data
 		for (const auto occlusion_id : data.indices)
 		{
-			query->result += m_occlusion_query_manager->get_query_result(occlusion_id);
+			query->result += vr_query_slot_result(data, occlusion_id); // VR fork: a multiview pair's average
 			if (query->result && !rsx::reports::precise_zpass_count()) // VR fork: profile zcull_approximate
 			{
 				// We only need one hit unless precise zcull is requested
@@ -2868,6 +2873,7 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 	}
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
+	vr_free_query_pairs(data); // VR fork
 	data.indices.clear();
 }
 
@@ -2883,6 +2889,7 @@ void VKGSRender::discard_occlusion_query(rsx::reports::occlusion_query_info* que
 		return;
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
+	vr_free_query_pairs(data); // VR fork
 	data.indices.clear();
 }
 

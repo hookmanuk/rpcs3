@@ -27,6 +27,7 @@ namespace vk
 	// 16-21 sample_counts
 	// 22-36 current layouts
 	// 37-41 input attachments
+	// 42-43 VR fork: multiview view mask (0 none, 1 both views, 2 view 0, 3 view 1)
 	union renderpass_key_blob
 	{
 	private:
@@ -71,6 +72,7 @@ namespace vk
 			u64 sample_count  : 6;
 			u64 layout_blob   : 15;
 			u64 input_attachments_mask : 5;
+			u64 view_mask : 2;
 		};
 
 		renderpass_key_blob(u64 encoded_) : encoded(encoded_)
@@ -169,9 +171,16 @@ namespace vk
 		}
 	};
 
-	u64 get_renderpass_key(const std::vector<vk::image*>& images, const std::vector<u8>& input_attachment_ids)
+	u8 get_renderpass_view_mask(u64 renderpass_key)
+	{
+		renderpass_key_blob key(renderpass_key);
+		return static_cast<u8>(key.view_mask);
+	}
+
+	u64 get_renderpass_key(const std::vector<vk::image*>& images, const std::vector<u8>& input_attachment_ids, u8 view_mask)
 	{
 		renderpass_key_blob key(0);
+		key.view_mask = view_mask & 3;
 
 		for (u32 i = 0; i < ::size32(images); ++i)
 		{
@@ -351,8 +360,20 @@ namespace vk
 			});
 		}
 
+		// VR fork: multiview variants render every draw into two layers (one per eye)
+		static constexpr u32 view_masks[4] = { 0u, 0b11u, 0b01u, 0b10u };
+		const u32 view_mask = view_masks[key.view_mask];
+		const u32 correlation_mask = view_mask; // the views of one pass are spatially correlated (a hint)
+		VkRenderPassMultiviewCreateInfo multiview_info = {};
+		multiview_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
+		multiview_info.subpassCount = 1;
+		multiview_info.pViewMasks = &view_mask;
+		multiview_info.correlationMaskCount = 1;
+		multiview_info.pCorrelationMasks = &correlation_mask;
+
 		VkRenderPassCreateInfo rp_info = {};
 		rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		rp_info.pNext = view_mask ? &multiview_info : nullptr;
 		rp_info.attachmentCount = ::size32(attachments);
 		rp_info.pAttachments = attachments.data();
 		rp_info.subpassCount = 1;
@@ -426,9 +447,15 @@ namespace vk
 	}
 
 	void (*g_end_renderpass_hook)(const vk::command_buffer& cmd) = nullptr;
+	void (*g_before_end_renderpass_hook)(const vk::command_buffer& cmd) = nullptr;
 
 	void end_renderpass(const vk::command_buffer& cmd)
 	{
+		if (g_before_end_renderpass_hook)
+		{
+			g_before_end_renderpass_hook(cmd);
+		}
+
 		vkCmdEndRenderPass(cmd);
 		g_current_renderpass[cmd] = {};
 

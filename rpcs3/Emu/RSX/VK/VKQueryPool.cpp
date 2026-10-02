@@ -204,8 +204,15 @@ namespace vk
 			run_pool_cleanup();
 		}
 
+		const bool pair_head = query.pair_head; // VR fork (multiview): the slot after it is the pair's second view
 		query = {};
 		m_available_slots.push_back(index);
+		if (pair_head)
+		{
+			// Freed right after its head so that the two stay adjacent in the list (allocate_query_pair).
+			query_slot_status[index + 1] = {};
+			m_available_slots.push_back(index + 1);
+		}
 	}
 
 	u32 query_pool_manager::allocate_query(vk::command_buffer& cmd)
@@ -233,6 +240,48 @@ namespace vk
 		}
 
 		return ~0u;
+	}
+
+	u32 query_pool_manager::allocate_query_pair(vk::command_buffer& cmd)
+	{
+		if (m_pool_lifetime_counter < 2)
+		{
+			if (vk::is_renderpass_open(cmd))
+			{
+				vk::end_renderpass(cmd);
+			}
+
+			reallocate_pool(cmd);
+		}
+
+		// Two consecutive free slots at the front of the list: the list starts in order, a pair is freed as a
+		// pair (free_query), and a lone slot in the way is rotated to the back. No allocation: this runs for
+		// every query segment (a pass end ends the open pair; the next draw begins another).
+		for (usz tries = 0, count = m_available_slots.size(); tries < count && m_available_slots.size() >= 2; ++tries)
+		{
+			const u32 first = m_available_slots.front();
+			m_available_slots.pop_front();
+			if (m_available_slots.front() == first + 1)
+			{
+				m_available_slots.pop_front();
+				m_pool_lifetime_counter -= 2;
+				return first;
+			}
+			m_available_slots.push_back(first);
+		}
+
+		return ~0u;
+	}
+
+	void query_pool_manager::begin_query_pair(vk::command_buffer& cmd, u32 index)
+	{
+		// The head is begun as a single query (one begin covers both views' slots, index and index + 1);
+		// the second slot only records the pool its result is read from, and is freed with the head.
+		ensure(query_slot_status[index + 1].active == false);
+		begin_query(cmd, index);
+		query_slot_status[index].pair_head = true;
+		query_slot_status[index + 1].pool = m_current_query_pool.get();
+		query_slot_status[index + 1].active = true;
 	}
 
 	void query_pool_manager::on_query_pool_released(std::unique_ptr<vk::query_pool>& pool)

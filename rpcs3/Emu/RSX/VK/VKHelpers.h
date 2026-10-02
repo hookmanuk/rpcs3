@@ -132,6 +132,8 @@ namespace vk
 
 	struct blitter
 	{
+		// A stereo destination (VR fork multiview) receives the transfer in both layers: from the source's matching layer, or its only one.
 		void scale_image(vk::command_buffer& cmd, vk::image* src, vk::image* dst, areai src_area, areai dst_area, bool interpolate, const rsx::typeless_xfer& xfer_info);
+		void scale_image_layer(vk::command_buffer& cmd, vk::image* src, vk::image* dst, areai src_area, areai dst_area, bool interpolate, const rsx::typeless_xfer& xfer_info, u32 src_layer, u32 dst_layer);
 	};
 }

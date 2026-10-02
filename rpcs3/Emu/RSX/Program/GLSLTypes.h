@@ -65,5 +65,6 @@ namespace glsl
 		bool require_shadowProj_ops : 1;        // Include shadow2DProj projection textures (1D is unsupported anyway)
 		bool require_alpha_kill : 1;            // Include alpha kill checking code
 		bool require_color_format_convert : 1;  // Include colorspace conversion code
+		bool vr_multiview : 1;                  // VR fork: 2D samplers are arrays, the layer is gl_ViewIndex
 	};
 };

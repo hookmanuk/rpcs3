@@ -18,8 +18,13 @@ namespace vk
 		void dispose(vk::buffer* buf);
 	}
 
-	void resolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src);
-	void unresolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src);
+	// VR fork (multiview): layer selects the eye of stereo images; one call per layer.
+	void resolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src, u32 layer = 0);
+	void unresolve_image(vk::command_buffer& cmd, vk::viewable_image* dst, vk::viewable_image* src, u32 layer = 0);
+
+	// VR fork (multiview): while set, new render targets get two layers (layer 1 = right eye). Set by the
+	// renderer before any surface of a stereo frame is created; the surface cache is invalidated on a change.
+	extern bool g_vr_stereo_layers;
 
 	class image_reference_sync_barrier
 	{
@@ -270,7 +275,7 @@ namespace vk
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				VK_IMAGE_TYPE_2D,
 				requested_format,
-				static_cast<u32>(width_), static_cast<u32>(height_), 1, 1, 1,
+				static_cast<u32>(width_), static_cast<u32>(height_), 1, 1, vk::g_vr_stereo_layers ? 2u : 1u,
 				static_cast<VkSampleCountFlagBits>(samples),
 				VK_IMAGE_LAYOUT_UNDEFINED,
 				VK_IMAGE_TILING_OPTIMAL,
@@ -279,6 +284,7 @@ namespace vk
 				VMM_ALLOCATION_POOL_SURFACE_CACHE,
 				RSX_FORMAT_CLASS_COLOR);
 
+			rtt->stereo_layers = (rtt->layers() == 2);
 			rtt->set_debug_name(fmt::format("RTV @0x%x, fmt=0x%x", address, static_cast<int>(format)));
 			rtt->change_layout(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
@@ -338,7 +344,7 @@ namespace vk
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				VK_IMAGE_TYPE_2D,
 				requested_format,
-				static_cast<u32>(width_), static_cast<u32>(height_), 1, 1, 1,
+				static_cast<u32>(width_), static_cast<u32>(height_), 1, 1, vk::g_vr_stereo_layers ? 2u : 1u,
 				static_cast<VkSampleCountFlagBits>(samples),
 				VK_IMAGE_LAYOUT_UNDEFINED,
 				VK_IMAGE_TILING_OPTIMAL,
@@ -347,6 +353,7 @@ namespace vk
 				VMM_ALLOCATION_POOL_SURFACE_CACHE,
 				rsx::classify_format(format));
 
+			ds->stereo_layers = (ds->layers() == 2);
 			ds->set_debug_name(fmt::format("DSV @0x%x", address));
 			ds->change_layout(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
@@ -403,7 +410,7 @@ namespace vk
 					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 					VK_IMAGE_TYPE_2D,
 					ref->format(),
-					new_w, new_h, 1, 1, 1,
+					new_w, new_h, 1, 1, ref->layers(),
 					static_cast<VkSampleCountFlagBits>(ref->samples()),
 					VK_IMAGE_LAYOUT_UNDEFINED,
 					VK_IMAGE_TILING_OPTIMAL,
@@ -417,6 +424,7 @@ namespace vk
 			if (initialize)
 			{
 				sink->reset();
+				sink->stereo_layers = ref->stereo_layers;
 				sink->msaa_flags = rsx::surface_state_flags::ready;
 				sink->add_ref();
 

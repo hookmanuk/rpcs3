@@ -49,6 +49,10 @@ namespace vk
 		u32 current_queue_family = VK_QUEUE_FAMILY_IGNORED;
 		VkImageCreateInfo info = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 		std::shared_ptr<vk::memory_block> memory;
+		// VR fork (multiview): a two-layer image whose layer 0 is the guest's picture (left eye)
+		// and layer 1 the host-only right eye. Default views see layer 0 only; guest shaders
+		// sample it through image_view::as_array() and pick the layer by gl_ViewIndex.
+		bool stereo_layers = false;
 
 		image(const vk::render_device& dev,
 			const memory_type_info& memory_type,
@@ -121,6 +125,8 @@ namespace vk
 		~image_view();
 
 		vk::image_view* as(VkFormat new_format);
+		// VR fork (multiview): this view as a 2D array view over all the image's layers (itself if it already is one).
+		vk::image_view* as_array();
 
 		u32 encoded_component_map() const;
 		vk::image* image() const;
@@ -132,6 +138,7 @@ namespace vk
 
 	private:
 		std::unordered_map<VkFormat, std::unique_ptr<vk::image_view>> m_subviews;
+		std::unique_ptr<vk::image_view> m_array_view;
 
 		VkDevice m_device;
 		vk::image* m_resource = nullptr;
@@ -153,6 +160,12 @@ namespace vk
 		virtual image_view* get_view(
 			const rsx::texture_channel_remap_t& remap,
 			VkImageAspectFlags mask = VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT);
+
+		// VR fork (multiview): a 2D view of one layer of a stereo image (layer umax: the default view).
+		image_view* get_layer_view(
+			const rsx::texture_channel_remap_t& remap,
+			VkImageAspectFlags mask,
+			u32 layer);
 
 		void set_native_component_layout(VkComponentMapping new_layout);
 	};

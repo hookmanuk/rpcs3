@@ -475,6 +475,7 @@ namespace gcm
 
 		RSX_SHADER_CONTROL_ROP_MULTISAMPLED         = 0x10000000, // ROP outputs are multisampled
 		RSX_SHADER_CONTROL_ROP_OUTPUT_REMAP         = 0x20000000, // ROP outputs need channel swizzles.
+		RSX_SHADER_CONTROL_VR_MULTIVIEW             = 0x00004000, // VR fork: both eyes in one multiview draw (per-view draw parameters, array samplers)
 		RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING    = 0x40000000, // Enable programmable blending.
 
 		// Meta
