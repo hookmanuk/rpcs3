@@ -59,11 +59,17 @@ measured yet.
 | Killzone HD | BCES01743 | 90 FPS | 90 Hz |
 | Tales of Xillia | BLUS31006 | Headset refresh rate | 120 Hz |
 | Super Stardust HD | NPUA80068 | Headset refresh rate | 120 Hz |
+| God of War | BCES00800 | Headset refresh rate | 120 Hz |
+| God of War II | BCES00800 | Headset refresh rate | 120 Hz |
+| Dante's Inferno | BLUS30405 | Headset refresh rate | 120 Hz |
+| Asura's Wrath | BLUS30721 | Headset refresh rate | 120 Hz |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
 - **Frame rate:** the headset's refresh rate by default (90 Hz = 90 FPS), at real-time speed at any rate. No
   patch needed. A slower PC can choose a lower rate with the VR **Frame Rate** setting.
+- **In the headset:** the VR build's patch *Wider view (VR culling)* (on by default) widens the race camera's view
+  so the track above and beside you is drawn when you look around (without it the track overhead ends in sky).
 - **Recommended settings** (for 90 FPS): Video > `Relaxed ZCULL Sync` on, `Accurate ZCULL stats` off,
   `Shader Precision` Low; CPU > `Thread Scheduler` RPCS3 Scheduler. `Resolution Scale` around 300-400%:
   every render target exists once per eye, so at very high scales (750%) even a 32 GB card runs out of video
@@ -186,6 +192,51 @@ measured yet.
   of you; play and the pause menu are in 3D.
 - **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
 
+### 11. God of War (BCES00800, God of War Collection, UK disc 01.00): headset refresh rate
+
+- Start it from the collection's game selector. The selector and its intro show on a flat screen in front of you.
+- **Frame rate:** the headset's refresh rate, at real-time speed (the VR profile sets the game's frame rate). The
+  VR build's patch *QTE button mashing at any frame rate (VR)* (on by default) keeps the button-mashing QTEs (the
+  Hydra and others) winnable above 60 FPS. Patches apply when the game boots.
+- **In the headset:** the menus, the pause menu and the Power Up screen show on a flat screen in front of you.
+  The game draws its scene inside a black border; the headset shows only the scene.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
+- **Known issues:** once in about eight boots it crashed when switching from the selector into the game: start it
+  again. Loading a savestate and then restarting from a checkpoint can stop the game: boot it fresh instead.
+
+### 12. God of War II (BCES00800, God of War Collection, UK disc 01.00): headset refresh rate
+
+- Start it from the collection's game selector, as God of War.
+- **Frame rate:** the headset's refresh rate, at real-time speed (the VR profile sets the game's frame rate). No
+  patch needed: its QTEs already run in real time at any rate.
+- **In the headset:** as God of War: menus, pause and Power Up on a flat screen, and only the scene inside the
+  game's black border.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
+- **Known issues:** as God of War (the selector switch, a checkpoint restart after a savestate).
+
+### 13. Dante's Inferno (BLUS30405, US disc 01.00): headset refresh rate
+
+- **Frame rate:** the headset's refresh rate, at real-time speed. No patch needed: the VR profile sets the game's
+  frame interval.
+- **VR patches (on by default):** *Wider view (VR culling)* widens the game camera's view so the scenery at the
+  edges of the headset view is drawn (Scale 2.75: 170 degrees; lower it in `Manage > Game Patches` if you see
+  problems); *Disable camera shake (VR)* removes the screen shake on hits. Patches apply when the game boots.
+- **In the headset:** the splash screens, menus and the intro movie show on a flat screen in front of you.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
+- **Known issues:** the sun's lens flare does not show with the wide view; the sky is a flat backdrop.
+
+### 14. Asura's Wrath (BLUS30721, US disc 01.00): headset refresh rate
+
+- **Frame rate:** turn on the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*
+  in `Manage > Game Patches` (download the patches there first if the list is empty). The game then runs at
+  real-time speed at the headset rate. Button-mashing QTEs may be harder at higher rates.
+- **VR patch (on by default):** *Wider view culling (VR)* stops the game hiding objects outside its narrow cutscene
+  cameras (Culling 180 degrees; "The game's own view" turns it off). It also applies when a savestate is loaded.
+- **In the headset:** cutscenes show without the letterbox bars; the intro video and the TV screens are flat
+  screens in the world.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing (Episode 1 space battle).
+- **Known issues:** in the palace, the golden disc above the throne can turn black depending on where you look.
+
 ---
 
 
@@ -233,12 +284,9 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | The Darkness | BLUS30035 | below 72 (~48) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
 | Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
 | Jak and Daxter Collection | BCUS98281 | Jak 1 72 Hz; Jak II below 72 (~69); Jak 3 ~43 | Jak 1 and Jak II run at the headset rate with no patch (real-time); Jak 1's lens flares are hidden in VR. Jak 3 is too slow (~43 FPS) and has no profile. Checked on the desktop only. |
-| Asura's Wrath | BLUS30721 | 120 Hz | Enable the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*. Real-time speed at 90 FPS (Vblank 180); button-mashing QTEs may be harder at higher rates. Episode 1 checked on the desktop only; not tested in a headset. |
 | Anarchy Reigns | BLUS30632 | 90 Hz | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
-| Dante's Inferno | BLUS30405 | 120 Hz | Disc 01.00, no patch: the profile sets the game's frame interval (`game_frame_ms_f32`), so it runs real-time at the headset rate (desktop: 90 FPS, 180 possible flat). Stereo, rotation audit and HUD checked in the first level on the desktop. The sky is a screen-space card. Not tested in a headset. |
 | Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
 | Puppeteer | BCUS98227 | 72 Hz | No patch needed: runs at real-time speed at the headset rate (the profile sets the game's frame time). The game post-processes each frame on the SPUs, which only ever sees the left eye: in VR the profile reads the frame from before that step, so its anti-aliasing is skipped. The stage looks small in the headset (the game's narrow theatre camera). Not tested in a headset. |
-| God of War Collection | BCES00800 | 120 Hz (GoW 1, GoW II) | No patch needed: both games run at real-time speed at the headset rate (the profile sets the game's frame rate). In testing: QTEs in God of War 1 cannot be passed at 90 FPS (they need a patch). |
 | Killzone 2 | BCUS98116 | - | Needs `Write Color Buffers` and `Read Color Buffers` on. Runs at 45 FPS by default (stereo reaches about 60). Not tested in a headset. |
 | Kingdom Hearts HD 1.5 ReMIX | BLUS31212 | 120 Hz | Kingdom Hearts Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
 | Kingdom Hearts HD 2.5 ReMIX | BLUS31460 | 72 Hz | Kingdom Hearts II Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |

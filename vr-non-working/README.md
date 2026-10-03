@@ -22,11 +22,8 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
 | Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (90 FPS real-time; stereo via `texture_redirects`) | |
 | Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json`, `BCUS98281.jak2.json` | |
-| Asura's Wrath | BLUS30721 | `vr_profiles/BLUS30721.json` | `patches/BLUS30721_patch.yml` (*Wider view culling (VR)*, on by default, also on savestates); community *Unlock FPS*, *Disable Motion Blur*, *Disable Depth of Field* |
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |
-| Dante's Inferno (disc 01.00) | BLUS30405 | `vr_profiles/BLUS30405.json` (frame rate from the profile, no patch) | |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
-| God of War Collection (GoW 1, GoW II) | BCES00800 | `vr_profiles/BCES00800.json` (launcher), `BCES00800.gow1.json`, `BCES00800.gow2.json` | `patches/BCES00800_patch.yml` (GoW 1: QTE button mashing at any frame rate, on by default) |
 | Killzone 2 | BCUS98116 | `vr_profiles/BCUS98116.json` (needs Write and Read Color Buffers) | |
 | Kingdom Hearts HD 1.5 ReMIX (KH Final Mix) | BLUS31212 | `vr_profiles/BLUS31212.json` (launcher), `BLUS31212.kingdom.json` | `patches/BLUS31212_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
 | Kingdom Hearts HD 2.5 ReMIX (KH II Final Mix) | BLUS31460 | `vr_profiles/BLUS31460.json` (launcher), `BLUS31460.kingdom2.json` | `patches/BLUS31460_patch.yml` (*Unlocked frame rate (VR)*, on by default) |

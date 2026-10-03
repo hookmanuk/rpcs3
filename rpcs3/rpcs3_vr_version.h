@@ -6,4 +6,4 @@
 // plans/4-next-steps.md, release procedure; plans/tools/package_release.py stops on a number already released).
 // A preprocessor define rather than a constant because rpcs3_version.cpp joins it with the
 // generated RPCS3_GIT_VERSION string literal at compile time.
-#define RPCS3_VR_VERSION "vr7"
+#define RPCS3_VR_VERSION "vr8"
