@@ -87,6 +87,14 @@ namespace vk
 	// VKVertexDecompilerThread::insertMainEnd(): each view clips to its own scissor (the HUD box differs per eye).
 	void vr_insert_vertex_main_end(std::ostream& OS, u32 ctrl, bool viewport_index);
 
+	// Exact depth (RSX_SHADER_CONTROL_VR_EXACT_DEPTH): the vertex shader passes (window depth x w, w) in the game's own
+	// clip space; interpolated over the triangle their ratio is the game's depth at each pixel, also when the fixed HUD
+	// box tilts the draw. The fragment shader writes it to gl_FragDepth.
+	void vr_insert_exact_depth_vertex_output(std::ostream& OS, u32 ctrl);
+	void vr_insert_exact_depth_vertex_end(std::ostream& OS, u32 ctrl); // after apply_zclip_xform; needs vr_pre_xform
+	void vr_insert_exact_depth_fragment_input(std::ostream& OS, u32 ctrl);
+	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl);
+
 	// Shader interpreter (VKShaderInterpreter.cpp), with COMPILER_OPT_VR_MULTIVIEW in compiler_options.
 	void vr_insert_interpreter_vertex(std::ostream& OS, const std::string& vertex_interpreter, bool viewport_index);
 	void vr_insert_interpreter_fragment_extensions(std::ostream& OS, u64 compiler_options);

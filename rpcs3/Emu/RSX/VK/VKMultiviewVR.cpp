@@ -268,6 +268,51 @@ namespace vk
 		}
 	}
 
+	// The varying after the RSX's (locations 0-15)
+	static constexpr int vr_exact_depth_location = 16;
+
+	void vr_insert_exact_depth_vertex_output(std::ostream& OS, u32 ctrl)
+	{
+		if (ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+		{
+			OS << "layout(location=" << vr_exact_depth_location << ") out vec2 vr_exact_depth;\n";
+		}
+	}
+
+	void vr_insert_exact_depth_vertex_end(std::ostream& OS, u32 ctrl)
+	{
+		if (!(ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH))
+		{
+			return;
+		}
+		// The game's window depth at this vertex, weighted by the game's own w (vr_pre_xform: the position before the
+		// viewport or HUD-box matrix). The rasterizer interpolates varyings in the space gl_Position spans, a linear map
+		// of the game's clip space, so x / y is the game's depth at each pixel exactly. Unrestricted depth range: the
+		// viewport maps the zclip output [0, 1] onto [z_near, z_far].
+		const bool unrestricted = vk::get_current_renderer()->get_unrestricted_depth_range_support();
+		OS << "	{\n";
+		OS << "		const float vr_d = gl_Position.w != 0. ? gl_Position.z / gl_Position.w : 0.;\n";
+		OS << (unrestricted ? "		vr_exact_depth = vec2((z_near + vr_d * (z_far - z_near)) * vr_pre_xform.w, vr_pre_xform.w);\n"
+		                    : "		vr_exact_depth = vec2(vr_d * vr_pre_xform.w, vr_pre_xform.w);\n");
+		OS << "	}\n";
+	}
+
+	void vr_insert_exact_depth_fragment_input(std::ostream& OS, u32 ctrl)
+	{
+		if (ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+		{
+			OS << "layout(location=" << vr_exact_depth_location << ") in vec2 vr_exact_depth;\n";
+		}
+	}
+
+	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl)
+	{
+		if (ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+		{
+			OS << "	gl_FragDepth = vr_exact_depth.y != 0. ? clamp(vr_exact_depth.x / vr_exact_depth.y, 0., 1.) : gl_FragCoord.z;\n\n";
+		}
+	}
+
 	void vr_insert_interpreter_vertex(std::ostream& OS, const std::string& vertex_interpreter, bool viewport_index)
 	{
 		if (!viewport_index)

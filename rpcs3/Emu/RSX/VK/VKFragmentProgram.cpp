@@ -158,6 +158,7 @@ void VKFragmentDecompilerThread::insertInputs(std::stringstream & OS)
 		},
 		vk::get_varying_register_location
 	);
+	vk::vr_insert_exact_depth_fragment_input(OS, m_prog.ctrl); // VR fork: exact depth
 }
 
 void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
@@ -578,6 +579,8 @@ void VKFragmentDecompilerThread::insertMainEnd(std::stringstream & OS)
 			"	// Insert pseudo-barrier sequence to disable early-Z\n"
 			"	gl_FragDepth = gl_FragCoord.z;\n\n";
 	}
+
+	vk::vr_insert_exact_depth_fragment_end(OS, m_prog.ctrl); // VR fork: exact depth (a depth export below overrides it)
 
 	glsl::insert_rop(OS, m_shader_props);
 
