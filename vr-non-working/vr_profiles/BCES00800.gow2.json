@@ -7,6 +7,10 @@
   "default_fps": 0,
   "game_fps_u32": ["0x5720f4"],
 
+  "resolution_scaled_constants": [
+    { "program": "c4882b95379447a8", "slots": [466, 467] }
+  ],
+
   "matrix_layout": "row_vectors",
   "camera_blocks": [256],
   "output_aspect_tolerance": 0.02,
