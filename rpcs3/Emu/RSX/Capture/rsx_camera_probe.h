@@ -229,6 +229,10 @@ namespace rsx::vr
 		// for a HUD that stores its pixel matrix in the other layout from the scene's camera.
 		bool screen_space_block_rows = false;
 		bool screen_space_bare_projection = false;
+		// screen_space.bare_projection as a list of camera blocks: only a bare projection bound from one of these is
+		// screen space; in other blocks it is the camera (WipEout HD: the menu cloud's c[260] goes in the box, the
+		// in-race glows drawn in camera space through c[256] follow the head). Empty with bare_projection true: all.
+		std::vector<u32> screen_space_bare_projection_blocks;
 		// A projection with no view rotation and only a translation along the view
 		// axis (W = z + d, d != 0): geometry the game draws in its camera's space at
 		// a fixed depth, e.g. Blur's 3D HUD. Screen space too.

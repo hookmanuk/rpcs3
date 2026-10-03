@@ -655,7 +655,13 @@ namespace rsx::vr
 			else if (layout != "column_vectors")
 				fail(fmt::format("screen_space.orthographic_block_layout '%s' is not supported (row_vectors or column_vectors)", layout));
 		}
-		if (std::string bare; read(screen_space, "bare_projection", bare, false))
+		if (const YAML::Node bare_blocks = child(screen_space, "bare_projection"); bare_blocks && bare_blocks.IsSequence())
+		{
+			for (const auto& node : bare_blocks)
+				profile->screen_space_bare_projection_blocks.push_back(node.as<u32>());
+			profile->screen_space_bare_projection = !profile->screen_space_bare_projection_blocks.empty();
+		}
+		else if (std::string bare; read(screen_space, "bare_projection", bare, false))
 		{
 			profile->screen_space_bare_projection = bare == "true";
 		}
@@ -2351,7 +2357,11 @@ namespace rsx::vr
 		// In desktop stereo every bare-projection draw without a depth test that can reject is screen-space work
 		// too (no HUD box there): The Darkness builds its colour-grading LUT with depth func ALWAYS quads; shifted,
 		// the LUT slices were written a few texels off and the tone map turned the image pink.
-		if (!m_vr_view && profile.screen_space_bare_projection &&
+		// A bare_projection block list limits all this to bare projections bound from those blocks.
+		const bool bare_projection_block = profile.screen_space_bare_projection_blocks.empty() ||
+			std::find(profile.screen_space_bare_projection_blocks.begin(), profile.screen_space_bare_projection_blocks.end(), block.base()) !=
+				profile.screen_space_bare_projection_blocks.end();
+		if (!m_vr_view && profile.screen_space_bare_projection && bare_projection_block &&
 			((profile.screen_space_hud_skips_passes && m_draw_samples_any_colour_target) || !m_draw_depth_test))
 		{
 			constexpr f32 eps = 1e-5f;
@@ -2405,7 +2415,7 @@ namespace rsx::vr
 			                        std::fabs(std::fabs(rows[1][1] / rows[0][0]) / output_aspect - 1.f) > 0.1f;
 			const bool bare_projection = camera_space &&
 			                             (depth_offset ? profile.screen_space_depth_offset_projection :
-														 (profile.screen_space_bare_projection || (profile.screen_space_offaspect_projection && off_aspect)));
+														 ((profile.screen_space_bare_projection && bare_projection_block) || (profile.screen_space_offaspect_projection && off_aspect)));
 			if (bare_projection && profile.screen_space_hud_skips_passes && m_draw_samples_any_colour_target)
 			{
 				// A full-screen pass drawn with the projection (The Darkness composites its 1024x576 scene into
