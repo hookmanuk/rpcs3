@@ -740,7 +740,8 @@ namespace rsx::vr
 		camera_probe();
 		void parse(const std::string& cfg);
 		void reset_params();
-		void apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head) const;
+		// refresh_projection: the block may update the cached projection scale (false for camera-facing sprites).
+		void apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head, bool refresh_projection = true) const;
 		void apply_vr_screen_space(const title_profile& profile, void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 		void map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const;

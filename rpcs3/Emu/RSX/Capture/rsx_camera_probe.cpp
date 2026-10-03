@@ -208,6 +208,7 @@ namespace rsx::vr
 				}
 
 				m_transposed = column_vectors;
+				m_base = base;
 				// The program left out a z slot the layout has: z = w, drawn on the far plane (a sky).
 				m_far_plane = !xyw && slot_of[2] != umax && !m_slots[2];
 				for (u32 k = 0; k < 4; ++k)
@@ -234,11 +235,18 @@ namespace rsx::vr
 				return m_far_plane;
 			}
 
+			// The first constant slot of the bound block.
+			u32 base() const
+			{
+				return m_base;
+			}
+
 			// Drop the binding without writing back (the block was not modified).
 			void release()
 			{
 				m_transposed = false;
 				m_far_plane = false;
+				m_base = umax;
 				for (f32*& r : rows)
 					r = nullptr;
 			}
@@ -249,6 +257,7 @@ namespace rsx::vr
 			f32* m_slots[4] = {};
 			f32 m_local[4][4] = {};
 			f32 m_flat_z[4] = {};
+			u32 m_base = umax;
 			bool m_transposed = false;
 			bool m_far_plane = false;
 		};
@@ -313,6 +322,21 @@ namespace rsx::vr
 			       std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
 			       std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
 			       std::fabs(dot(1, 3)) <= tol * n1 * n3;
+		}
+
+		// A camera-facing sprite: the object's z axis is the view axis (input x and y do not reach clip w, input z
+		// does not reach clip x or y), so the matrix is the projection times the sprite's own in-plane size. Its
+		// x and y columns are orthogonal like a camera's, but their length is the projection's scale times the
+		// sprite's size, not the projection's.
+		bool is_screen_aligned(f32* const r[4])
+		{
+			const f32 n0 = std::sqrt(r[0][0] * r[0][0] + r[1][0] * r[1][0] + r[2][0] * r[2][0]);
+			const f32 n1 = std::sqrt(r[0][1] * r[0][1] + r[1][1] * r[1][1] + r[2][1] * r[2][1]);
+			const f32 n3 = std::sqrt(r[0][3] * r[0][3] + r[1][3] * r[1][3] + r[2][3] * r[2][3]);
+			constexpr f32 tol = 1e-3f;
+			return n0 > 1e-8f && n1 > 1e-8f && n3 > 1e-8f &&
+			       std::fabs(r[0][3]) <= tol * n3 && std::fabs(r[1][3]) <= tol * n3 &&
+			       std::fabs(r[2][0]) <= tol * n0 && std::fabs(r[2][1]) <= tol * n1;
 		}
 
 		// |clip y| / |clip x| of the block against the output aspect (10%).
@@ -2405,9 +2429,16 @@ namespace rsx::vr
 		// translation or eye offset (a finite eye offset gives it the parallax of the dome's
 		// real size, contradicting its far-plane depth).
 		const bool at_infinity = block.far_plane() && m_vr_view;
+		// A camera-facing sprite in a nonrigid_camera_blocks block (Bayonetta's c[24] flames and tree cards) carries
+		// its own size in the projection's scale: it must neither replace the cached projection nor size its eye offset.
+		const bool sprite_block = std::find(profile.nonrigid_camera_blocks.begin(), profile.nonrigid_camera_blocks.end(), block.base()) !=
+		                              profile.nonrigid_camera_blocks.end() && is_screen_aligned(rows);
+		// The sprite's clip x per view unit: the cached projection's x scale times its w scale (taken before the rotation).
+		const f32 sprite_x_per_unit = sprite_block && m_vr_proj_valid ?
+			m_vr_proj_x * std::sqrt(rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]) : 0.f;
 		if (view_draw && m_vr_view)
 		{
-			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units);
+			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units, !sprite_block);
 		}
 
 		if (output_aspect_match)
@@ -2461,8 +2492,9 @@ namespace rsx::vr
 				{
 					// Move the eye by half the baseline along the camera's right: clip.x
 					// changes by that distance times the length of its x row.
-					f32 clip_x_per_unit = std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
-					if (profile.stereo_eye_offset_per_w)
+					f32 clip_x_per_unit = sprite_x_per_unit > 0.f ? sprite_x_per_unit :
+						std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
+					if (profile.stereo_eye_offset_per_w && sprite_x_per_unit <= 0.f)
 					{
 						// The x row is the projection's x scale times any object scale, the w row the w scale (1 for
 						// w = +-z) times the same object scale: their ratio is the object-free x scale.
@@ -3321,7 +3353,7 @@ namespace rsx::vr
 		}
 	}
 
-	void camera_probe::apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head) const
+	void camera_probe::apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head, bool refresh_projection) const
 	{
 		// Row-vector camera block M (clip = v * M). For M = L * P with L affine and
 		// P a perspective projection (x' = a*x, y' = b*y, z' = c*z + d, w' = e*z):
@@ -3347,7 +3379,8 @@ namespace rsx::vr
 		}
 
 		constexpr f32 tol = 1e-3f;
-		if (std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
+		if (refresh_projection &&
+			std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
 			std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
 			std::fabs(dot(1, 3)) <= tol * n1 * n3)
 		{
