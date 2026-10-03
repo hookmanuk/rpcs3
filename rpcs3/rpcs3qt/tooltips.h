@@ -296,6 +296,7 @@ public:
 		const QString vr_hud_offset                = tr("Moves the HUD and menus in the headset.\n100% moves the centre of the HUD to the edge of the central view. Positive is right or up.");
 		const QString vr_reprojection_margin       = tr("Renders this many degrees beyond each edge of the headset's view.\nAt low frame rates the headset turns an older frame to where you now look; the margin fills what would otherwise be black at the edges. Costs sharpness: raise Resolution Scale to compensate. 0 renders exactly the headset's view.\nAuto: 10 degrees for games whose VR profile caps the frame rate (Ico: 30 FPS), 0 for games that run at the headset's refresh rate.");
 		const QString vr_camera_depth              = tr("Moves your viewpoint forward or back.\nPositive moves it forward, into the scene. Leave at 0 to sit exactly where the game puts the camera.");
+		const QString vr_world_scale               = tr("How big the game world looks.\nAbove 100% the world looks bigger (you feel smaller), below 100% smaller. Use it when a game's people and objects look too big or too small; 100% is the scale in the game's VR profile.");
 	} settings;
 
 	const struct gamepad_settings

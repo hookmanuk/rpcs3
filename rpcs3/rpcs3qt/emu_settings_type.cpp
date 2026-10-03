@@ -262,5 +262,6 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::VRHudOffsetX,               get_cfg_location(local_cfg.video.vr.hud_offset_x) },
 	{ emu_settings_type::VRHudOffsetY,               get_cfg_location(local_cfg.video.vr.hud_offset_y) },
 	{ emu_settings_type::VRCameraDepth,              get_cfg_location(local_cfg.video.vr.camera_depth) },
+	{ emu_settings_type::VRWorldScale,               get_cfg_location(local_cfg.video.vr.world_scale) },
 	{ emu_settings_type::VRReprojectionMargin,       get_cfg_location(local_cfg.video.vr.reprojection_margin) },
 };

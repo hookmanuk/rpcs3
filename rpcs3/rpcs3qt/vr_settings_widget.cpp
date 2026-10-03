@@ -157,6 +157,8 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 		};
 		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
 			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
+		enhance_vr_slider(ui->vrWorldScale, ui->vrWorldScaleMin, ui->vrWorldScaleMax, ui->vrWorldScaleVal, ui->vrWorldScaleReset,
+			emu_settings_type::VRWorldScale, ui->gb_vrWorldScale, tooltips.settings.vr_world_scale, percent_text, 5);
 		const auto degree_text = [](int value)
 		{
 			return tr("%1\u00b0", "VR slider").arg(value);
@@ -178,6 +180,7 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			ui->gb_vrHudOffsetY->setEnabled(vr);
 			ui->gb_vrScreenDepth->setEnabled(vr && ui->vrFixedScreen->isChecked());
 			ui->gb_vrCameraDepth->setEnabled(vr && !ui->vrFixedScreen->isChecked());
+			ui->gb_vrWorldScale->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 			ui->gb_vrReprojectionMargin->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 		};
 		connect(ui->vrEnabled, &QCheckBox::toggled, this, enable_vr_options);

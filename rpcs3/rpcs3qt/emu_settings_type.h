@@ -249,6 +249,7 @@ enum class emu_settings_type
 	VRHudOffsetX,
 	VRHudOffsetY,
 	VRCameraDepth,
+	VRWorldScale,
 	VRReprojectionMargin,
 };
 

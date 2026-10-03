@@ -330,6 +330,61 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrWorldScale">
+           <property name="title">
+            <string>World Scale</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrWorldScale_layout">
+            <item>
+             <layout class="QHBoxLayout" name="vrWorldScaleLayoutTop" stretch="0,1,0">
+              <item>
+               <widget class="QLabel" name="vrWorldScaleMin">
+                <property name="text">
+                 <string>25%</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="vrWorldScale">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="vrWorldScaleMax">
+                <property name="text">
+                 <string>2000%</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="vrWorldScaleLayoutBottom" stretch="1,0">
+              <item>
+               <widget class="QLabel" name="vrWorldScaleVal">
+                <property name="text">
+                 <string>100%</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="vrWorldScaleReset">
+                <property name="text">
+                 <string>Reset</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QGroupBox" name="gb_vrReprojectionMargin">
            <property name="title">
             <string>Reprojection Margin</string>
