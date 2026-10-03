@@ -1,0 +1,13 @@
+Version: 1.2
+
+PPU-62bdceafa94def55faf877062b4485fde547b35d: # GOW1.self (God of War, God of War Collection UK disc 01.00)
+  "QTE button mashing at any frame rate (VR)":
+    Games:
+      "God of War Collection":
+        BCES00800: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Every button-mash minigame (mash Circle to escape the Hydra's jaws, and the others) fills a meter by a fixed amount per press and drains it each frame by drain x rate x step. The VR profile sets the game's frame rate word (0x531dd0) to the headset rate so that the step is real time, which turns the drain into a fixed amount per frame: at 90 FPS the meter drained 1.5x faster and the QTEs could not be won (even at 8 presses a second; the game discounts presses closer than 0.12 s). The patch uses 60 in the drain instead of the frame rate, so it drains per second as at 60 FPS at any frame rate. Presses keep their full value."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x000e8410, 0x3860003c ] # li r3, 60 (was bl 0x1c3d68, the frame-rate getter) in the mash minigame's drain
