@@ -14,6 +14,7 @@
 #include "Emu/System.h"
 #include "Emu/system_config.h"
 #include "Utilities/File.h"
+#include "Loader/ISO.h"
 
 #include <algorithm>
 #include <map>
@@ -32,6 +33,7 @@
 #endif
 
 LOG_CHANNEL(vr_dev_log, "VRDEV");
+LOG_CHANNEL(sys_log, "SYS");
 
 extern atomic_t<bool> g_user_asked_for_screenshot;
 // PPUThread.cpp and PPUDevHooks.inl (global; a block-scope extern inside rsx::vr would name rsx::vr::...).
@@ -860,6 +862,20 @@ namespace rsx::vr
 				s_last_report = now;
 			}
 		}
+	}
+
+	bool savestate_disc_folder_as_iso(const std::string& library_path, std::string& disc_info, std::string& argv0)
+	{
+		constexpr std::string_view bdvd = "/dev_bdvd/";
+		if (disc_info.empty() || disc_info[0] == '/' || !argv0.starts_with(bdvd) || library_path.empty() || !is_iso_file(library_path))
+		{
+			return false;
+		}
+
+		sys_log.notice("Savestate made from the disc folder of %s: loading it from the library's ISO ('%s')", disc_info, library_path);
+		disc_info = library_path;
+		argv0.erase(0, bdvd.size());
+		return true;
 	}
 
 	void dev::dump_elf(const fs::file& elf_file)

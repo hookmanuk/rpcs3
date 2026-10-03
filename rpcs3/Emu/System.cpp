@@ -1361,6 +1361,7 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 			m_ar->serialize(argv.emplace_back(), disc_info, klic.emplace_back(), m_game_dir, hdd1);
 
 			launching_from_disc_archive = is_iso_file(disc_info, nullptr, &launching_from_optical_drive);
+			launching_from_disc_archive = launching_from_disc_archive || rsx::vr::savestate_disc_folder_as_iso(m_games_config.get_path(disc_info), disc_info, argv[0]); // VR fork: folder-made state, ISO in the library
 
 			sys_log.notice("Savestate: is iso archive = %d ('%s')", launching_from_disc_archive, disc_info);
 

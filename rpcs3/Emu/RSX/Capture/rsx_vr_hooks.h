@@ -7,6 +7,8 @@
 
 #include "util/types.hpp"
 
+#include <string>
+
 // Multiview stereo: the program control bit (RSXVertexProgram::ctrl, RSXFragmentProgram::ctrl) of the shader
 // variants that read per-view draw parameters and sample 2D textures as arrays. Declared here, not in
 // gcm_enums.h's list where upstream adds its own bits; rsx_vr_hooks.cpp checks it against those.
@@ -55,6 +57,13 @@ namespace rsx::vr
 	void on_frame_end(u32 buffer, u32 draw_calls);
 	// rsx::thread::flip: RPCS3_VR_FRAMESTATS.
 	void on_flip();
+
+	// Emulator::Load, reading a savestate. A state made from a disc game folder stores the title ID as its disc and
+	// argv[0] as "/dev_bdvd/PS3_GAME/...". Upstream finds the folder in the game library (games.yml), but when the
+	// library has the game as an ISO it never loads the ISO: /dev_bdvd stays unmounted and the state stops at its first
+	// open file (sys_fs "Verification failed"). Given the library's path for the disc: if it is an ISO, rewrites the
+	// two as a state made from that ISO stores them and returns true (load the state as an ISO archive).
+	bool savestate_disc_folder_as_iso(const std::string& library_path, std::string& disc_info, std::string& argv0);
 
 	namespace dev
 	{
