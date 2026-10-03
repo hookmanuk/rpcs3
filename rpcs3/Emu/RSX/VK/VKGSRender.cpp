@@ -1493,6 +1493,7 @@ void VKGSRender::clear_surface(u32 mask)
 					};
 
 					auto attachment_clear_pass = vk::get_overlay_pass<vk::attachment_clear_pass>();
+					if (!vr_clear_attachments_masked(region.rect, colormask, clear_color, vr_right_clear)) // VR fork: multiview, per eye
 					attachment_clear_pass->run(*m_current_command_buffer, m_draw_fbo, region.rect, colormask, clear_color, get_render_pass());
 				}
 

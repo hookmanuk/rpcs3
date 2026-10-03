@@ -345,8 +345,9 @@ void VKGSRender::vr_realign_blend_targets()
 		f32 homography[9];
 		const bool exact = vk::xr::render_pose_homography(surface->vr_pose, m_vr_applied_pose, homography);
 
-		// new(x) = old(x + dx): the content moves against the head rotation.
-		const auto shift = [&](vk::render_target* image)
+		// new(x) = old(x + dx): the content moves against the head rotation. layer: the eye of a
+		// stereo surface (multiview), else 0.
+		const auto shift = [&](vk::render_target* image, u32 layer)
 		{
 			const int w = static_cast<int>(image->width());
 			const int h = static_cast<int>(image->height());
@@ -376,8 +377,8 @@ void VKGSRender::vr_realign_blend_targets()
 				{
 					vk::end_renderpass(*m_current_command_buffer);
 				}
-				vk::get_overlay_pass<vk::vr_homography_warp_pass>()->run(*m_current_command_buffer, image, target.get(), homography);
-				vk::copy_image(*m_current_command_buffer, target.get(), image, areai{0, 0, w, h}, areai{0, 0, w, h});
+				vk::get_overlay_pass<vk::vr_homography_warp_pass>()->run(*m_current_command_buffer, image, target.get(), homography, layer);
+				vk::copy_image(*m_current_command_buffer, target.get(), image, areai{0, 0, w, h}, areai{0, 0, w, h}, {.dst_layer = static_cast<u8>(layer)});
 				return std::pair<int, int>{dx, dy};
 			}
 			auto* scratch = vk::get_typeless_helper(image->format(), image->format_class(), w, h);
@@ -391,19 +392,23 @@ void VKGSRender::vr_realign_blend_targets()
 				}
 				vk::change_image_layout(*m_current_command_buffer, scratch, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 			}
-			vk::copy_image(*m_current_command_buffer, image, scratch, areai{0, 0, w, h}, areai{0, 0, w, h});
+			vk::copy_image(*m_current_command_buffer, image, scratch, areai{0, 0, w, h}, areai{0, 0, w, h}, {.src_layer = static_cast<u8>(layer)});
 			const areai src{std::max(dx, 0), std::max(dy, 0), w + std::min(dx, 0), h + std::min(dy, 0)};
 			const areai dst{std::max(-dx, 0), std::max(-dy, 0), w - std::max(dx, 0), h - std::max(dy, 0)};
-			vk::copy_image(*m_current_command_buffer, scratch, image, src, dst);
+			vk::copy_image(*m_current_command_buffer, scratch, image, src, dst, {.dst_layer = static_cast<u8>(layer)});
 			return std::pair<int, int>{dx, dy};
 		};
 
-		const auto [dx, dy] = shift(surface);
-		if (auto* right = m_vr_right_rtts.get_surface_at(surface->base_addr);
-			right && right->width() == surface->width() && right->height() == surface->height() && right->samples() == 1)
+		const auto [dx, dy] = shift(surface, 0);
+		if (m_vr_multiview && surface->stereo_layers && surface->layers() > 1)
+		{
+			shift(surface, 1); // the right eye, layer 1
+		}
+		else if (auto* right = m_vr_right_rtts.get_surface_at(surface->base_addr);
+			!m_vr_multiview && right && right->width() == surface->width() && right->height() == surface->height() && right->samples() == 1)
 		{
 			vr_batch_flush();
-			shift(right);
+			shift(right, 0);
 		}
 		surface->vr_pose = m_vr_applied_pose;
 		invalidate_render_pass();
@@ -1140,10 +1145,14 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	using namespace rsx::blit_engine;
 	const bool src_argb8 = src.format == transfer_source_format::a8r8g8b8;
 	const bool dst_argb8 = dst.format == transfer_destination_format::a8r8g8b8;
+	// Multiview: the right eye is layer 1 of the ordinary surfaces, and the blitter copied it for every
+	// blit between surfaces. Only the staging through memory below is still needed (from and into layer 1).
+	const bool mv = m_vr_multiview;
+	auto& rtts = mv ? m_rtts : m_vr_right_rtts;
 
 	// A scaled copy between two depth surfaces: ICO halves its depth buffer
 	// (0xc0f70000 -> 0xc12e0000) for a half-resolution glow and particle pass.
-	if (!dst.swizzled && !dst.clip_x && !dst.clip_y && src_argb8 && dst_argb8)
+	if (!mv && !dst.swizzled && !dst.clip_x && !dst.clip_y && src_argb8 && dst_argb8)
 	{
 		const u32 src_address = vm::get_addr(src.pixels);
 		const u32 dst_address = vm::get_addr(dst.pixels);
@@ -1174,6 +1183,10 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 	if (!rsx::fcmp(dst.scale_x, 1.f) || !rsx::fcmp(dst.scale_y, 1.f) || dst.swizzled || dst.clip_x || dst.clip_y || src_argb8 != dst_argb8)
 	{
+		if (mv)
+		{
+			return; // the blitter wrote both layers
+		}
 		// Scaled copies between two right-eye surfaces go through the texture cache's
 		// own blit on the right-eye store: Blur resolves its 4x MSAA scene
 		// (0xc0af0000, 2560 pitch) and depth (0xc1220000) to 1280x720 targets with
@@ -1190,7 +1203,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	// The copy rectangle inside a right-eye surface, at the surface's resolution scale.
 	const auto locate = [&](u32 address, u32 pitch, vk::render_target*& surface, areai& rect)
 	{
-		surface = m_vr_right_rtts.find_color_surface(address, pitch);
+		surface = rtts.find_color_surface(address, pitch);
 		if (!surface || surface->samples() != 1 || surface->get_bpp() != bpp)
 		{
 			return false;
@@ -1226,7 +1239,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	// copies its scene (0xcf460000, 1024- and 256-column chunks) to 0xce99c000 and redraws the
 	// whole scene from that copy. Give the right eye the same surface, or every right-eye pass
 	// after the copy samples the left eye's image and both eyes end up identical.
-	if (src_found && !dst_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
+	if (!mv && src_found && !dst_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
 	{
 		if (auto* left = m_rtts.find_color_surface(dst_address, dst.pitch); left && left->samples() == 1 && !left->is_depth_surface() &&
 																			left->get_bpp() == bpp && !m_vr_right_rtts.get_surface_at(left->base_addr))
@@ -1272,9 +1285,9 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 
 	if (src_found && dst_found)
 	{
-		if (src_rect.width() != dst_rect.width() || src_rect.height() != dst_rect.height())
+		if (mv || src_rect.width() != dst_rect.width() || src_rect.height() != dst_rect.height())
 		{
-			return;
+			return; // (multiview: the blitter wrote both layers)
 		}
 
 		// Batched right-eye draws precede this copy in guest order.
@@ -1290,7 +1303,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 	// Staging through memory with no surface: ICO copies its frame out to main
 	// memory (0x30900000) and back into other targets. Keep the right eye's pixels
 	// in a host image keyed by the staging address, for the copy back.
-	if (src_found && !m_vr_right_rtts.find_color_surface(dst_address, dst.pitch))
+	if (src_found && !rtts.find_color_surface(dst_address, dst.pitch))
 	{
 		// Host pixels per guest pixel of the source surface (resolution scale).
 		const f32 kx = static_cast<f32>(src_rect.width()) / width;
@@ -1347,7 +1360,7 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			vk::change_image_layout(*m_current_command_buffer, staged.image.get(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 		}
 		src_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_read);
-		vk::copy_image(*m_current_command_buffer, src_surface, staged.image.get(), src_used, staged_rect);
+		vk::copy_image(*m_current_command_buffer, src_surface, staged.image.get(), src_used, staged_rect, {.src_layer = mv ? u8{1} : u8{0}});
 		return;
 	}
 
@@ -1368,8 +1381,11 @@ void VKGSRender::vr_mirror_blit(const rsx::blit_src_info& src, const rsx::blit_d
 			vr_batch_flush();
 			dst_surface->memory_barrier(*m_current_command_buffer, rsx::surface_access::transfer_write);
 			vk::copy_image(*m_current_command_buffer, staged->image.get(), dst_surface,
-				areai{x0, 0, x1, dst_rect.height()}, areai{dst_rect.x1, dst_rect.y1, dst_rect.x1 + (x1 - x0), dst_rect.y2});
-			dst_surface->on_write_copy(rsx::get_shared_tag());
+				areai{x0, 0, x1, dst_rect.height()}, areai{dst_rect.x1, dst_rect.y1, dst_rect.x1 + (x1 - x0), dst_rect.y2}, {.dst_layer = mv ? u8{1} : u8{0}});
+			if (!mv)
+			{
+				dst_surface->on_write_copy(rsx::get_shared_tag());
+			}
 			return;
 		}
 	}
@@ -3007,9 +3023,9 @@ void VKGSRender::vr_after_blit(const rsx::blit_src_info& src, const rsx::blit_ds
 		}
 	}
 
-	if (rsx::vr::camera_probe::get().render_enabled() && !m_vr_multiview) // multiview: the blitter wrote both layers
+	if (rsx::vr::camera_probe::get().render_enabled())
 	{
-		vr_mirror_blit(src, dst, interpolate);
+		vr_mirror_blit(src, dst, interpolate); // (multiview: only the staging through memory)
 	}
 }
 
@@ -3627,6 +3643,46 @@ bool VKGSRender::vr_clear_attachments(const std::vector<VkClearAttachment>& clea
 
 	const VkClearRect right_region = {{{right_clear->x1, right_clear->y1}, {static_cast<u32>(right_clear->width()), static_cast<u32>(right_clear->height())}}, 0, 1};
 	vr_mv_clear_eye_rects(clear_descriptors, region, right_region);
+	return true;
+}
+
+// clear_surface(): the partial-colour-mask route (a quad through attachment_clear_pass) per eye, as vr_clear_attachments.
+bool VKGSRender::vr_clear_attachments_masked(VkRect2D rect, u32 colormask, color4f color, const std::optional<areai>& right_clear)
+{
+	static const bool s_eye_clear = []()
+	{
+		const char* v = std::getenv("RPCS3_VR_MV_EYECLEAR");
+		return !v || v[0] != '0';
+	}();
+	if (!m_vr_multiview || !right_clear || !s_eye_clear || !m_draw_fbo)
+	{
+		return false;
+	}
+
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	const u32 width = m_draw_fbo->width();
+	const u32 height = m_draw_fbo->height();
+	const VkRect2D right_rect = {{right_clear->x1, right_clear->y1}, {static_cast<u32>(right_clear->width()), static_cast<u32>(right_clear->height())}};
+	const VkRect2D* rects[2] = {&rect, &right_rect};
+	auto* clear_pass = vk::get_overlay_pass<vk::attachment_clear_pass>();
+	for (u8 eye = 0; eye < 2; ++eye)
+	{
+		const u8 view_mask = (eye == 0) ? 2 : 3;
+		const u64 key = vk::get_renderpass_key(m_fbo_images, {}, view_mask);
+		VkRenderPass pass = vk::get_renderpass(*m_device, key);
+		vk::framebuffer_holder* fbo = vk::get_framebuffer(*m_device, static_cast<u16>(width), static_cast<u16>(height), VK_FALSE, pass, m_fbo_images, view_mask, 0, 2);
+		fbo->add_ref();
+		clear_pass->run(*m_current_command_buffer, fbo, *rects[eye], colormask, color, pass);
+		if (vk::is_renderpass_open(*m_current_command_buffer))
+		{
+			vk::end_renderpass(*m_current_command_buffer);
+		}
+		fbo->release();
+	}
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	return true;
 }
 
