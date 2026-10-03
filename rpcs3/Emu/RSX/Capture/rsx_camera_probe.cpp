@@ -309,6 +309,15 @@ namespace rsx::vr
 					 std::fabs(r[2][3]) < eps && std::fabs(r[3][3] - 1.f) < eps);
 		}
 
+		// A camera's clip w depends on the vertex position. An affine matrix whose w column is (0, 0, 0, k) passes
+		// is_perspective when k != 1, but it is no projection: WipEout HD's Detonator spheres keep their world matrix
+		// in c[256] with w = 5 beside the camera in c[260]; bound as the camera, the spheres kept the game's view.
+		bool w_from_position(f32* const r[4])
+		{
+			constexpr f32 eps = 1e-6f;
+			return std::fabs(r[0][3]) >= eps || std::fabs(r[1][3]) >= eps || std::fabs(r[2][3]) >= eps;
+		}
+
 		// Clip x, y and w directions (columns 0, 1, 3 of rows 0..2) mutually orthogonal.
 		bool is_rigid(f32* const r[4])
 		{
@@ -358,6 +367,7 @@ namespace rsx::vr
 				const std::array<u32, 4>* slots = i < explicit_slots.size() ? &explicit_slots[i] : nullptr;
 				const bool rows = std::find(row_blocks.begin(), row_blocks.end(), candidate) != row_blocks.end();
 				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors && !rows, xyw && !rows, slots) && is_perspective(block.rows) &&
+					w_from_position(block.rows) &&
 					(!require_rigid || std::find(nonrigid.begin(), nonrigid.end(), candidate) != nonrigid.end() || is_rigid(block.rows)) &&
 					(require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
 				{

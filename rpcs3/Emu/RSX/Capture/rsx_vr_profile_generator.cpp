@@ -169,6 +169,14 @@ namespace rsx::vr
 			return !(std::fabs(m[3][0]) < eps && std::fabs(m[3][1]) < eps && std::fabs(m[3][2]) < eps && std::fabs(m[3][3] - 1.0) < eps);
 		}
 
+		// A camera candidate: perspective and its clip w depends on the vertex position. An affine block with a constant
+		// w other than 1 (WipEout HD's Detonator spheres: a world matrix with w = 5 in c[256]) is no projection.
+		bool is_camera_projection(const mat4& m)
+		{
+			constexpr f64 eps = 1e-6;
+			return is_perspective(m) && (std::fabs(m[3][0]) >= eps || std::fabs(m[3][1]) >= eps || std::fabs(m[3][2]) >= eps);
+		}
+
 		// Largest |cos| between the clip x, y and w directions (0 = rigid).
 		f64 rigidity(const mat4& m)
 		{
@@ -715,7 +723,7 @@ namespace rsx::vr
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
 			{
-				if (auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m))
+				if (auto b = read_block(r, base, layout_of(base)); b && is_camera_projection(b->m))
 				{
 					cam = b;
 					cam_base = base;
@@ -733,7 +741,7 @@ namespace rsx::vr
 				if (base + 3u >= cam_base && base <= cam_base + 3)
 					continue;
 				const auto b = read_block(r, base, layout_of(cam_base));
-				if (!b || b->z_missing || !is_perspective(b->m))
+				if (!b || b->z_missing || !is_camera_projection(b->m))
 					continue;
 				f64 diff = 0.0;
 				for (u32 i = 0; i < 4; ++i)
@@ -774,7 +782,7 @@ namespace rsx::vr
 			for (const u32 base : blocks)
 			{
 				const auto b = read_block(r, base, layout_of(base));
-				if (!b || !is_perspective(b->m))
+				if (!b || !is_camera_projection(b->m))
 					continue;
 				if (scene)
 				{
@@ -835,7 +843,7 @@ namespace rsx::vr
 			u32 cam_base = 0;
 			for (const u32 base : blocks)
 			{
-				if (auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
+				if (auto b = read_block(r, base, layout_of(base)); b && is_camera_projection(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
 																   (!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					cam = b;
@@ -1135,7 +1143,7 @@ namespace rsx::vr
 			const slot_reader r{s.ids, s.values, s.full_bank};
 			for (const u32 base : blocks)
 			{
-				if (const auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
+				if (const auto b = read_block(r, base, layout_of(base)); b && is_camera_projection(b->m) && (!require_rigid || std::find(nonrigid_blocks.begin(), nonrigid_blocks.end(), base) != nonrigid_blocks.end() || rigidity(b->m) <= rigid_tolerance) &&
 																		 (!overlapping || aspect_matches(b->m, output_aspect, aspect_tolerance)))
 				{
 					return true;
@@ -1170,7 +1178,7 @@ namespace rsx::vr
 			const slot_reader r{ s.ids, s.values, s.full_bank };
 			for (const u32 base : blocks)
 			{
-				if (const auto b = read_block(r, base, layout_of(base)); b && is_perspective(b->m))
+				if (const auto b = read_block(r, base, layout_of(base)); b && is_camera_projection(b->m))
 				{
 					const f64 w = std::sqrt(b->m[3][0] * b->m[3][0] + b->m[3][1] * b->m[3][1] + b->m[3][2] * b->m[3][2]);
 					if (w > 1e-12) camera_w_scales.push_back(w);
