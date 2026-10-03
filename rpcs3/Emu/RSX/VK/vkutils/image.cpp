@@ -473,30 +473,6 @@ namespace vk
 		return result;
 	}
 
-	image_view* image_view::as_array()
-	{
-		if (info.viewType == VK_IMAGE_VIEW_TYPE_2D_ARRAY)
-		{
-			return this;
-		}
-
-		if (!m_resource)
-		{
-			return this; // a view without its image (framebuffer attachments) is never sampled
-		}
-
-		if (!m_array_view)
-		{
-			// Through the constructor that keeps the image: descriptors read the view's image for its layout and id.
-			VkImageSubresourceRange range = info.subresourceRange;
-			range.baseArrayLayer = 0;
-			range.layerCount = m_resource->layers();
-			m_array_view = std::make_unique<vk::image_view>(m_device, m_resource, info.format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, info.components, range);
-		}
-
-		return m_array_view.get();
-	}
-
 	image_view* viewable_image::get_view(const rsx::texture_channel_remap_t& remap, VkImageAspectFlags mask)
 	{
 		// A stereo image's default view is its guest layer (0), so every internal pass keeps working on the left eye.

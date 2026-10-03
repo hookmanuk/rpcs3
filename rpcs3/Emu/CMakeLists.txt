@@ -665,6 +665,7 @@ if(TARGET 3rdparty_vulkan)
         RSX/VK/VKGSRenderVR.cpp
         RSX/VK/VKGSRenderVRDev.cpp
         RSX/VK/VKOverlaysVR.cpp
+        RSX/VK/VKMultiviewVR.cpp
         RSX/VK/VKPresent.cpp
         RSX/VK/VKProgramPipeline.cpp
         RSX/VK/VKQueryPool.cpp

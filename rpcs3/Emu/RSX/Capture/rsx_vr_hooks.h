@@ -7,6 +7,11 @@
 
 #include "util/types.hpp"
 
+// Multiview stereo: the program control bit (RSXVertexProgram::ctrl, RSXFragmentProgram::ctrl) of the shader
+// variants that read per-view draw parameters and sample 2D textures as arrays. Declared here, not in
+// gcm_enums.h's list where upstream adds its own bits; rsx_vr_hooks.cpp checks it against those.
+constexpr u32 RSX_SHADER_CONTROL_VR_MULTIVIEW = 0x00004000;
+
 class ppu_thread;
 
 namespace fs
@@ -16,9 +21,15 @@ namespace fs
 
 namespace rsx::vr
 {
-	u64 effective_vblank_rate(); // rsx_camera_probe.cpp
+	// rsx_camera_probe.cpp: the vblank rate to emulate: while a headset runs, the VR frame rate times the
+	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the configured Vblank
+	// Rate (which is never modified).
+	u64 effective_vblank_rate();
 	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
 	bool multiview_active();
+	// rsx::thread::get_current_vertex_program / get_current_fragment_program: sets or clears
+	// RSX_SHADER_CONTROL_VR_MULTIVIEW in the program's ctrl, as multiview_active() says.
+	void set_multiview_ctrl(u32& ctrl);
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();

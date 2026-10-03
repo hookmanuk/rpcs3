@@ -5,6 +5,7 @@
 #include "VKHelpers.h"
 #include "vkutils/device.h"
 #include "../Program/GLSLCommon.h"
+#include "VKMultiviewVR.h" // VR fork
 #include "Emu/system_config.h"
 
 std::string VKVertexDecompilerThread::getFloatTypeName(usz elementCount)
@@ -19,20 +20,8 @@ std::string VKVertexDecompilerThread::getIntTypeName(usz /*elementCount*/)
 
 std::string VKVertexDecompilerThread::getFunction(FUNCTION f)
 {
-	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW)
-	{
-		// VR fork: 2D vertex textures are array samplers; the layer is the eye
-		switch (f)
-		{
-		case FUNCTION::VERTEX_TEXTURE_FETCH2D:
-			return "textureLod($t, vec3($0.xy, float(gl_ViewIndex)), 0)";
-		case FUNCTION::VERTEX_TEXTURE_FETCH2DMS:
-			return "texelFetch($t, ivec3(ivec2($0.xy * textureSize($t).xy), gl_ViewIndex), 0)";
-		default:
-			break;
-		}
-	}
-
+	if (const std::string_view vr = vk::vr_vertex_function(f, m_prog.ctrl); !vr.empty())
+		return std::string(vr); // VR fork: multiview array textures
 	return glsl::getFunctionImpl(f);
 }
 
@@ -93,29 +82,18 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream& OS)
 		"#extension GL_EXT_scalar_block_layout : require\n"
 		"#extension GL_EXT_uniform_buffer_unsized_array : require\n"
 		"#extension GL_ARB_separate_shader_objects : enable\n\n";
-
-	const bool vr_multiview = !!(m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW);
-	if (vr_multiview)
-	{
-		// VR fork: both eyes in one draw; each view reads its own draw parameters (and scissor)
-		OS << "#extension GL_EXT_multiview : require\n";
-		if (m_device_props.vr_viewport_index)
-		{
-			OS << "#extension GL_ARB_shader_viewport_layer_array : require\n";
-		}
-		OS << "\n";
-	}
+	vk::vr_insert_vertex_extensions(OS, m_prog.ctrl, m_device_props.vr_viewport_index); // VR fork: multiview
 
 	glsl::insert_subheader_block(OS);
 
 	OS <<
 		// Variable redirection
-		(vr_multiview ? "#define get_draw_params() draw_parameters[draw_parameters_offset + uint(gl_ViewIndex)]\n"
-		              : "#define get_draw_params() draw_parameters[draw_parameters_offset]\n")
-		<< "#define vs_context_offset get_draw_params().vs_context_offset\n\n"
+		"#define get_draw_params() draw_parameters[draw_parameters_offset]\n"
+		"#define vs_context_offset get_draw_params().vs_context_offset\n\n"
 		// Helpers
 		"#define get_vertex_context() vertex_contexts[vs_context_offset]\n"
 		"#define get_user_clip_config() get_vertex_context().user_clip_configuration_bits\n\n";
+	vk::vr_insert_vertex_draw_params(OS, m_prog.ctrl); // VR fork: multiview, each view reads its own draw parameters
 
 	OS <<
 		"layout(std430, set=0, binding=" << vk_prog->binding_table.context_buffer_location << ") uniform VertexContextBuffer\n"
@@ -294,12 +272,7 @@ void VKVertexDecompilerThread::insertConstants(std::stringstream& OS, const std:
 					}
 				}
 
-				if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW)
-				{
-					// VR fork: 2D textures are sampled as arrays (layer = eye)
-					if (samplerType == "sampler2D") samplerType = "sampler2DArray";
-					else if (samplerType == "sampler2DMS") samplerType = "sampler2DMSArray";
-				}
+				vk::vr_set_sampler_type(samplerType, m_prog.ctrl); // VR fork: multiview samples 2D textures as arrays (layer = eye)
 				OS << "layout(set=0, binding=" << in.location << ") uniform " << samplerType << " " << PI.name << ";\n";
 			}
 		}
@@ -469,12 +442,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	}
 
 	OS << "	vs_main();\n\n";
-
-	if ((m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW) && m_device_props.vr_viewport_index)
-	{
-		// VR fork: each view clips to its own scissor (the HUD box differs per eye)
-		OS << "	gl_ViewportIndex = int(gl_ViewIndex);\n\n";
-	}
+	vk::vr_insert_vertex_main_end(OS, m_prog.ctrl, m_device_props.vr_viewport_index); // VR fork: multiview, a scissor per view
 
 	// FS payload
 	OS << "write_fs_payload();\n\n";

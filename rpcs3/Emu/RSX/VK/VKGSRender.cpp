@@ -2864,7 +2864,7 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 		// Gather data
 		for (const auto occlusion_id : data.indices)
 		{
-			query->result += vr_query_slot_result(data, occlusion_id); // VR fork: a multiview pair's average
+			query->result += m_occlusion_query_manager->get_query_result(occlusion_id);
 			if (query->result && !rsx::reports::precise_zpass_count()) // VR fork: profile zcull_approximate
 			{
 				// We only need one hit unless precise zcull is requested
@@ -2874,7 +2874,6 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 	}
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
-	vr_free_query_pairs(data); // VR fork
 	data.indices.clear();
 }
 
@@ -2890,7 +2889,6 @@ void VKGSRender::discard_occlusion_query(rsx::reports::occlusion_query_info* que
 		return;
 
 	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
-	vr_free_query_pairs(data); // VR fork
 	data.indices.clear();
 }
 

@@ -2,6 +2,7 @@
 #include "VKFramebuffer.h"
 #include "VKRenderTargets.h"
 #include "VKResourceManager.h"
+#include "VKMultiviewVR.h" // VR fork
 #include "Emu/RSX/rsx_methods.h"
 #include "Emu/RSX/RSXThread.h"
 
@@ -315,8 +316,6 @@ namespace vk
 	}
 
 	// Get the linear resolve target bound to this surface. Initialize if none exists
-	bool g_vr_stereo_layers = false;
-
 	vk::viewable_image* render_target::get_resolve_target_safe(vk::command_buffer& cmd)
 	{
 		if (!resolve_surface)
@@ -804,13 +803,7 @@ namespace vk
 			}
 
 			final_dst->pop_layout(cmd);
-
-			if (stereo_layers)
-			{
-				// VR fork: data the guest wrote is the same picture for both eyes
-				const areai whole{ 0, 0, static_cast<s32>(final_dst->width()), static_cast<s32>(final_dst->height()) };
-				vk::copy_image(cmd, final_dst, final_dst, whole, whole, { .src_layer = 0, .dst_layer = 1 });
-			}
+			vk::vr_copy_left_to_right_layer(cmd, final_dst); // VR fork (multiview): guest data is the same picture for both eyes
 
 			if (samples() > 1)
 			{

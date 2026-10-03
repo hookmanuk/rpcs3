@@ -3,6 +3,7 @@
 #include "Utilities/mutex.h"
 #include "VKRenderPass.h"
 #include "vkutils/image.h"
+#include "VKMultiviewVR.h" // VR fork
 
 #include "Emu/RSX/Common/unordered_map.hpp"
 
@@ -360,20 +361,9 @@ namespace vk
 			});
 		}
 
-		// VR fork: multiview variants render every draw into two layers (one per eye)
-		static constexpr u32 view_masks[4] = { 0u, 0b11u, 0b01u, 0b10u };
-		const u32 view_mask = view_masks[key.view_mask];
-		const u32 correlation_mask = view_mask; // the views of one pass are spatially correlated (a hint)
-		VkRenderPassMultiviewCreateInfo multiview_info = {};
-		multiview_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO;
-		multiview_info.subpassCount = 1;
-		multiview_info.pViewMasks = &view_mask;
-		multiview_info.correlationMaskCount = 1;
-		multiview_info.pCorrelationMasks = &correlation_mask;
-
 		VkRenderPassCreateInfo rp_info = {};
 		rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		rp_info.pNext = view_mask ? &multiview_info : nullptr;
+		rp_info.pNext = vk::vr_renderpass_multiview_info(key.view_mask); // VR fork: multiview variants render each draw into two layers (one per eye)
 		rp_info.attachmentCount = ::size32(attachments);
 		rp_info.pAttachments = attachments.data();
 		rp_info.subpassCount = 1;

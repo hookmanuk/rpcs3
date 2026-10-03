@@ -37,6 +37,11 @@
 static_assert(rsx::texture_control_bits::VR_REPROJECT_BIT < 32, "VR_REPROJECT_BIT must fit the 32-bit texture control word");
 static_assert(rsx::texture_control_bits::VR_REPROJECT_BIT > rsx::texture_control_bits::FF_16BIT_CHANNELS_BIT, "VR_REPROJECT_BIT is appended after upstream's bits");
 
+namespace vk
+{
+	VkImageViewType get_view_type(rsx::texture_dimension_extended type); // VKDraw.cpp
+}
+
 // A display buffer's memory drawn at the display buffer's size: Gran Turismo 5 also renders its
 // shadow cascades (1024 wide) into the memory of the buffer it is not showing.
 static bool vr_display_buffer(const rsx::thread& rsx, u32 address, u32 width, u32 height)
@@ -3616,15 +3621,9 @@ vk::image_view* VKGSRender::vr_array_view(vk::image_view* view)
 
 VkImageViewType VKGSRender::vr_null_view_type(rsx::texture_dimension_extended dimension)
 {
-	// As VKDraw.cpp's get_view_type, with the 2D case an array while multiview is on.
-	switch (dimension)
-	{
-	case rsx::texture_dimension_extended::texture_dimension_1d: return VK_IMAGE_VIEW_TYPE_1D;
-	case rsx::texture_dimension_extended::texture_dimension_2d: return m_vr_multiview ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-	case rsx::texture_dimension_extended::texture_dimension_cubemap: return VK_IMAGE_VIEW_TYPE_CUBE;
-	case rsx::texture_dimension_extended::texture_dimension_3d: return VK_IMAGE_VIEW_TYPE_3D;
-	default: return VK_IMAGE_VIEW_TYPE_2D;
-	}
+	// Upstream's view type (VKDraw.cpp), with the 2D case an array while multiview is on.
+	const VkImageViewType type = vk::get_view_type(dimension);
+	return (m_vr_multiview && type == VK_IMAGE_VIEW_TYPE_2D) ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : type;
 }
 
 // clear_surface(): with multiview, a sub-viewport clear mapped into the HUD box clears each eye's own rectangle.
@@ -3716,26 +3715,9 @@ u8 VKGSRender::vr_draw_view_mask()
 	return 1;
 }
 
-// get_occlusion_query_result(): a pair holds both views' samples (split per view or summed into the first
-// slot, as the implementation chooses); the guest sees their average, the count of a camera between the eyes.
-u32 VKGSRender::vr_query_slot_result(const vk::occlusion_data& data, u32 occlusion_id)
-{
-	u32 result = m_occlusion_query_manager->get_query_result(occlusion_id);
-	if (std::find(data.stereo_pairs.begin(), data.stereo_pairs.end(), occlusion_id) != data.stereo_pairs.end())
-	{
-		result = (result + m_occlusion_query_manager->get_query_result(occlusion_id + 1) + 1) / 2;
-	}
-	return result;
-}
-
-void VKGSRender::vr_free_query_pairs(vk::occlusion_data& data)
-{
-	// The pool frees a pair's second slot with its head (query_pool_manager::free_query).
-	data.stereo_pairs.clear();
-}
-
 // Multiview: a query counts both views and takes two consecutive slots. It is begun inside the pass and
-// ended when the pass ends (vr_mv_end_query_segment), which is what the specification asks for.
+// ended when the pass ends (vr_mv_end_query_segment), which is what the specification asks for. The guest
+// reads the pair's average (query_pool_manager::get_query_result): the count of a camera between the eyes.
 void VKGSRender::vr_mv_begin_query_segment()
 {
 	u32 occlusion_id = m_occlusion_query_manager->allocate_query_pair(*m_current_command_buffer);
@@ -3758,7 +3740,6 @@ void VKGSRender::vr_mv_begin_query_segment()
 
 	auto& data = m_occlusion_map[m_active_query_info->driver_handle];
 	data.indices.push_back(occlusion_id);
-	data.stereo_pairs.push_back(occlusion_id);
 	data.set_sync_command_buffer(m_current_command_buffer);
 	m_vr_mv_open_query = occlusion_id;
 

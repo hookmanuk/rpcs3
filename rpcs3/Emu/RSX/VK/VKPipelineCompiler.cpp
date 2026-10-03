@@ -130,10 +130,9 @@ namespace vk
 
 		VkPipelineViewportStateCreateInfo vp = {};
 		vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-		// VR fork: a multiview pipeline carries one viewport and scissor per view (the vertex shader writes gl_ViewportIndex = gl_ViewIndex)
-		const u32 viewport_count = (vk::get_renderpass_view_mask(create_info.renderpass_key) == 1) ? 2 : 1;
-		vp.viewportCount = viewport_count;
-		vp.scissorCount = viewport_count;
+		vp.viewportCount = 1;
+		vp.scissorCount = 1;
+		vp.viewportCount = vp.scissorCount = (vk::get_renderpass_view_mask(create_info.renderpass_key) == 1) ? 2 : 1; // VR fork: multiview, one per view (gl_ViewportIndex = gl_ViewIndex)
 
 		auto pmss = &create_info.state.ms;
 		VkPipelineMultisampleStateCreateInfo ms2;

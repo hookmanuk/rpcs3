@@ -90,6 +90,7 @@
 
 #include "util/types.hpp"
 #include "util/atomic.hpp"
+#include "rsx_vr_hooks.h" // effective_vblank_rate(), multiview_active()
 
 namespace rsx::vr
 {
@@ -472,8 +473,7 @@ namespace rsx::vr
 	// Multiview stereo (Vulkan): both eyes are drawn by one draw into two-layer render targets.
 	// While set, vertex and fragment programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW, which selects
 	// the shader variants that read per-view draw parameters and sample array textures.
-	void set_multiview_active(bool active);
-	bool multiview_active();
+	void set_multiview_active(bool active); // multiview_active(): rsx_vr_hooks.h
 
 	// The VR "Frame Rate" option at this index (vr_frame_rate): its frame rate, 0 for
 	// Unlimited, umax for Default.
@@ -500,10 +500,7 @@ namespace rsx::vr
 	// The running game's frame rate in VR (0 = the headset's refresh rate).
 	u32 effective_frame_rate();
 
-	// The vblank rate to emulate: while a headset runs, the VR frame rate times the
-	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the
-	// configured Vblank Rate (which is never modified).
-	u64 effective_vblank_rate();
+	// effective_vblank_rate(): declared in rsx_vr_hooks.h.
 
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.

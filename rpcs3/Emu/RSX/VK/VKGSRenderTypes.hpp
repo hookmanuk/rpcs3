@@ -148,7 +148,6 @@ namespace vk
 	struct occlusion_data
 	{
 		rsx::simple_array<u32> indices;
-		rsx::simple_array<u32> stereo_pairs; // VR fork (multiview): entries of indices that hold two consecutive slots (one per view)
 		command_buffer_chunk* command_buffer_to_wait = nullptr;
 		u64 command_buffer_sync_id = 0;
 

@@ -275,8 +275,6 @@
 	bool vr_clear_attachments_masked(VkRect2D rect, u32 colormask, color4f color, const std::optional<areai>& right_clear); // clear_surface(): the masked-colour route per eye
 	u8 vr_image_view_mask(vk::image* image); // the multiview variant of a pass over this image (stencil clears)
 	u8 vr_draw_view_mask();                  // prepare_rtts(): the variant of the bound targets, into m_vr_draw_view_mask
-	u32 vr_query_slot_result(const vk::occlusion_data& data, u32 occlusion_id); // get_occlusion_query_result(): a pair's average
-	void vr_free_query_pairs(vk::occlusion_data& data);
 
 	// ---- Hooks called from upstream functions (see VKGSRenderVR.cpp) -------------------------
 

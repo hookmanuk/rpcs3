@@ -5,6 +5,7 @@
 #include "vkutils/device.h"
 #include "Emu/system_config.h"
 #include "../Program/GLSLCommon.h"
+#include "VKMultiviewVR.h" // VR fork
 
 std::string VKFragmentDecompilerThread::getFloatTypeName(usz elementCount)
 {
@@ -132,17 +133,12 @@ void VKFragmentDecompilerThread::insertHeader(std::stringstream & OS)
 		required_extensions.emplace_back("GL_EXT_fragment_shader_barycentric");
 	}
 
-	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW)
-	{
-		// VR fork: gl_ViewIndex selects the eye's layer of every 2D texture
-		required_extensions.emplace_back("GL_EXT_multiview");
-	}
-
 	OS << "#version 450\n";
 	for (const auto ext : required_extensions)
 	{
 		OS << "#extension " << ext << ": require\n";
 	}
+	vk::vr_insert_fragment_extensions(OS, m_prog.ctrl); // VR fork: multiview
 
 	OS << "#extension GL_ARB_separate_shader_objects: enable\n\n";
 
@@ -236,14 +232,7 @@ void VKFragmentDecompilerThread::insertConstants(std::stringstream & OS)
 				}
 			}
 
-			if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW)
-			{
-				// VR fork: 2D textures are array samplers; the layer is the eye (1-layer textures clamp to layer 0)
-				if (samplerType == "sampler2D") samplerType = "sampler2DArray";
-				else if (samplerType == "sampler2DMS") samplerType = "sampler2DMSArray";
-				else if (samplerType == "sampler2DShadow") samplerType = "sampler2DArrayShadow";
-			}
-
+			vk::vr_set_sampler_type(samplerType, m_prog.ctrl); // VR fork: multiview samples 2D textures as arrays (layer = eye)
 			const int id = vk::get_texture_index(PI.name);
 			auto in = vk::glsl::program_input::make(
 				glsl::glsl_fragment_program,
@@ -270,12 +259,11 @@ void VKFragmentDecompilerThread::insertConstants(std::stringstream & OS)
 
 	if (m_prog.ctrl & RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE)
 	{
-		const bool vr_multiview = !!(m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW);
 		const auto frag_depth_type = (m_prog.ctrl & RSX_SHADER_CONTROL_ROP_MULTISAMPLED)
-			? (vr_multiview ? "sampler2DMSArray" : "sampler2DMS")
-			: (vr_multiview ? "sampler2DArray" : "sampler2D");
+			? "sampler2DMS"
+			: "sampler2D";
 
-		OS << "layout(set=" << vk::glsl::binding_set_index_fragment << ", binding=" << vk_prog->binding_table.frag_depth_input_location << ") uniform " << frag_depth_type << " frag_depth;\n";
+		OS << "layout(set=" << vk::glsl::binding_set_index_fragment << ", binding=" << vk_prog->binding_table.frag_depth_input_location << ") uniform " << vk::vr_sampler_type(frag_depth_type, m_prog.ctrl) << " frag_depth;\n"; // VR fork: multiview arrays
 
 		inputs.push_back(vk::glsl::program_input::make(
 			glsl::glsl_fragment_program,
@@ -434,7 +422,6 @@ void VKFragmentDecompilerThread::insertGlobalFunctions(std::stringstream &OS)
 	m_shader_props.require_color_format_convert = !!(m_prog.ctrl & RSX_SHADER_CONTROL_TEXTURE_FORMAT_CONVERT);
 	m_shader_props.emulate_depth_compare = !!(m_prog.ctrl & RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE);
 	m_shader_props.ROP_output_multisampled = !!(m_prog.ctrl & RSX_SHADER_CONTROL_ROP_MULTISAMPLED);
-	m_shader_props.vr_multiview = !!(m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW);
 
 	// Declare global constants
 	if (m_shader_props.require_fog_read)
@@ -455,12 +442,8 @@ void VKFragmentDecompilerThread::insertGlobalFunctions(std::stringstream &OS)
 	OS <<
 		"#define texture_base_index _fs_texture_base_index\n"
 		"#define TEX_PARAM(index) texture_parameters_##index\n"
-		"#define _VR_REPROJECT\n";
-	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW)
-	{
-		OS << "#define _VR_MULTIVIEW\n";
-	}
-	OS << "\n";
+		"#define _VR_REPROJECT\n\n";
+	vk::vr_insert_fragment_defines(OS, m_shader_props, m_prog.ctrl); // VR fork: multiview (_VR_MULTIVIEW, array texture macros)
 
 	glsl::insert_glsl_legacy_function(OS, m_shader_props);
 }

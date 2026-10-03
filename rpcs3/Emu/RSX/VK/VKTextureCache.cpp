@@ -1,7 +1,7 @@
 #include "stdafx.h"
 #include "Emu/RSX/VK/VKGSRenderTypes.hpp"
 #include "VKTextureCache.h"
-#include "Emu/RSX/Capture/rsx_camera_probe.h"
+#include "VKMultiviewVR.h" // VR fork
 #include "VKCompute.h"
 #include "VKAsyncScheduler.h"
 #include "vkutils/data_heap.h"
@@ -411,40 +411,6 @@ namespace vk
 		m_cached_memory_size = 0;
 	}
 
-	// VR fork (multiview): a copy made from a stereo render target holds both eyes, in two layers.
-	static u16 vr_temporary_layers(const vk::texture_cache::deferred_subresource& desc)
-	{
-		if (!rsx::vr::multiview_active())
-		{
-			return 1;
-		}
-		if (desc.external_handle && desc.external_handle->stereo_layers && desc.external_handle->layers() > 1)
-		{
-			return 2;
-		}
-		for (const auto& section : desc.sections_to_copy)
-		{
-			if (section.src && section.src->stereo_layers && section.src->layers() > 1)
-			{
-				return 2;
-			}
-		}
-		return 1;
-	}
-
-	// VR fork (multiview): guest memory is the same picture for both eyes. A two-layer image built from sections loads
-	// its background from memory into layer 0; layer 1 takes a copy of it before the sections write each eye's pixels
-	// (left alone, layer 1 kept whatever the pooled image last held: Kingdom Hearts II's hair flickered in the right eye).
-	static void vr_copy_background_to_right_layer(vk::command_buffer& cmd, vk::image* image, u8 mipmaps)
-	{
-		if (!image->stereo_layers || image->layers() < 2)
-		{
-			return;
-		}
-		const areai whole{ 0, 0, static_cast<s32>(image->width()), static_cast<s32>(image->height()) };
-		vk::copy_image(cmd, image, image, whole, whole, { .mipmap_count = mipmaps, .src_layer = 0, .dst_layer = 1 });
-	}
-
 	void texture_cache::copy_transfer_regions_impl(vk::command_buffer& cmd, vk::image* dst, const rsx::simple_array<copy_region_descriptor>& sections_to_transfer) const
 	{
 		copy_transfer_regions_layer(cmd, dst, sections_to_transfer, 0);
@@ -831,7 +797,7 @@ namespace vk
 		ensure(desc.sections_to_copy.size() == 1);
 		const auto& section = desc.sections_to_copy.front();
 		return create_temporary_subresource_view_impl(cmd, section.src, section.src->info.imageType, VK_IMAGE_VIEW_TYPE_2D,
-			desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, &section, vr_temporary_layers(desc));
+			desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, &section, vk::vr_temporary_layers(desc));
 	}
 
 	vk::image_view* texture_cache::generate_cubemap_from_images(vk::command_buffer& cmd, const deferred_subresource& desc)
@@ -937,7 +903,7 @@ namespace vk
 		const auto& sections_to_copy = desc.sections_to_copy;
 		auto _template = get_template_from_collection_impl(sections_to_copy);
 		auto result = create_temporary_subresource_view_impl(cmd, _template, VK_IMAGE_TYPE_2D,
-			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, nullptr, vr_temporary_layers(desc));
+			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, nullptr, vk::vr_temporary_layers(desc));
 
 		if (!result)
 		{
@@ -954,7 +920,7 @@ namespace vk
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
-			vr_copy_background_to_right_layer(cmd, image, 1); // VR fork
+			vk::vr_copy_left_to_right_layer(cmd, image); // VR fork (multiview): layer 1 gets the background too, before the sections
 		}
 		else if (sections_to_copy[0].dst_w != desc.width || sections_to_copy[0].dst_h != desc.height)
 		{
@@ -990,7 +956,7 @@ namespace vk
 		const auto mipmaps = ::narrow<u8>(sections_to_copy.size());
 		auto _template = get_template_from_collection_impl(sections_to_copy);
 		auto result = create_temporary_subresource_view_impl(cmd, _template, VK_IMAGE_TYPE_2D,
-			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, mipmaps, desc.remap, nullptr, vr_temporary_layers(desc));
+			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, mipmaps, desc.remap, nullptr, vk::vr_temporary_layers(desc));
 
 		if (!result)
 		{
@@ -1007,7 +973,7 @@ namespace vk
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
-			vr_copy_background_to_right_layer(cmd, image, mipmaps); // VR fork
+			vk::vr_copy_left_to_right_layer(cmd, image, mipmaps); // VR fork (multiview): layer 1 gets the background too, before the sections
 		}
 		else if (!(dst_aspect & VK_IMAGE_ASPECT_DEPTH_BIT))
 		{
