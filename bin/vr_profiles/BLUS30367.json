@@ -7,7 +7,7 @@
   "default_fps": 0,
 
   "matrix_layout": "column_vectors",
-  "camera_blocks": [8, 24],
+  "camera_blocks": [8, 24, 4],
   "row_vector_blocks": [24],
   "require_rigid_camera": true,
   "nonrigid_camera_blocks": [24],
