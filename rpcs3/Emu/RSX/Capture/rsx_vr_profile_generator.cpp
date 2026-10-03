@@ -730,7 +730,7 @@ namespace rsx::vr
 					scale = std::max(scale, std::fabs(v));
 			for (const u16 base : s->ids)
 			{
-				if (base + 3 >= cam_base && base <= cam_base + 3)
+				if (base + 3u >= cam_base && base <= cam_base + 3)
 					continue;
 				const auto b = read_block(r, base, layout_of(cam_base));
 				if (!b || b->z_missing || !is_perspective(b->m))
