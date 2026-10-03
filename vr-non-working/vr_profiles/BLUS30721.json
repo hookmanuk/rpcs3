@@ -13,11 +13,10 @@
   "game_camera_aspects": [1.7647],
   "output_aspect_tolerance": 0.02,
   "depth_remap_programs": ["07d7202eb4af1d79"],
-  "disable_depth_bounds": true,
 
   "camera_position": {
     "slot": 4,
-    "eye_baseline": 3.1984
+    "eye_baseline": 3.998
   },
 
   "stereo": {

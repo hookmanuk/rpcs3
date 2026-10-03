@@ -237,7 +237,7 @@ void VKGSRender::update_draw_state()
 	if (m_device->get_depth_bounds_support())
 	{
 		f32 bounds_min, bounds_max;
-		if (rsx::method_registers.depth_bounds_test_enabled() && !rsx::vr::depth_bounds_disabled()) // VR fork: profile disable_depth_bounds
+		if (rsx::method_registers.depth_bounds_test_enabled())
 		{
 			// Update depth bounds min/max
 			bounds_min = rsx::method_registers.depth_bounds_min();

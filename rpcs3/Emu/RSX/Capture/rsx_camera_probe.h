@@ -370,11 +370,6 @@ namespace rsx::vr
 		// fully visible) instead of waiting for exact counts. Dragon's Dogma waits for its occlusion queries
 		// several times a frame; in stereo each wait is for both eyes' GPU work (~40% of the RSX thread at 4K per eye).
 		bool zcull_approximate = false;
-		// While VR renders, the RSX depth-bounds test is off. Its range is in the game camera's window depth, but the depth
-		// buffer holds each eye's, which changes with the head's rotation. Asura's Wrath bounds its dynamic light passes
-		// to the light's depth range: in the headset a lit disc went black or gold with the head's pitch, as its pixels
-		// left or entered the range. (Light passes also attenuate in the shader, so the range only saves GPU work.)
-		bool disable_depth_bounds = false;
 		// The part of the displayed frame that holds the game's 3D view, in output pixels (x, y, width, height;
 		// width 0 = the whole frame). The headset is shown only that part, so the view fills the eye. God of War
 		// renders its scene at 1216x684 and insets it in the 1280x720 display with a black border: the world looked

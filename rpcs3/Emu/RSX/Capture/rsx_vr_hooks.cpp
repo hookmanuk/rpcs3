@@ -347,13 +347,6 @@ namespace rsx::vr
 		return s_depth_remap;
 	}
 
-	bool depth_bounds_disabled()
-	{
-		const auto& probe = rsx::vr::camera_probe::get();
-		const auto* profile = probe.profile();
-		return profile && profile->disable_depth_bounds && probe.render_enabled();
-	}
-
 	bool on_vertex_ucode(const RSXVertexProgram& program)
 	{
 		// Only for a profile that lists programs (Gran Turismo 5's menu cards, Asura's Wrath's shadow mask).
