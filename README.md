@@ -1,4 +1,15 @@
-RPCS3
+RPCS3 VR
+=====
+
+This is a fork for a VR version of the RPCS3 Emulator.
+
+All credit goes to everyone maintaining the original emulator, this VR fork is standing on the shoulders of giants.
+
+[VR Games compatibility is listed here](https://github.com/hookmanuk/rpcs3/blob/openxr/vr-games.md)
+
+VR Source code is on the [openxr branch](https://github.com/hookmanuk/rpcs3/tree/openxr)
+
+Below is the original RPCS3 Readme...
 =====
 
 [![GitHub Actions](https://img.shields.io/github/actions/workflow/status/RPCS3/rpcs3/rpcs3.yml?branch=master&logo=github&label=Actions)](https://github.com/RPCS3/rpcs3/actions/workflows/rpcs3.yml)
