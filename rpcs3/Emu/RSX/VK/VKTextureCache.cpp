@@ -432,6 +432,19 @@ namespace vk
 		return 1;
 	}
 
+	// VR fork (multiview): guest memory is the same picture for both eyes. A two-layer image built from sections loads
+	// its background from memory into layer 0; layer 1 takes a copy of it before the sections write each eye's pixels
+	// (left alone, layer 1 kept whatever the pooled image last held: Kingdom Hearts II's hair flickered in the right eye).
+	static void vr_copy_background_to_right_layer(vk::command_buffer& cmd, vk::image* image, u8 mipmaps)
+	{
+		if (!image->stereo_layers || image->layers() < 2)
+		{
+			return;
+		}
+		const areai whole{ 0, 0, static_cast<s32>(image->width()), static_cast<s32>(image->height()) };
+		vk::copy_image(cmd, image, image, whole, whole, { .mipmap_count = mipmaps, .src_layer = 0, .dst_layer = 1 });
+	}
+
 	void texture_cache::copy_transfer_regions_impl(vk::command_buffer& cmd, vk::image* dst, const rsx::simple_array<copy_region_descriptor>& sections_to_transfer) const
 	{
 		copy_transfer_regions_layer(cmd, dst, sections_to_transfer, 0);
@@ -934,13 +947,14 @@ namespace vk
 
 		const auto image = result->image();
 		VkImageAspectFlags dst_aspect = vk::get_aspect_flags(result->info.format);
-		VkImageSubresourceRange dst_range = { dst_aspect, 0, 1, 0, 1 };
+		VkImageSubresourceRange dst_range = { dst_aspect, 0, 1, 0, image->layers() }; // VR fork: every layer (multiview: both eyes)
 		vk::change_image_layout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_range);
 
 		if (desc.force_bg_load)
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
+			vr_copy_background_to_right_layer(cmd, image, 1); // VR fork
 		}
 		else if (sections_to_copy[0].dst_w != desc.width || sections_to_copy[0].dst_h != desc.height)
 		{
@@ -986,13 +1000,14 @@ namespace vk
 
 		const auto image = result->image();
 		VkImageAspectFlags dst_aspect = vk::get_aspect_flags(result->info.format);
-		VkImageSubresourceRange dst_range = { dst_aspect, 0, mipmaps, 0, 1 };
+		VkImageSubresourceRange dst_range = { dst_aspect, 0, mipmaps, 0, image->layers() }; // VR fork: every layer (multiview: both eyes)
 		vk::change_image_layout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_range);
 
 		if (desc.force_bg_load)
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
+			vr_copy_background_to_right_layer(cmd, image, mipmaps); // VR fork
 		}
 		else if (!(dst_aspect & VK_IMAGE_ASPECT_DEPTH_BIT))
 		{
