@@ -267,7 +267,7 @@ struct cfg_root : cfg::node
 			cfg::_int<-100, 100> hud_offset_y{ this, "HUD Vertical Offset", 0, true };   // % of the central view half-height, + is up
 			cfg::_int<-500, 500> camera_depth{ this, "Camera Depth Offset", 0, true };   // hundredths of a metre, + moves the viewpoint forward
 			cfg::_enum<vr_frame_rate> frame_rate{ this, "Frame Rate", vr_frame_rate::profile_default, true }; // the game's frame rate in VR, up to the VR profile's max_fps; the vblank follows it
-			cfg::uint<25, 2000> world_scale{ this, "World Scale", 100, true }; // % apparent size of the game world; corrects the profile's eye_baseline
+			cfg::uint<25, 1000> world_scale{ this, "World Scale", 100, true }; // % apparent size of the game world; corrects the profile's eye_baseline
 			cfg::_int<-1, 30> reprojection_margin{ this, "Reprojection Margin", -1, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges; -1 = Auto (10 below the headset's refresh rate)
 
 		} vr{ this };
