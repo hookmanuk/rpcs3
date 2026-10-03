@@ -1,6 +1,6 @@
 Version: 1.2
 
-PPU-4a50b03c15c25dccbcf231c6ec4cea7fda8287bc:
+PPU-4a50b03c15c25dccbcf231c6ec4cea7fda8287bc: # EBOOT.BIN of update 02.51
   "Wider view (VR culling)":
     Games:
       "WipEout HD Fury":
@@ -12,3 +12,16 @@ PPU-4a50b03c15c25dccbcf231c6ec4cea7fda8287bc:
     Apply To Savestates: true
     Patch:
       - [ be32, 0x00296620, 0xc302fb88 ] # lfs f24, -0x478(r2): pi/180 at 0x726f90 (was 0x7238(r2): pi/360), field of view x2
+
+PPU-b1c6a86617b246b2df74dbe90f8400cd3809d4dc: # EBOOT.BIN of the disc, 02.00 (no update installed)
+  "Wider view (VR culling)":
+    Games:
+      "WipEout HD Fury":
+        BCES00664: [ 02.00 ]
+    Author: "VR fork"
+    Notes: "Doubles the race camera's field of view (60 degrees high -> 120) so the game also draws the track the headset shows above and beside the game's own view; the VR renderer draws each eye with the headset's own field of view either way. In the camera update the degrees are turned into the half angle with pi/180 instead of pi/360."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x000a4118, 0xc2e2a7e8 ] # lfs f23, -0x5818(r2): pi/180 at 0x8a7cc0 (was -0x57ec(r2): pi/360), field of view x2
