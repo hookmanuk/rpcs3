@@ -2469,7 +2469,7 @@ bool ppu_load_exec(const ppu_exec_object& elf, bool virtual_load, const std::str
 
 	// Apply the patch
 	std::vector<u32> applied;
-	g_fxo->get<patch_engine>().apply(applied, !ar ? hash : std::string{}, [&](u32 addr, u32 size) { return _main.get_ptr<u8>(addr, size);  });
+	g_fxo->get<patch_engine>().apply(applied, hash, [&](u32 addr, u32 size) { return _main.get_ptr<u8>(addr, size);  }); // VR fork: a savestate takes the patches marked Apply To Savestates
 
 	if (!ar && !Emu.GetTitleID().empty())
 	{

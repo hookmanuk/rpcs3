@@ -1,0 +1,90 @@
+Version: 1.2
+
+PPU-83096111daff850cc92b637aec1780c4079e1c58:
+  "Wider view culling (VR)":
+    Games:
+      "Asura's Wrath":
+        BLUS30721: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Objects outside the game camera's view are culled, and the cutscene cameras are narrow (22 to 40 degrees), so in the headset whole buildings were missing, or popped in as the head turned. This widens only the main view's culling frustum to the chosen angle (180: everything ahead of the camera): the scene view's call to GetViewFrustumBounds (0x662aec) goes through a code cave that passes it the view-projection with x and y opened up. Rendering and level of detail keep the game's camera, so flat play looks the same; more objects are drawn. The cave reuses the radial blur function, so radial blur is off (as with 'Disable Motion Blur'). Also applies to savestates."
+    Configurable Values:
+      "Culling":
+        Type: double_enum
+        Value: 0.0
+        Allowed Values:
+          "180 degrees: everything ahead of the camera (recommended)": 0.0
+          "160 degrees": 0.176327
+          "140 degrees": 0.36397
+          "120 degrees": 0.57735
+          "The game's own view": 1000.0
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0067a908, 0x60000000 ] # nop  (radial blur call: nop (as "Disable Motion Blur"); its function becomes the cave)
+      - [ be32, 0x00679ff8, 0xf821ff51 ] # stdu r1, -0xb0(r1)
+      - [ be32, 0x00679ffc, 0x7c0802a6 ] # mflr r0
+      - [ be32, 0x0067a000, 0xf80100c0 ] # std r0, 0xc0(r1)
+      - [ be32, 0x0067a004, 0x3d600068 ] # lis r11, 0x68
+      - [ be32, 0x0067a008, 0xc0aba0f4 ] # lfs f5, -0x5f0c(r11)
+      - [ be32, 0x0067a00c, 0xc0eba0f8 ] # lfs f7, -0x5f08(r11)
+      - [ be32, 0x0067a010, 0xc0040000 ] # lfs f0, 0(r4)
+      - [ be32, 0x0067a014, 0xc0240010 ] # lfs f1, 0x10(r4)
+      - [ be32, 0x0067a018, 0xc0440020 ] # lfs f2, 0x20(r4)
+      - [ be32, 0x0067a01c, 0xec600032 ] # fmuls f3, f0, f0
+      - [ be32, 0x0067a020, 0xec61187a ] # fmadds f3, f1, f1, f3
+      - [ be32, 0x0067a024, 0xec6218ba ] # fmadds f3, f2, f2, f3
+      - [ be32, 0x0067a028, 0xfc801834 ] # frsqrte f4, f3
+      - [ be32, 0x0067a02c, 0xfcc50132 ] # fmul f6, f5, f4
+      - [ be32, 0x0067a030, 0xfcc03018 ] # frsp f6, f6
+      - [ be32, 0x0067a034, 0xed063828 ] # fsubs f8, f6, f7
+      - [ be32, 0x0067a038, 0xfcc831ee ] # fsel f6, f8, f7, f6
+      - [ be32, 0x0067a03c, 0xc0040000 ] # lfs f0, 0(r4)
+      - [ be32, 0x0067a040, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a044, 0xd0010070 ] # stfs f0, 0x70(r1)
+      - [ be32, 0x0067a048, 0xc0040004 ] # lfs f0, 4(r4)
+      - [ be32, 0x0067a04c, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a050, 0xd0010074 ] # stfs f0, 0x74(r1)
+      - [ be32, 0x0067a054, 0x80040008 ] # lwz r0, 8(r4)
+      - [ be32, 0x0067a058, 0x90010078 ] # stw r0, 0x78(r1)
+      - [ be32, 0x0067a05c, 0x8004000c ] # lwz r0, 0xc(r4)
+      - [ be32, 0x0067a060, 0x9001007c ] # stw r0, 0x7c(r1)
+      - [ be32, 0x0067a064, 0xc0040010 ] # lfs f0, 0x10(r4)
+      - [ be32, 0x0067a068, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a06c, 0xd0010080 ] # stfs f0, 0x80(r1)
+      - [ be32, 0x0067a070, 0xc0040014 ] # lfs f0, 0x14(r4)
+      - [ be32, 0x0067a074, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a078, 0xd0010084 ] # stfs f0, 0x84(r1)
+      - [ be32, 0x0067a07c, 0x80040018 ] # lwz r0, 0x18(r4)
+      - [ be32, 0x0067a080, 0x90010088 ] # stw r0, 0x88(r1)
+      - [ be32, 0x0067a084, 0x8004001c ] # lwz r0, 0x1c(r4)
+      - [ be32, 0x0067a088, 0x9001008c ] # stw r0, 0x8c(r1)
+      - [ be32, 0x0067a08c, 0xc0040020 ] # lfs f0, 0x20(r4)
+      - [ be32, 0x0067a090, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a094, 0xd0010090 ] # stfs f0, 0x90(r1)
+      - [ be32, 0x0067a098, 0xc0040024 ] # lfs f0, 0x24(r4)
+      - [ be32, 0x0067a09c, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a0a0, 0xd0010094 ] # stfs f0, 0x94(r1)
+      - [ be32, 0x0067a0a4, 0x80040028 ] # lwz r0, 0x28(r4)
+      - [ be32, 0x0067a0a8, 0x90010098 ] # stw r0, 0x98(r1)
+      - [ be32, 0x0067a0ac, 0x8004002c ] # lwz r0, 0x2c(r4)
+      - [ be32, 0x0067a0b0, 0x9001009c ] # stw r0, 0x9c(r1)
+      - [ be32, 0x0067a0b4, 0xc0040030 ] # lfs f0, 0x30(r4)
+      - [ be32, 0x0067a0b8, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a0bc, 0xd00100a0 ] # stfs f0, 0xa0(r1)
+      - [ be32, 0x0067a0c0, 0xc0040034 ] # lfs f0, 0x34(r4)
+      - [ be32, 0x0067a0c4, 0xec0001b2 ] # fmuls f0, f0, f6
+      - [ be32, 0x0067a0c8, 0xd00100a4 ] # stfs f0, 0xa4(r1)
+      - [ be32, 0x0067a0cc, 0x80040038 ] # lwz r0, 0x38(r4)
+      - [ be32, 0x0067a0d0, 0x900100a8 ] # stw r0, 0xa8(r1)
+      - [ be32, 0x0067a0d4, 0x8004003c ] # lwz r0, 0x3c(r4)
+      - [ be32, 0x0067a0d8, 0x900100ac ] # stw r0, 0xac(r1)
+      - [ be32, 0x0067a0dc, 0x38810070 ] # addi r4, r1, 0x70
+      - [ be32, 0x0067a0e0, 0x4ba8a7c1 ] # bl 0x1048a0
+      - [ be32, 0x0067a0e4, 0xe80100c0 ] # ld r0, 0xc0(r1)
+      - [ be32, 0x0067a0e8, 0x7c0803a6 ] # mtlr r0
+      - [ be32, 0x0067a0ec, 0x382100b0 ] # addi r1, r1, 0xb0
+      - [ be32, 0x0067a0f0, 0x4e800020 ] # blr 
+      - [ bef32, 0x0067a0f4, "Culling" ] # data: T ("Culling")
+      - [ be32, 0x0067a0f8, 0x3f800000 ] # lis r28, 0 (data: 1.0)
+      - [ be32, 0x00662aec, 0x4801750d ] # bl 0x679ff8 (scene view: GetViewFrustumBounds through the cave)

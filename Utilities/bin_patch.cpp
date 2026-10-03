@@ -280,6 +280,10 @@ bool patch_engine::load(patch_map& patches_map, const std::string& path, std::st
 			{
 				info.enabled_by_default = default_node.as<bool>(false);
 			}
+			if (const auto savestates_node = patches_entry.second[patch_key::apply_to_savestates])
+			{
+				info.apply_to_savestates = savestates_node.as<bool>(false); // VR fork
+			}
 
 			if (const auto games_node = patches_entry.second[patch_key::games])
 			{
@@ -1532,8 +1536,8 @@ void patch_engine::apply(std::vector<u32>& applied_total, const std::string& nam
 
 			const patch_config_values& config_values = ::at32(app_versions, found_app_version);
 
-			// Check if this patch is enabled
-			if (config_values.enabled)
+			// Check if this patch is enabled (VR fork: a savestate being loaded takes only the patches marked for it)
+			if (config_values.enabled && (!Emu.DeserialManager() || patch.apply_to_savestates))
 			{
 				// Make copy of this patch
 				std::shared_ptr<patch_info> p_ptr = std::make_shared<patch_info>(patch);
