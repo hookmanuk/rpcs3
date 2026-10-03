@@ -354,6 +354,12 @@ void VKVertexDecompilerThread::insertOutputs(std::stringstream& OS, const std::v
 	{
 		OS << "layout(location=" << vk::get_varying_register_location("usr") << ") out flat uvec4 draw_params_payload;\n";
 	}
+
+	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+	{
+		// VR fork: (window depth x w, w) in the game's clip space, interpolated perspective-correctly (see insertMainEnd)
+		OS << "layout(location=" << vk::vr_exact_depth_location << ") out vec2 vr_exact_depth;\n";
+	}
 }
 
 void VKVertexDecompilerThread::insertFSExport(std::stringstream& OS)
@@ -520,6 +526,19 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	OS << "	gl_Position = gl_Position * scale_offset_mat;\n";
 	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z *= gl_Position.w / vr_pre_xform.w;\n";
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
+	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+	{
+		// VR fork: the game's window depth at this vertex, weighted by the game's own w. The rasterizer interpolates
+		// varyings over the triangle in the space gl_Position spans, a linear map of the game's clip space, so x / y is
+		// the game's depth at each pixel exactly, also when the HUD box tilts the draw (its w is not the game's).
+		// Unrestricted depth range: the viewport maps the zclip output [0, 1] onto [z_near, z_far].
+		const bool unrestricted = vk::get_current_renderer()->get_unrestricted_depth_range_support();
+		OS << "	{\n";
+		OS << "		const float vr_d = gl_Position.w != 0. ? gl_Position.z / gl_Position.w : 0.;\n";
+		OS << (unrestricted ? "		vr_exact_depth = vec2((z_near + vr_d * (z_far - z_near)) * vr_pre_xform.w, vr_pre_xform.w);\n"
+		                    : "		vr_exact_depth = vec2(vr_d * vr_pre_xform.w, vr_pre_xform.w);\n");
+		OS << "	}\n";
+	}
 	OS << "}\n";
 }
 

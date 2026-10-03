@@ -19,6 +19,13 @@ namespace rsx::vr
 	u64 effective_vblank_rate(); // rsx_camera_probe.cpp
 	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
 	bool multiview_active();
+	// Profile screen_space.hud_exact_depth_programs: whether any are listed, and whether this vertex program is one
+	// (its shaders then write the game's own depth per pixel: RSX_SHADER_CONTROL_VR_EXACT_DEPTH).
+	bool exact_depth_programs_listed();
+	bool exact_depth_program(u64 vertex_ucode_hash);
+	// The decision by a cheap ucode fingerprint (-1: not seen); cleared on boot.
+	int exact_depth_known(u64 fingerprint);
+	void exact_depth_remember(u64 fingerprint, bool exact);
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();

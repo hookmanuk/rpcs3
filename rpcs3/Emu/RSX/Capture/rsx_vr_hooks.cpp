@@ -304,8 +304,11 @@ namespace rsx::reports
 
 namespace rsx::vr
 {
+	void exact_depth_forget(); // rsx_camera_probe.cpp
+
 	void on_boot()
 	{
+		exact_depth_forget();
 		rsx::vr::camera_probe::get().reload_profile();
 	}
 

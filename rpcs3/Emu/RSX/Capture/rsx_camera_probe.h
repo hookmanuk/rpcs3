@@ -268,6 +268,10 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+		// Vertex programs whose draws take the game's exact per-pixel depth when boxed (the fixed-in-front HUD box tilts
+		// with the head, so depth interpolated across the tilted box is no longer the game's): Gran Turismo 5's arcade
+		// menu cards are parallel quads ~2e-7 apart in depth, and cut through each other in slices.
+		std::vector<u64> screen_space_hud_exact_depth_programs;
 		// Draws never boxed, by vertex program ucode hash and the size of texture 0: full-screen overlays drawn with the
 		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
 		struct unboxed_draw

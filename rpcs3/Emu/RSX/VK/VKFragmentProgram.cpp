@@ -162,6 +162,11 @@ void VKFragmentDecompilerThread::insertInputs(std::stringstream & OS)
 		},
 		vk::get_varying_register_location
 	);
+
+	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+	{
+		OS << "layout(location=" << vk::vr_exact_depth_location << ") in vec2 vr_exact_depth; // VR fork\n";
+	}
 }
 
 void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
@@ -594,6 +599,12 @@ void VKFragmentDecompilerThread::insertMainEnd(std::stringstream & OS)
 		OS <<
 			"	// Insert pseudo-barrier sequence to disable early-Z\n"
 			"	gl_FragDepth = gl_FragCoord.z;\n\n";
+	}
+
+	if (m_prog.ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
+	{
+		// VR fork: the game's own depth here (the vertex shader's vr_exact_depth); a depth export below overrides it.
+		OS << "	gl_FragDepth = vr_exact_depth.y != 0. ? clamp(vr_exact_depth.x / vr_exact_depth.y, 0., 1.) : gl_FragCoord.z;\n\n";
 	}
 
 	glsl::insert_rop(OS, m_shader_props);

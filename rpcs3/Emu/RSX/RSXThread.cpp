@@ -2205,6 +2205,10 @@ namespace rsx
 		}
 	}
 
+	// VR fork: the current vertex program is listed in the profile's hud_exact_depth_programs (decided when its ucode
+	// is analysed; both shaders then carry RSX_SHADER_CONTROL_VR_EXACT_DEPTH).
+	static bool s_vr_exact_depth = false;
+
 	void thread::prefetch_vertex_program()
 	{
 		if (!m_graphics_state.test(rsx::pipeline_state::vertex_program_ucode_dirty))
@@ -2227,6 +2231,34 @@ namespace rsx
 			transform_program_start,                    // Address of entry point
 			current_vertex_program                      // [out] Program object
 		);
+
+		// VR fork: only for a profile that lists programs (Gran Turismo 5's menu cards). The full ucode hash runs once
+		// per program: results are kept by a cheap fingerprint (size and the first instructions). A collision only
+		// gives another program the exact depth, which equals its normal depth.
+		bool exact = false;
+		if (rsx::vr::exact_depth_programs_listed())
+		{
+			const auto& ucode = current_vertex_program.data;
+			u64 fingerprint = 0xcbf29ce484222325ull ^ ucode.size();
+			for (usz i = 0; i < std::min<usz>(ucode.size(), 16); ++i)
+			{
+				fingerprint = (fingerprint ^ ucode[i]) * 0x100000001b3ull;
+			}
+			if (const int known = rsx::vr::exact_depth_known(fingerprint); known >= 0)
+			{
+				exact = known != 0;
+			}
+			else
+			{
+				exact = rsx::vr::exact_depth_program(program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program));
+				rsx::vr::exact_depth_remember(fingerprint, exact);
+			}
+		}
+		if (exact != s_vr_exact_depth)
+		{
+			s_vr_exact_depth = exact;
+			m_graphics_state |= (rsx::pipeline_state::vertex_program_state_dirty | rsx::pipeline_state::fragment_program_state_dirty);
+		}
 
 		current_vertex_program.texture_state.import(current_vp_texture_state, current_vp_metadata.referenced_textures_mask);
 
@@ -2290,10 +2322,14 @@ namespace rsx
 		current_vertex_program.output_mask = rsx::method_registers.vertex_attrib_output_mask();
 
 		// VR fork: the multiview variant reads per-view draw parameters and array textures.
-		current_vertex_program.ctrl &= ~(RSX_SHADER_CONTROL_FLAT_SHADING | RSX_SHADER_CONTROL_VR_MULTIVIEW);
+		current_vertex_program.ctrl &= ~(RSX_SHADER_CONTROL_FLAT_SHADING | RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH);
 		if (rsx::vr::multiview_active())
 		{
 			current_vertex_program.ctrl |= RSX_SHADER_CONTROL_VR_MULTIVIEW;
+		}
+		if (s_vr_exact_depth)
+		{
+			current_vertex_program.ctrl |= RSX_SHADER_CONTROL_VR_EXACT_DEPTH;
 		}
 		if (rsx::method_registers.shade_mode() == rsx::shading_mode::flat &&
 			backend_config.supports_last_provoking_vertex)
@@ -2339,6 +2375,7 @@ namespace rsx
 		current_fragment_program.ctrl |= REGS(m_ctx)->shader_control() & (CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS | CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_USES_KIL);
 		// VR fork: array samplers and gl_ViewIndex (see RSX_SHADER_CONTROL_VR_MULTIVIEW)
 		current_fragment_program.ctrl = rsx::vr::multiview_active() ? (current_fragment_program.ctrl | RSX_SHADER_CONTROL_VR_MULTIVIEW) : (current_fragment_program.ctrl & ~RSX_SHADER_CONTROL_VR_MULTIVIEW);
+		current_fragment_program.ctrl = s_vr_exact_depth ? (current_fragment_program.ctrl | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) : (current_fragment_program.ctrl & ~RSX_SHADER_CONTROL_VR_EXACT_DEPTH);
 		current_fragment_program.texcoord_control_mask = REGS(m_ctx)->texcoord_control_mask();
 		current_fragment_program.two_sided_lighting = REGS(m_ctx)->two_side_light_en();
 		current_fragment_program.mrt_buffers_count = rsx::utility::get_mrt_buffers_count(REGS(m_ctx)->surface_color_target());
