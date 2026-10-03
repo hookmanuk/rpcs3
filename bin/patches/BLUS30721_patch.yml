@@ -88,3 +88,41 @@ PPU-83096111daff850cc92b637aec1780c4079e1c58:
       - [ bef32, 0x0067a0f4, "Culling" ] # data: T ("Culling")
       - [ be32, 0x0067a0f8, 0x3f800000 ] # lis r28, 0 (data: 1.0)
       - [ be32, 0x00662aec, 0x4801750d ] # bl 0x679ff8 (scene view: GetViewFrustumBounds through the cave)
+  "Unlock FPS (VR)":
+    Games:
+      "Asura's Wrath":
+        BLUS30721: [ 01.00 ]
+    Author: "Whatcookie (community patch, bundled by VR fork)"
+    Notes: "The community patch 'Unlock FPS' (patch.yml), on by default here so the game runs at the headset rate without downloading the community patches. The game then runs at real-time speed; some button-mashing QTEs are harder at higher frame rates. Turning on the community 'Unlock FPS' too is harmless (same changes). Also applies to savestates."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x008bbd04, 0x60000000 ] # nop
+      - [ be32, 0x008bbd64, 0x60000000 ] # nop
+      - [ be32, 0x008bbd68, 0x60000000 ] # nop
+  "Disable Motion Blur (VR)":
+    Games:
+      "Asura's Wrath":
+        BLUS30721: [ 01.00 ]
+    Author: "boma (community patch, bundled by VR fork)"
+    Notes: "The community patch 'Disable Motion Blur' (patch.yml), on by default here: the radial and camera blur are full-screen effects that look wrong in the headset. Turning on the community patch too is harmless (same changes). Also applies to savestates."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0067a908, 0x60000000 ] # nop - disables radial blur (also done by 'Wider view culling (VR)')
+      - [ be32, 0x0067a940, 0x38600000 ] # li r3, 0 - disables camera-based blur
+  "Disable Depth of Field (VR)":
+    Games:
+      "Asura's Wrath":
+        BLUS30721: [ 01.00 ]
+    Author: "boma (community patch, bundled by VR fork)"
+    Notes: "The community patch 'Disable Depth of Field' (patch.yml), on by default here: the depth of field blur is a full-screen effect that looks wrong in the headset. Turning on the community patch too is harmless (same changes). Also applies to savestates."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0031cb10, 0x38a00000 ] # li r5, 0
+      - [ be32, 0x0011ae68, 0x38a00000 ] # li r5, 0
+      - [ be32, 0x003ba270, 0x38a00000 ] # li r5, 0

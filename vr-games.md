@@ -175,11 +175,11 @@ measured yet.
 
 ### 9. Tales of Xillia (BLUS31006, US disc 01.00): headset refresh rate
 
-- **Frame rate:** turn on the community patch *60 FPS* in `Manage > Game Patches` (download the patches there
-  first if the list is empty). The VR build's patch *Frame rate follows VR* is on by default: the game advances
-  one 60 FPS step per frame, so above 60 FPS it ran fast; with the patch it runs at real speed at the headset
-  rate (walking speed measured the same at 60 and 90). Patches apply when the game boots, not when a savestate
-  is loaded.
+- **Frame rate:** the patches *60 FPS (VR)* (the community *60 FPS*, bundled) and *Frame rate follows VR* are on
+  by default; there is nothing to download. The game advances one 60 FPS step per frame, so above 60 FPS it ran
+  fast; with the patches it runs at real speed at the headset rate (walking speed measured the same at 60 and
+  90). Turning on the community *60 FPS* as well does no harm. Patches apply when the game boots, not when a
+  savestate is loaded.
 - **In the headset:** menus show on a flat screen in front of you.
 - **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing (the first field).
 
@@ -227,9 +227,10 @@ measured yet.
 
 ### 14. Asura's Wrath (BLUS30721, US disc 01.00): headset refresh rate
 
-- **Frame rate:** turn on the community patches *Unlock FPS*, *Disable Motion Blur* and *Disable Depth of Field*
-  in `Manage > Game Patches` (download the patches there first if the list is empty). The game then runs at
-  real-time speed at the headset rate. Button-mashing QTEs may be harder at higher rates.
+- **Frame rate:** the patches *Unlock FPS (VR)*, *Disable Motion Blur (VR)* and *Disable Depth of Field (VR)* (the
+  community patches, bundled) are on by default; there is nothing to download. The game runs at real-time speed
+  at the headset rate, without the blur effects that look wrong in a headset. Button-mashing QTEs may be harder
+  at higher rates. Turning on the community versions as well does no harm.
 - **VR patch (on by default):** *Wider view culling (VR)* stops the game hiding objects outside its narrow cutscene
   cameras (Culling 180 degrees; "The game's own view" turns it off). It also applies when a savestate is loaded.
 - **In the headset:** cutscenes show without the letterbox bars; the intro video and the TV screens are flat

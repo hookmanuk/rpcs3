@@ -6,7 +6,7 @@ PPU-a7f26bbbcb13fd5f554d0612f490861feec78e8f:
       "Tales of Xillia":
         BLUS31006: [ All ]
     Author: "VR fork"
-    Notes: "Needs the community 60 FPS patch. The game advances one 60 Hz tick per frame, so above 60 FPS it runs fast. The frame-timing object (0xe34118) holds the tick count (+0xa8) and step (+0xa4), read through the getters 0x23e074/0x23e0d4 by all game systems. This scales the tick count by 60/fps, using 1/fps from the word at 0xf11ac8, which the VR profile sets every frame (game_frame_time_f32). The patch seeds it with 1/60, so without the profile the game is unchanged."
+    Notes: "Needs a 60 FPS patch: '60 FPS (VR)' below (on by default) or the community '60 FPS'. The game advances one 60 Hz tick per frame, so above 60 FPS it runs fast. The frame-timing object (0xe34118) holds the tick count (+0xa8) and step (+0xa4), read through the getters 0x23e074/0x23e0d4 by all game systems. This scales the tick count by 60/fps, using 1/fps from the word at 0xf11ac8, which the VR profile sets every frame (game_frame_time_f32). The patch seeds it with 1/60, so without the profile the game is unchanged."
     Patch Version: 1.0
     Enabled By Default: true
     Patch:
@@ -23,3 +23,14 @@ PPU-a7f26bbbcb13fd5f554d0612f490861feec78e8f:
       - [ be32, 0x0, 0xed8c02f2 ] # fmuls f12, f12, f11   f12 = 60/fps
       - [ be32, 0x0, 0xec000332 ] # fmuls f0, f0, f12   ticks x 60/fps (stored at +0xa8)
       - [ be32, 0x0, 0xeda00072 ] # fmuls f13, f0, f1   step = ticks x k (the replaced instruction, stored at +0xa4)
+  "60 FPS (VR)":
+    Games:
+      "Tales of Xillia":
+        BLUS31006: [ All ]
+    Author: "Aphelion, illusion (community patch, bundled by VR fork)"
+    Notes: "The community patch '60 FPS' (patch.yml), on by default here so the game runs above 30 FPS without downloading the community patches; 'Frame rate follows VR' keeps it at real speed at the headset rate. Turning on the community '60 FPS' too is harmless (same changes)."
+    Patch Version: 1.1
+    Enabled By Default: true
+    Patch:
+      - [ be32, 0x00710694, 0x38600002 ]
+      - [ be32, 0x0023f114, 0x3a900001 ]
