@@ -199,6 +199,10 @@ namespace vk
 
 		ensure(query.active);
 		query.pool->release();
+		if (query.pair_head && query_slot_status[index + 1].pool)
+		{
+			query_slot_status[index + 1].pool->release(); // VR fork (multiview): the pair's second slot holds a reference too
+		}
 
 		if (!query.pool->has_refs())
 		{

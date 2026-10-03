@@ -136,6 +136,13 @@ namespace vk
 				vk::end_renderpass(cmd);
 			}
 
+			// A pool holds one reference per slot until the slot is freed; a slot this pool will not hand out any
+			// more keeps it alive for good (the discard pile grew: "Are we leaking??"). Drop those first.
+			for (; m_pool_lifetime_counter && m_current_query_pool; --m_pool_lifetime_counter)
+			{
+				m_current_query_pool->release();
+			}
+
 			reallocate_pool(cmd);
 		}
 
