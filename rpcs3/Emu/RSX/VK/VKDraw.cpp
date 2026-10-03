@@ -831,7 +831,7 @@ bool VKGSRender::bind_interpreter_texture_env()
 	std::fill(start, end, fallback);
 	// 2D
 	start = end;
-	fallback.imageView = vk::null_image_view(*m_current_command_buffer, VK_IMAGE_VIEW_TYPE_2D)->value;
+	fallback.imageView = vk::null_image_view(*m_current_command_buffer, vr_null_view_type(rsx::texture_dimension_extended::texture_dimension_2d))->value; // VR fork: arrays with multiview
 	std::advance(end, 16);
 	std::fill(start, end, fallback);
 	// 3D
@@ -966,7 +966,7 @@ bool VKGSRender::bind_interpreter_texture_env()
 
 		const int offsets[] = { 0, 16, 48, 32 };
 		auto& sampled_image_info = texture_env[offsets[static_cast<u32>(sampler_state->image_type)] + i];
-		sampled_image_info = { *view, *fs_sampler_handles[i] };
+		sampled_image_info = { *vr_array_view(view, sampler_state->image_type), *fs_sampler_handles[i] }; // VR fork: multiview samples arrays
 	}
 
 	m_shader_interpreter.update_fragment_textures(texture_env);
