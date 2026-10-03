@@ -1918,6 +1918,12 @@ namespace vm
 			{
 				pflags |= block_size_1m;
 			}
+			else if (flags & block_size_4k)
+			{
+				// Fork fix: without this a 4k block's restored pages (the stack at 0xD0000000) were mapped as 1M pages
+				// while their guard pages are not, and _page_unmap's consistency check failed at shutdown.
+				pflags |= block_size_4k;
+			}
 
 			// Map the memory through the same method as alloc() and falloc()
 			// Copy the shared handle unconditionally
