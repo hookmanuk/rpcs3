@@ -90,6 +90,7 @@
 
 #include "util/types.hpp"
 #include "util/atomic.hpp"
+#include "rsx_vr_hooks.h" // effective_vblank_rate(), multiview_active()
 
 namespace rsx::vr
 {
@@ -268,6 +269,10 @@ namespace rsx::vr
 		// menu and font glyphs straight into the scene's final image). The HUD box's other
 		// checks (full-frame target, ordinary textures only) still apply.
 		std::vector<u64> screen_space_hud_programs;
+		// Vertex programs whose draws take the game's exact per-pixel depth when boxed (the fixed-in-front HUD box tilts
+		// with the head, so depth interpolated across the tilted box is no longer the game's): Gran Turismo 5's arcade
+		// menu cards are parallel quads ~2e-7 apart in depth, and cut through each other in slices.
+		std::vector<u64> screen_space_hud_exact_depth_programs;
 		// Draws never boxed, by vertex program ucode hash and the size of texture 0: full-screen overlays drawn with the
 		// HUD matrix and the HUD's own shaders (Killzone HD's film grain, 40 tiles of a 128x128 noise texture).
 		struct unboxed_draw
@@ -469,6 +474,11 @@ namespace rsx::vr
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);
 
+	// Multiview stereo (Vulkan): both eyes are drawn by one draw into two-layer render targets.
+	// While set, vertex and fragment programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW, which selects
+	// the shader variants that read per-view draw parameters and sample array textures.
+	void set_multiview_active(bool active); // multiview_active(): rsx_vr_hooks.h
+
 	// The VR "Frame Rate" option at this index (vr_frame_rate): its frame rate, 0 for
 	// Unlimited, umax for Default.
 	u32 frame_rate_option_fps(u32 option);
@@ -494,10 +504,7 @@ namespace rsx::vr
 	// The running game's frame rate in VR (0 = the headset's refresh rate).
 	u32 effective_frame_rate();
 
-	// The vblank rate to emulate: while a headset runs, the VR frame rate times the
-	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the
-	// configured Vblank Rate (which is never modified).
-	u64 effective_vblank_rate();
+	// effective_vblank_rate(): declared in rsx_vr_hooks.h.
 
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.
@@ -619,6 +626,11 @@ namespace rsx::vr
 		// HUD box scissor: map_vr_screen_box records its transform; the renderer maps the game's
 		// scissor (host pixels, window y down) through it so HUD clipping lands in the box, and
 		// anything the game parked outside its screen stays clipped. Call clear before each eye.
+		// Dev (probe why=): the headset state the boxing rules test: bit 0 view, bit 1 FOV, bit 2 projection known.
+		u32 vr_state_bits() const
+		{
+			return (m_vr_view ? 1u : 0u) | (m_vr_hmd_fov ? 2u : 0u) | (m_vr_proj_valid ? 4u : 0u);
+		}
 		void clear_box_mapped() const
 		{
 			m_box_mapped = false;

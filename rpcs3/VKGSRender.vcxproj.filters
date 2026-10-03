@@ -21,6 +21,7 @@
     <ClCompile Include="Emu\RSX\VK\VKGSRenderVR.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKGSRenderVRDev.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKOverlaysVR.cpp" />
+    <ClCompile Include="Emu\RSX\VK\VKMultiviewVR.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKProgramPipeline.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKQueryPool.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKRenderPass.cpp" />
@@ -110,6 +111,7 @@
     <ClInclude Include="Emu\RSX\VK\VKGSRenderVR.h" />
     <ClInclude Include="Emu\RSX\VK\VKGSRenderVR.inl" />
     <ClInclude Include="Emu\RSX\VK\VKOverlaysVR.h" />
+    <ClInclude Include="Emu\RSX\VK\VKMultiviewVR.h" />
     <ClInclude Include="Emu\RSX\VK\VKProgramBuffer.h" />
     <ClInclude Include="Emu\RSX\VK\VKRenderPass.h" />
     <ClInclude Include="Emu\RSX\VK\VKRenderTargets.h" />

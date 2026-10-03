@@ -19,6 +19,7 @@ struct VKVertexDecompilerThread : public VertexProgramDecompiler
 	struct
 	{
 		bool emulate_conditional_rendering{false};
+		bool vr_viewport_index{false}; // VR fork: the device can write gl_ViewportIndex from the vertex shader
 	}
 	m_device_props;
 

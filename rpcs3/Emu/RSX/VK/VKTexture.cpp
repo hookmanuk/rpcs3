@@ -1468,8 +1468,21 @@ namespace vk
 
 	void blitter::scale_image(vk::command_buffer& cmd, vk::image* src, vk::image* dst, areai src_area, areai dst_area, bool interpolate, const rsx::typeless_xfer& xfer_info)
 	{
+		scale_image_layer(cmd, src, dst, src_area, dst_area, interpolate, xfer_info, 0, 0);
+		if (dst->stereo_layers && dst->layers() > 1)
+		{
+			// VR fork: the right eye gets the same transfer, from the source's right eye if it has one
+			scale_image_layer(cmd, src, dst, src_area, dst_area, interpolate, xfer_info, (src->stereo_layers && src->layers() > 1) ? 1 : 0, 1);
+		}
+	}
+
+	void blitter::scale_image_layer(vk::command_buffer& cmd, vk::image* src, vk::image* dst, areai src_area, areai dst_area, bool interpolate, const rsx::typeless_xfer& xfer_info, u32 src_layer, u32 dst_layer)
+	{
+		const rsx::image_copy_subresource_layers direct_layers{ .src_layer = static_cast<u8>(src_layer), .dst_layer = static_cast<u8>(dst_layer) };
 		vk::image* real_src = src;
 		vk::image* real_dst = dst;
+		u32 real_src_layer = src_layer;
+		u32 real_dst_layer = dst_layer;
 
 		if (dst->current_layout == VK_IMAGE_LAYOUT_UNDEFINED)
 		{
@@ -1492,11 +1505,11 @@ namespace vk
 				// Final dimensions are a match
 				if (xfer_info.src_is_typeless || xfer_info.dst_is_typeless)
 				{
-					vk::copy_image_typeless(cmd, src, dst, src_area, dst_area);
+					vk::copy_image_typeless(cmd, src, dst, src_area, dst_area, direct_layers);
 				}
 				else
 				{
-					copy_image(cmd, src, dst, src_area, dst_area);
+					copy_image(cmd, src, dst, src_area, dst_area, direct_layers);
 				}
 
 				return;
@@ -1521,7 +1534,8 @@ namespace vk
 				// Transfer bits from src to typeless src
 				real_src = vk::get_typeless_helper(format, rsx::classify_format(xfer_info.src_gcm_format), src_area.width(), src_area.height());
 				real_src->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-				vk::copy_image_typeless(cmd, src, real_src, old_src_area, src_area);
+				vk::copy_image_typeless(cmd, src, real_src, old_src_area, src_area, { .src_layer = static_cast<u8>(src_layer) });
+				real_src_layer = 0;
 			}
 		}
 
@@ -1554,6 +1568,7 @@ namespace vk
 				}
 
 				real_dst = vk::get_typeless_helper(format, rsx::classify_format(xfer_info.dst_gcm_format), dst_area.width(), required_height);
+				real_dst_layer = 0;
 			}
 		}
 
@@ -1600,13 +1615,13 @@ namespace vk
 
 		ensure(real_src->aspect() == real_dst->aspect()); // "Incompatible source and destination format!"
 
-		copy_scaled_image(cmd, real_src, real_dst, src_area, dst_area, {},
+		copy_scaled_image(cmd, real_src, real_dst, src_area, dst_area, { .src_layer = static_cast<u8>(real_src_layer), .dst_layer = static_cast<u8>(real_dst_layer) },
 			formats_are_bitcast_compatible(real_src, real_dst),
 			interpolate ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 
 		if (real_dst != dst)
 		{
-			vk::copy_image_typeless(cmd, real_dst, dst, dst_area, old_dst_area);
+			vk::copy_image_typeless(cmd, real_dst, dst, dst_area, old_dst_area, { .dst_layer = static_cast<u8>(dst_layer) });
 		}
 	}
 }

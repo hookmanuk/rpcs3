@@ -567,7 +567,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 			.eye = 0
 		};
 		image_to_flip = get_present_source(&present_info, avconfig);
-		generated_stereo = vr_present_right_eye(present_info, avconfig, buffer_width, buffer_height, image_to_flip2); // VR fork
+		generated_stereo = vr_present_right_eye(present_info, avconfig, buffer_width, buffer_height, image_to_flip, image_to_flip2); // VR fork
 
 		if (avconfig.stereo_enabled) [[unlikely]]
 		{

@@ -7,6 +7,15 @@
 
 #include "util/types.hpp"
 
+// Multiview stereo: the program control bit (RSXVertexProgram::ctrl, RSXFragmentProgram::ctrl) of the shader
+// variants that read per-view draw parameters and sample 2D textures as arrays. Declared here, not in
+// gcm_enums.h's list where upstream adds its own bits; rsx_vr_hooks.cpp checks it against those.
+constexpr u32 RSX_SHADER_CONTROL_VR_MULTIVIEW = 0x00004000;
+// The variants that write the game's own depth per pixel (profile screen_space.hud_exact_depth_programs).
+constexpr u32 RSX_SHADER_CONTROL_VR_EXACT_DEPTH = 0x00002000;
+
+struct RSXVertexProgram;
+
 class ppu_thread;
 
 namespace fs
@@ -16,7 +25,22 @@ namespace fs
 
 namespace rsx::vr
 {
-	u64 effective_vblank_rate(); // rsx_camera_probe.cpp
+	// rsx_camera_probe.cpp: the vblank rate to emulate: while a headset runs, the VR frame rate times the
+	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the configured Vblank
+	// Rate (which is never modified).
+	u64 effective_vblank_rate();
+	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
+	bool multiview_active();
+	// rsx::thread::get_current_vertex_program / get_current_fragment_program: sets or clears the fork's program
+	// control bits: RSX_SHADER_CONTROL_VR_MULTIVIEW as multiview_active() says, RSX_SHADER_CONTROL_VR_EXACT_DEPTH as
+	// on_vertex_ucode() decided for the current vertex program.
+	void set_vr_program_ctrl(u32& ctrl);
+	// rsx::thread::prefetch_vertex_program, after the ucode is analysed: whether the program is listed in the profile's
+	// screen_space.hud_exact_depth_programs. True when that changed (both programs' control bits then need updating).
+	bool on_vertex_ucode(const RSXVertexProgram& program);
+	// rsx_camera_probe.cpp: whether any program is listed, and whether this vertex ucode hash is one.
+	bool exact_depth_programs_listed();
+	bool exact_depth_program(u64 vertex_ucode_hash);
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();

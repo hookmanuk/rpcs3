@@ -180,6 +180,8 @@ namespace vk
 			}
 		}
 
+		if (query_info.pair_head)
+			return (query_info.data + get_query_result(index + 1) + 1) / 2; // VR fork (multiview): both views' samples, averaged
 		return query_info.data;
 	}
 
@@ -197,6 +199,10 @@ namespace vk
 
 		ensure(query.active);
 		query.pool->release();
+		if (query.pair_head && query_slot_status[index + 1].pool)
+		{
+			query_slot_status[index + 1].pool->release(); // VR fork (multiview): the pair's second slot holds a reference too
+		}
 
 		if (!query.pool->has_refs())
 		{
@@ -204,8 +210,15 @@ namespace vk
 			run_pool_cleanup();
 		}
 
+		const bool pair_head = query.pair_head; // VR fork (multiview): the slot after it is the pair's second view
 		query = {};
 		m_available_slots.push_back(index);
+		if (pair_head)
+		{
+			// Freed right after its head so that the two stay adjacent in the list (allocate_query_pair).
+			query_slot_status[index + 1] = {};
+			m_available_slots.push_back(index + 1);
+		}
 	}
 
 	u32 query_pool_manager::allocate_query(vk::command_buffer& cmd)

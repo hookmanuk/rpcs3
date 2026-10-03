@@ -11,6 +11,7 @@ namespace vk
 	{
 		vk::viewable_image* multisampled = nullptr;
 		vk::viewable_image* resolve = nullptr;
+		u32 layer = 0; // VR fork: the eye (image layer) being resolved
 
 		u32 cs_wave_x = 1;
 		u32 cs_wave_y = 1;
@@ -53,14 +54,15 @@ namespace vk
 
 		void bind_resources(const vk::command_buffer& /*cmd*/) override
 		{
-			auto msaa_view = multisampled->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED));
-			auto resolved_view = resolve->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY));
+			auto msaa_view = multisampled->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT, layer);
+			auto resolved_view = resolve->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT, layer);
 			m_program->bind_uniform({ *msaa_view }, 0, 0);
 			m_program->bind_uniform({ *resolved_view }, 0, 1);
 		}
 
-		void run(const vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image)
+		void run(const vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, u32 image_layer = 0)
 		{
+			layer = image_layer;
 			ensure(msaa_image->samples() > 1);
 			ensure(resolve_image->samples() == 1);
 
@@ -165,10 +167,11 @@ namespace vk
 			build(true, false, false);
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			update_sample_configuration(msaa_image);
-			auto src_view = msaa_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED));
+			auto src_view = msaa_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT, layer);
 
 			overlay_pass::run(
 				cmd,
@@ -185,13 +188,14 @@ namespace vk
 			build(true, false, true);
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			renderpass_config.set_multisample_state(msaa_image->samples(), 0xFFFF, true, false, false);
 			renderpass_config.set_multisample_shading_rate(1.f);
 			update_sample_configuration(msaa_image);
 
-			auto src_view = resolve_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY));
+			auto src_view = resolve_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT, layer);
 
 			overlay_pass::run(
 				cmd,
@@ -244,10 +248,11 @@ namespace vk
 			}
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			update_sample_configuration(msaa_image);
-			auto stencil_view = msaa_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_STENCIL_BIT);
+			auto stencil_view = msaa_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_STENCIL_BIT, layer);
 
 			region.rect.extent.width = resolve_image->width();
 			region.rect.extent.height = resolve_image->height();
@@ -303,13 +308,14 @@ namespace vk
 			}
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			renderpass_config.set_multisample_state(msaa_image->samples(), 0xFFFF, true, false, false);
 			renderpass_config.set_multisample_shading_rate(1.f);
 			update_sample_configuration(msaa_image);
 
-			auto stencil_view = resolve_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_STENCIL_BIT);
+			auto stencil_view = resolve_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_STENCIL_BIT, layer);
 
 			clear_region.rect.extent.width = msaa_image->width();
 			clear_region.rect.extent.height = msaa_image->height();
@@ -338,11 +344,12 @@ namespace vk
 			build(true, true, false);
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			update_sample_configuration(msaa_image);
-			auto depth_view = msaa_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_DEPTH_BIT);
-			auto stencil_view = msaa_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_STENCIL_BIT);
+			auto depth_view = msaa_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_DEPTH_BIT, layer);
+			auto stencil_view = msaa_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_STENCIL_BIT, layer);
 
 			overlay_pass::run(
 				cmd,
@@ -368,14 +375,15 @@ namespace vk
 			build(true, true, true);
 		}
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass)
+		void run(vk::command_buffer& cmd, vk::viewable_image* msaa_image, vk::viewable_image* resolve_image, VkRenderPass render_pass, u32 layer = 0)
 		{
+			m_target_layer = static_cast<u8>(layer); // VR fork: one call per eye
 			renderpass_config.set_multisample_state(msaa_image->samples(), 0xFFFF, true, false, false);
 			renderpass_config.set_multisample_shading_rate(1.f);
 			update_sample_configuration(msaa_image);
 
-			auto depth_view = resolve_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_DEPTH_BIT);
-			auto stencil_view = resolve_image->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_STENCIL_BIT);
+			auto depth_view = resolve_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_DEPTH_BIT, layer);
+			auto stencil_view = resolve_image->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_STENCIL_BIT, layer);
 
 			overlay_pass::run(
 				cmd,

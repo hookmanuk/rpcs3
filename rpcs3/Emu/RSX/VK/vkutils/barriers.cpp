@@ -130,7 +130,7 @@ namespace vk
 
 	void insert_texture_barrier(const vk::command_buffer& cmd, vk::image* image, VkImageLayout new_layout, bool preserve_renderpass)
 	{
-		insert_texture_barrier(cmd, image->value, image->current_layout, new_layout, { image->aspect(), 0, 1, 0, 1 }, preserve_renderpass);
+		insert_texture_barrier(cmd, image->value, image->current_layout, new_layout, { image->aspect(), 0, 1, 0, image->layers() }, preserve_renderpass);
 		image->current_layout = new_layout;
 	}
 }

@@ -37,6 +37,7 @@ namespace vk
 		VkPhysicalDeviceFaultFeaturesEXT device_fault_info{};
 		VkPhysicalDeviceMultiDrawFeaturesEXT multidraw_info{};
 		VkPhysicalDeviceProvokingVertexFeaturesEXT provoking_vertex_info{};
+		VkPhysicalDeviceMultiviewFeatures multiview_info{};
 
 		// Core features
 		shader_support_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
@@ -97,6 +98,14 @@ namespace vk
 			features2.pNext             = &provoking_vertex_info;
 		}
 
+		// VR fork: multiview (core since 1.1, so it may be present without the extension name)
+		if (device_extensions.is_supported(VK_KHR_MULTIVIEW_EXTENSION_NAME) || props.apiVersion >= VK_API_VERSION_1_1)
+		{
+			multiview_info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+			multiview_info.pNext = features2.pNext;
+			features2.pNext      = &multiview_info;
+		}
+
 		vkGetPhysicalDeviceFeatures2(dev, &features2);
 
 		shader_types_support.allow_float64 = !!features2.features.shaderFloat64;
@@ -114,6 +123,8 @@ namespace vk
 		optional_features_support.framebuffer_loops   = !!fbo_loops_info.attachmentFeedbackLoopLayout;
 		optional_features_support.extended_device_fault = !!device_fault_info.deviceFault;
 		optional_features_support.provoking_vertex_last = !!provoking_vertex_info.provokingVertexLast;
+		optional_features_support.multiview = !!multiview_info.multiview;
+		optional_features_support.shader_viewport_index_layer = device_extensions.is_supported(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
 
 		features = features2.features;
 
@@ -583,6 +594,19 @@ namespace vk
 		{
 			requested_extensions.push_back(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
 		}
+
+		// VR fork: multiview stereo (both eyes in one draw) and per-view scissors
+		{
+			const supported_extensions vr_device_support(supported_extensions::device, nullptr, *pgpu);
+			if (pgpu->optional_features_support.multiview && vr_device_support.is_supported(VK_KHR_MULTIVIEW_EXTENSION_NAME))
+			{
+				requested_extensions.push_back(VK_KHR_MULTIVIEW_EXTENSION_NAME);
+			}
+			if (pgpu->optional_features_support.shader_viewport_index_layer)
+			{
+				requested_extensions.push_back(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
+			}
+		}
 		
 #ifdef __APPLE__
 		if (pgpu->optional_features_support.portability)
@@ -598,6 +622,7 @@ namespace vk
 		enabled_features.depthClamp = VK_TRUE;
 		enabled_features.depthBounds = VK_TRUE;
 		enabled_features.wideLines = VK_TRUE;
+		enabled_features.multiViewport = pgpu->features.multiViewport; // VR fork: multiview stereo, one viewport and scissor per view
 		enabled_features.largePoints = VK_TRUE;
 		enabled_features.shaderFloat64 = VK_TRUE;
 
@@ -848,6 +873,15 @@ namespace vk
 			provoking_vertex_info.pNext = const_cast<void*>(device.pNext);
 			provoking_vertex_info.provokingVertexLast = VK_TRUE;
 			device.pNext = &provoking_vertex_info;
+		}
+
+		VkPhysicalDeviceMultiviewFeatures multiview_features{};
+		if (pgpu->optional_features_support.multiview)
+		{
+			multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
+			multiview_features.pNext = const_cast<void*>(device.pNext);
+			multiview_features.multiview = VK_TRUE;
+			device.pNext = &multiview_features;
 		}
 
 		if (auto error = vkCreateDevice(*pgpu, &device, nullptr, &dev))

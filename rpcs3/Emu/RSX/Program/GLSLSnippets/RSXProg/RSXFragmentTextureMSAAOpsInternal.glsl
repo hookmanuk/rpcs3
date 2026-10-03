@@ -7,7 +7,7 @@ vec4 texelFetch2DMS(in _MSAA_SAMPLER_TYPE_ tex, const in ivec2 clamp_bounds, con
 	const float sample_index = fma(sample_loc.y, sample_count.y, sample_loc.x);
 
 	// TODO: Hack. Filtering will break when sampling sub-pixel sample ids in wrap mode.
-	return texelFetch(tex, ivec2(aa_coords), int(sample_index));
+	return _MS_TEXEL_FETCH(tex, ivec2(aa_coords), int(sample_index));
 }
 
 vec4 sampleTexture2DMS(in _MSAA_SAMPLER_TYPE_ tex, const in vec2 coords, const in sampler_info tex_params)
@@ -16,7 +16,7 @@ vec4 sampleTexture2DMS(in _MSAA_SAMPLER_TYPE_ tex, const in vec2 coords, const i
 	const vec2 scaled_coords = _texcoord_xform(coords, tex_params);
 	const vec2 normalized_coords = texture2DMSCoord(scaled_coords, flags);
 	const vec2 sample_count = vec2(2., textureSamples(tex) * 0.5);
-	const ivec2 image_size = ivec2(textureSize(tex) * sample_count);
+	const ivec2 image_size = ivec2(_MS_TEXTURE_SIZE(tex) * sample_count);
 	const ivec2 clamp_bounds = image_size - ivec2(1);
 	const ivec2 icoords = ivec2(normalized_coords * image_size);
 	const vec4 sample0 = texelFetch2DMS(tex, clamp_bounds, sample_count, icoords, ivec2(0));

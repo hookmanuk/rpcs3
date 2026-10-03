@@ -5,6 +5,7 @@
 #include "VKHelpers.h"
 #include "vkutils/device.h"
 #include "../Program/GLSLCommon.h"
+#include "VKMultiviewVR.h" // VR fork
 #include "Emu/system_config.h"
 
 std::string VKVertexDecompilerThread::getFloatTypeName(usz elementCount)
@@ -19,6 +20,8 @@ std::string VKVertexDecompilerThread::getIntTypeName(usz /*elementCount*/)
 
 std::string VKVertexDecompilerThread::getFunction(FUNCTION f)
 {
+	if (const std::string_view vr = vk::vr_vertex_function(f, m_prog.ctrl); !vr.empty())
+		return std::string(vr); // VR fork: multiview array textures
 	return glsl::getFunctionImpl(f);
 }
 
@@ -79,6 +82,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream& OS)
 		"#extension GL_EXT_scalar_block_layout : require\n"
 		"#extension GL_EXT_uniform_buffer_unsized_array : require\n"
 		"#extension GL_ARB_separate_shader_objects : enable\n\n";
+	vk::vr_insert_vertex_extensions(OS, m_prog.ctrl, m_device_props.vr_viewport_index); // VR fork: multiview
 
 	glsl::insert_subheader_block(OS);
 
@@ -89,6 +93,7 @@ void VKVertexDecompilerThread::insertHeader(std::stringstream& OS)
 		// Helpers
 		"#define get_vertex_context() vertex_contexts[vs_context_offset]\n"
 		"#define get_user_clip_config() get_vertex_context().user_clip_configuration_bits\n\n";
+	vk::vr_insert_vertex_draw_params(OS, m_prog.ctrl); // VR fork: multiview, each view reads its own draw parameters
 
 	OS <<
 		"layout(std430, set=0, binding=" << vk_prog->binding_table.context_buffer_location << ") uniform VertexContextBuffer\n"
@@ -267,6 +272,7 @@ void VKVertexDecompilerThread::insertConstants(std::stringstream& OS, const std:
 					}
 				}
 
+				vk::vr_set_sampler_type(samplerType, m_prog.ctrl); // VR fork: multiview samples 2D textures as arrays (layer = eye)
 				OS << "layout(set=0, binding=" << in.location << ") uniform " << samplerType << " " << PI.name << ";\n";
 			}
 		}
@@ -321,6 +327,7 @@ void VKVertexDecompilerThread::insertOutputs(std::stringstream& OS, const std::v
 	{
 		OS << "layout(location=" << vk::get_varying_register_location("usr") << ") out flat uvec4 draw_params_payload;\n";
 	}
+	vk::vr_insert_exact_depth_vertex_output(OS, m_prog.ctrl); // VR fork: exact depth
 }
 
 void VKVertexDecompilerThread::insertFSExport(std::stringstream& OS)
@@ -436,6 +443,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	}
 
 	OS << "	vs_main();\n\n";
+	vk::vr_insert_vertex_main_end(OS, m_prog.ctrl, m_device_props.vr_viewport_index); // VR fork: multiview, a scissor per view
 
 	// FS payload
 	OS << "write_fs_payload();\n\n";
@@ -481,6 +489,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	OS << "	gl_Position = gl_Position * scale_offset_mat;\n";
 	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z *= gl_Position.w / vr_pre_xform.w;\n";
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
+	vk::vr_insert_exact_depth_vertex_end(OS, m_prog.ctrl); // VR fork: exact depth
 	OS << "}\n";
 }
 
@@ -488,6 +497,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 void VKVertexDecompilerThread::Task()
 {
 	m_device_props.emulate_conditional_rendering = vk::emulate_conditional_rendering();
+	m_device_props.vr_viewport_index = vk::get_current_renderer()->get_shader_viewport_index_layer_support();
 	m_shader = Decompile();
 	vk_prog->SetInputs(inputs);
 }

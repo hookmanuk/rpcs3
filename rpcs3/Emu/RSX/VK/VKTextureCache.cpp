@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "Emu/RSX/VK/VKGSRenderTypes.hpp"
 #include "VKTextureCache.h"
+#include "VKMultiviewVR.h" // VR fork
 #include "VKCompute.h"
 #include "VKAsyncScheduler.h"
 #include "vkutils/data_heap.h"
@@ -412,7 +413,18 @@ namespace vk
 
 	void texture_cache::copy_transfer_regions_impl(vk::command_buffer& cmd, vk::image* dst, const rsx::simple_array<copy_region_descriptor>& sections_to_transfer) const
 	{
+		copy_transfer_regions_layer(cmd, dst, sections_to_transfer, 0);
+		if (dst->stereo_layers && dst->layers() > 1)
+		{
+			copy_transfer_regions_layer(cmd, dst, sections_to_transfer, 1);
+		}
+	}
+
+	void texture_cache::copy_transfer_regions_layer(vk::command_buffer& cmd, vk::image* dst, const rsx::simple_array<copy_region_descriptor>& sections_to_transfer, u32 layer) const
+	{
 		const auto dst_aspect = dst->aspect();
+		const auto src_layer_of = [layer](const vk::image* img) -> u8 { return (layer && img->stereo_layers && img->layers() > 1) ? 1 : 0; };
+		const bool layered_dst = dst->stereo_layers && dst->layers() > 1;
 		const auto dst_bpp = vk::get_format_texel_width(dst->format());
 
 		std::unordered_set<decltype(sections_to_transfer.front().src)> processed_input_images;
@@ -421,7 +433,7 @@ namespace vk
 		const auto get_output_region = [&](const copy_region_descriptor& section, s32 in_x, s32 in_y, u32 w, u32 h, vk::image* data_src)
 		{
 			VkImageCopy copy_rgn = {
-				.srcSubresource = { data_src->aspect(), 0, 0, 1},
+				.srcSubresource = { data_src->aspect(), 0, src_layer_of(data_src), 1},
 				.srcOffset = { in_x, in_y, 0 },
 				.dstSubresource = { dst_aspect, section.level, 0, 1 },
 				.dstOffset = { section.dst_x, section.dst_y, 0 },
@@ -434,7 +446,7 @@ namespace vk
 			}
 			else
 			{
-				copy_rgn.dstSubresource.baseArrayLayer = section.dst_z;
+				copy_rgn.dstSubresource.baseArrayLayer = layered_dst ? layer : section.dst_z;
 			}
 
 			return copy_rgn;
@@ -452,7 +464,7 @@ namespace vk
 			}
 			else
 			{
-				mip_layers.dst_layer = static_cast<u8>(section.dst_z);
+				mip_layers.dst_layer = static_cast<u8>(layered_dst ? layer : section.dst_z);
 			}
 		};
 
@@ -511,6 +523,7 @@ namespace vk
 					coord3i dst_rect;
 					rsx::image_copy_subresource_layers mip_layers;
 					configure_subresource(section, dst_rect, mip_layers);
+					mip_layers.src_layer = src_layer_of(section.src);
 
 					const auto src_rect = coord3i{{ src_x, src_y, 0 }, { src_w, src_h, 1 }};
 					vk::copy_image_typeless(cmd, section.src, dst, src_rect, dst_rect, mip_layers);
@@ -522,7 +535,7 @@ namespace vk
 
 				const areai src_rect = coordi{{ src_x, src_y }, { src_w, src_h }};
 				const areai dst_rect = coordi{{ 0, 0 }, { convert_w, src_h }};
-				vk::copy_image_typeless(cmd, section.src, src_image, src_rect, dst_rect);
+				vk::copy_image_typeless(cmd, section.src, src_image, src_rect, dst_rect, { .src_layer = src_layer_of(section.src) });
 				src_image->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
 				src_x = 0;
@@ -568,8 +581,9 @@ namespace vk
 				}
 				else
 				{
-					mip_layers.dst_layer = static_cast<u8>(section.dst_z);
+					mip_layers.dst_layer = static_cast<u8>(layered_dst ? layer : section.dst_z);
 				}
+				mip_layers.src_layer = src_layer_of(src_image);
 
 				vk::copy_scaled_image(cmd, src_image, _dst,
 					coord3i{ { src_x, src_y, 0 }, { src_w, src_h, 1 } },
@@ -668,7 +682,7 @@ namespace vk
 		return result;
 	}
 
-	std::unique_ptr<vk::viewable_image> texture_cache::find_cached_image(VkFormat format, u16 w, u16 h, u16 d, u16 mipmaps, VkImageType type, VkImageCreateFlags create_flags, VkImageUsageFlags usage, VkSharingMode sharing)
+	std::unique_ptr<vk::viewable_image> texture_cache::find_cached_image(VkFormat format, u16 w, u16 h, u16 d, u16 mipmaps, VkImageType type, VkImageCreateFlags create_flags, VkImageUsageFlags usage, VkSharingMode sharing, u16 layers)
 	{
 		reader_lock lock(m_cached_pool_lock);
 
@@ -679,7 +693,7 @@ namespace vk
 
 			for (auto it = m_cached_images.begin(); it != m_cached_images.end(); ++it)
 			{
-				if (it->key == desired_key && (it->data->info.usage & usage) == usage)
+				if (it->key == desired_key && (it->data->info.usage & usage) == usage && it->data->layers() == layers)
 				{
 					auto ret = std::move(it->data);
 					m_cached_images.erase(it);
@@ -697,7 +711,7 @@ namespace vk
 		u16 width, u16 height, u16 depth, u16 layers, u8 mips,
 		VkImageType image_type, VkFlags image_flags, VkFlags usage_flags)
 	{
-		auto image = find_cached_image(format, width, height, depth, mips, image_type, image_flags, usage_flags, VK_SHARING_MODE_EXCLUSIVE);
+		auto image = find_cached_image(format, width, height, depth, mips, image_type, image_flags, usage_flags, VK_SHARING_MODE_EXCLUSIVE, layers);
 
 		if (!image)
 		{
@@ -728,12 +742,12 @@ namespace vk
 		vk::command_buffer& cmd, vk::image* source, VkImageType image_type, VkImageViewType view_type,
 		u32 gcm_format, u16 w, u16 h, u16 d, u8 mips,
 		const rsx::texture_channel_remap_t& remap_vector,
-		const copy_region_descriptor* copy)
+		const copy_region_descriptor* copy, u16 layers_hint)
 	{
 		const VkImageCreateFlags image_flags = (view_type == VK_IMAGE_VIEW_TYPE_CUBE) ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
 		const VkImageUsageFlags usage_flags = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		const VkFormat dst_format = vk::get_compatible_sampler_format(m_formats_support, gcm_format);
-		const u16 layers = (view_type == VK_IMAGE_VIEW_TYPE_CUBE) ? 6 : 1;
+		const u16 layers = (view_type == VK_IMAGE_VIEW_TYPE_CUBE) ? 6 : std::max<u16>(layers_hint, 1);
 
 		// Provision
 		auto image = create_temporary_subresource_storage(rsx::classify_format(gcm_format), dst_format, w, h, d, layers, mips, image_type, image_flags, usage_flags);
@@ -760,6 +774,7 @@ namespace vk
 			view_swizzle = source->native_component_map;
 		}
 
+		image->stereo_layers = (view_type != VK_IMAGE_VIEW_TYPE_CUBE && layers == 2); // VR fork: layer 1 = right eye
 		image->set_debug_name(fmt::format("Temp view, fmt=0x%x", gcm_format));
 		image->set_native_component_layout(view_swizzle);
 		auto view = image->get_view(remap_vector);
@@ -782,7 +797,7 @@ namespace vk
 		ensure(desc.sections_to_copy.size() == 1);
 		const auto& section = desc.sections_to_copy.front();
 		return create_temporary_subresource_view_impl(cmd, section.src, section.src->info.imageType, VK_IMAGE_VIEW_TYPE_2D,
-			desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, &section);
+			desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, &section, vk::vr_temporary_layers(desc));
 	}
 
 	vk::image_view* texture_cache::generate_cubemap_from_images(vk::command_buffer& cmd, const deferred_subresource& desc)
@@ -888,7 +903,7 @@ namespace vk
 		const auto& sections_to_copy = desc.sections_to_copy;
 		auto _template = get_template_from_collection_impl(sections_to_copy);
 		auto result = create_temporary_subresource_view_impl(cmd, _template, VK_IMAGE_TYPE_2D,
-			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap);
+			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, 1, desc.remap, nullptr, vk::vr_temporary_layers(desc));
 
 		if (!result)
 		{
@@ -898,13 +913,14 @@ namespace vk
 
 		const auto image = result->image();
 		VkImageAspectFlags dst_aspect = vk::get_aspect_flags(result->info.format);
-		VkImageSubresourceRange dst_range = { dst_aspect, 0, 1, 0, 1 };
+		VkImageSubresourceRange dst_range = { dst_aspect, 0, 1, 0, image->layers() }; // VR fork: every layer (multiview: both eyes)
 		vk::change_image_layout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_range);
 
 		if (desc.force_bg_load)
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
+			vk::vr_copy_left_to_right_layer(cmd, image); // VR fork (multiview): layer 1 gets the background too, before the sections
 		}
 		else if (sections_to_copy[0].dst_w != desc.width || sections_to_copy[0].dst_h != desc.height)
 		{
@@ -940,7 +956,7 @@ namespace vk
 		const auto mipmaps = ::narrow<u8>(sections_to_copy.size());
 		auto _template = get_template_from_collection_impl(sections_to_copy);
 		auto result = create_temporary_subresource_view_impl(cmd, _template, VK_IMAGE_TYPE_2D,
-			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, mipmaps, desc.remap);
+			VK_IMAGE_VIEW_TYPE_2D, desc.gcm_format, desc.width, desc.height, 1, mipmaps, desc.remap, nullptr, vk::vr_temporary_layers(desc));
 
 		if (!result)
 		{
@@ -950,13 +966,14 @@ namespace vk
 
 		const auto image = result->image();
 		VkImageAspectFlags dst_aspect = vk::get_aspect_flags(result->info.format);
-		VkImageSubresourceRange dst_range = { dst_aspect, 0, mipmaps, 0, 1 };
+		VkImageSubresourceRange dst_range = { dst_aspect, 0, mipmaps, 0, image->layers() }; // VR fork: every layer (multiview: both eyes)
 		vk::change_image_layout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dst_range);
 
 		if (desc.force_bg_load)
 		{
 			// The memory load covers the whole image, no need to clear it first
 			initialize_subresource_from_memory(cmd, image, desc, rsx::texture_dimension_extended::texture_dimension_2d);
+			vk::vr_copy_left_to_right_layer(cmd, image, mipmaps); // VR fork (multiview): layer 1 gets the background too, before the sections
 		}
 		else if (!(dst_aspect & VK_IMAGE_ASPECT_DEPTH_BIT))
 		{

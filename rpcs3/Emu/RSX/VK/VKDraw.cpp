@@ -686,7 +686,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 		if (view) [[likely]]
 		{
-			m_program->bind_uniform({ *view, *fs_sampler_handles[i] },
+			m_program->bind_uniform({ *vr_array_view(view, current_fragment_program.get_texture_dimension(i)), *fs_sampler_handles[i] }, // VR fork: multiview samples arrays
 				vk::glsl::binding_set_index_fragment,
 				m_fs_binding_table->ftex_location[i]);
 
@@ -707,14 +707,14 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 						VK_BORDER_COLOR_INT_OPAQUE_BLACK);
 				}
 
-				m_program->bind_uniform({ *stencil_view, *m_stencil_mirror_sampler },
+				m_program->bind_uniform({ *vr_array_view(stencil_view, current_fragment_program.get_texture_dimension(i)), *m_stencil_mirror_sampler }, // VR fork
 					vk::glsl::binding_set_index_fragment,
 					m_fs_binding_table->ftex_stencil_location[i]);
 			}
 		}
 		else
 		{
-			const VkImageViewType view_type = vk::get_view_type(current_fragment_program.get_texture_dimension(i));
+			const VkImageViewType view_type = vr_null_view_type(current_fragment_program.get_texture_dimension(i));
 			const VkDescriptorImageInfoEx desc = { *vk::null_image_view(*m_current_command_buffer, view_type), vk::null_sampler() };
 			m_program->bind_uniform(desc,
 				vk::glsl::binding_set_index_fragment,
@@ -745,7 +745,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 		if (!rsx::method_registers.vertex_textures[i].enabled())
 		{
-			const auto view_type = vk::get_view_type(current_vertex_program.get_texture_dimension(i));
+			const auto view_type = vr_null_view_type(current_vertex_program.get_texture_dimension(i));
 			m_program->bind_uniform({ *vk::null_image_view(*m_current_command_buffer, view_type), vk::null_sampler() },
 				vk::glsl::binding_set_index_vertex,
 				m_vs_binding_table->vtex_location[i]);
@@ -768,7 +768,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 		if (!image_ptr)
 		{
 			rsx_log.error("Texture upload failed to vtexture index %d. Binding null sampler.", i);
-			const auto view_type = vk::get_view_type(current_vertex_program.get_texture_dimension(i));
+			const auto view_type = vr_null_view_type(current_vertex_program.get_texture_dimension(i));
 
 			m_program->bind_uniform({ *vk::null_image_view(*m_current_command_buffer, view_type), vk::null_sampler() },
 				vk::glsl::binding_set_index_vertex,
@@ -779,7 +779,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 
 		validate_image_layout_for_read_access(*m_current_command_buffer, image_ptr, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, sampler_state);
 
-		m_program->bind_uniform({ *image_ptr, *vs_sampler_handles[i] },
+		m_program->bind_uniform({ *vr_array_view(image_ptr, current_vertex_program.get_texture_dimension(i)), *vs_sampler_handles[i] }, // VR fork
 			vk::glsl::binding_set_index_vertex,
 			m_vs_binding_table->vtex_location[i]);
 	}
@@ -788,7 +788,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 	{
 		auto ds = ensure((vr_right_eye ? m_vr_right_rtts : m_rtts).m_bound_depth_stencil.second); // VR fork
 		auto view = ds->get_view(rsx::default_remap_vector, VK_IMAGE_ASPECT_DEPTH_BIT);
-		m_program->bind_uniform({ *view, vk::null_sampler() }, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_depth_input_location);
+		m_program->bind_uniform({ *vr_array_view(view), vk::null_sampler() }, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_depth_input_location); // VR fork
 	}
 
 	if (current_fragment_program.ctrl & RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING)
@@ -800,7 +800,7 @@ bool VKGSRender::bind_texture_env(bool vr_right_eye)
 		{
 			auto viewable = static_cast<vk::viewable_image*>(m_fbo_images[i]);
 			const auto view = viewable->get_view(remap);
-			m_program->bind_uniform(*view, vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_src_location[i]);
+			m_program->bind_uniform(*vr_array_view(view), vk::glsl::binding_set_index_fragment, m_fs_binding_table->frag_src_location[i]); // VR fork
 		}
 	}
 
@@ -831,7 +831,7 @@ bool VKGSRender::bind_interpreter_texture_env()
 	std::fill(start, end, fallback);
 	// 2D
 	start = end;
-	fallback.imageView = vk::null_image_view(*m_current_command_buffer, VK_IMAGE_VIEW_TYPE_2D)->value;
+	fallback.imageView = vk::null_image_view(*m_current_command_buffer, vr_null_view_type(rsx::texture_dimension_extended::texture_dimension_2d))->value; // VR fork: arrays with multiview
 	std::advance(end, 16);
 	std::fill(start, end, fallback);
 	// 3D
@@ -966,7 +966,7 @@ bool VKGSRender::bind_interpreter_texture_env()
 
 		const int offsets[] = { 0, 16, 48, 32 };
 		auto& sampled_image_info = texture_env[offsets[static_cast<u32>(sampler_state->image_type)] + i];
-		sampled_image_info = { *view, *fs_sampler_handles[i] };
+		sampled_image_info = { *vr_array_view(view, sampler_state->image_type), *fs_sampler_handles[i] }; // VR fork: multiview samples arrays
 	}
 
 	m_shader_interpreter.update_fragment_textures(texture_env);
@@ -1030,7 +1030,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 
 	// Faults are allowed during vertex upload. Ensure consistent CB state after uploads.
 	// Queries are spawned and closed outside render pass scope for consistency reasons.
-	if (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task)
+	if (!m_vr_multiview && (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task)) // VR fork: multiview begins its queries inside the pass
 	{
 		u32 occlusion_id = m_occlusion_query_manager->allocate_query(*m_current_command_buffer);
 		if (occlusion_id == umax)
@@ -1157,6 +1157,8 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			m_current_command_buffer->flags |= vk::command_buffer::cb_has_conditional_render;
 		}
 	}
+
+	vr_after_render_pass_bound(); // VR fork: multiview, a pending guest query begins inside the pass
 
 	// Bind the new set of descriptors for use with this draw call
 	m_frame_stats.setup_time += m_profiler.duration();

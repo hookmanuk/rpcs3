@@ -30,6 +30,7 @@
     "hud_box_after_shader": true,
     "output_pixel_draws_not_hud": true,
     "subviewport_cameras_in_box": true,
-    "hud_keep_depth": true
+    "hud_keep_depth": true,
+    "hud_exact_depth_programs": ["2f7d1792dfd94351"]
   }
 }

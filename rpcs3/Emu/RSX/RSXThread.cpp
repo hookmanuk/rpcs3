@@ -2227,6 +2227,7 @@ namespace rsx
 			transform_program_start,                    // Address of entry point
 			current_vertex_program                      // [out] Program object
 		);
+		if (rsx::vr::on_vertex_ucode(current_vertex_program)) m_graphics_state |= (rsx::pipeline_state::vertex_program_state_dirty | rsx::pipeline_state::fragment_program_state_dirty); // VR fork: exact depth
 
 		current_vertex_program.texture_state.import(current_vp_texture_state, current_vp_metadata.referenced_textures_mask);
 
@@ -2290,6 +2291,7 @@ namespace rsx
 		current_vertex_program.output_mask = rsx::method_registers.vertex_attrib_output_mask();
 
 		current_vertex_program.ctrl &= ~RSX_SHADER_CONTROL_FLAT_SHADING;
+		rsx::vr::set_vr_program_ctrl(current_vertex_program.ctrl); // VR fork: the multiview and exact-depth shader variants
 		if (rsx::method_registers.shade_mode() == rsx::shading_mode::flat &&
 			backend_config.supports_last_provoking_vertex)
 		{
@@ -2332,6 +2334,7 @@ namespace rsx
 
 		current_fragment_program.ctrl &= fs_export_config_mask;
 		current_fragment_program.ctrl |= REGS(m_ctx)->shader_control() & (CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS | CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | RSX_SHADER_CONTROL_USES_KIL);
+		rsx::vr::set_vr_program_ctrl(current_fragment_program.ctrl); // VR fork: the multiview and exact-depth shader variants
 		current_fragment_program.texcoord_control_mask = REGS(m_ctx)->texcoord_control_mask();
 		current_fragment_program.two_sided_lighting = REGS(m_ctx)->two_side_light_en();
 		current_fragment_program.mrt_buffers_count = rsx::utility::get_mrt_buffers_count(REGS(m_ctx)->surface_color_target());

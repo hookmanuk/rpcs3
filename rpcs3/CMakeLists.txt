@@ -1,6 +1,9 @@
 # Define GNU standard installation directories
 include(GNUInstallDirs)
 
+# Core-only builds (compile checks on machines without Qt 6.7): -DBUILD_RPCS3_GUI=OFF skips the Qt GUI and the executable.
+option(BUILD_RPCS3_GUI "Build the Qt GUI and the rpcs3 executable" ON)
+
 # Generate git-version.h at build time.
 include(${CMAKE_CURRENT_SOURCE_DIR}/git-version.cmake)
 
@@ -23,7 +26,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     endif()
 endif()
 
-if (NOT ANDROID)
+if (NOT ANDROID AND BUILD_RPCS3_GUI)
     # Qt
     # finds Qt libraries and setups custom commands for MOC and UIC
     # Must be done here because generated MOC and UIC targets cant
@@ -34,13 +37,13 @@ endif()
 # subdirectories
 add_subdirectory(Emu)
 
-if (NOT ANDROID)
+if (NOT ANDROID AND BUILD_RPCS3_GUI)
     add_subdirectory(rpcs3qt)
 endif()
 
 gen_git_version(${CMAKE_CURRENT_SOURCE_DIR})
 
-if (NOT ANDROID)
+if (NOT ANDROID AND BUILD_RPCS3_GUI)
     # Build rpcs3_lib
     add_library(rpcs3_lib STATIC)
 

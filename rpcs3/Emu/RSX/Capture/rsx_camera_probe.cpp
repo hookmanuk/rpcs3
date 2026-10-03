@@ -784,6 +784,18 @@ namespace rsx::vr
 				profile->screen_space_screen_frame_draws.push_back(draw);
 			}
 		}
+		if (const YAML::Node programs = child(screen_space, "hud_exact_depth_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end)
+					fail("screen_space.hud_exact_depth_programs: '" + text + "' is not a hex program hash");
+				profile->screen_space_hud_exact_depth_programs.push_back(hash);
+			}
+		}
 		if (const YAML::Node programs = child(screen_space, "hud_programs"); programs && programs.IsSequence())
 		{
 			for (const auto& program : programs)
@@ -1107,7 +1119,7 @@ namespace rsx::vr
 		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
-		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
+		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -1142,6 +1154,35 @@ namespace rsx::vr
 		{
 			vr_probe_log.notice("Headset refresh rate: %u Hz", hz);
 		}
+	}
+
+	static atomic_t<bool> s_multiview_active{false};
+
+	void set_multiview_active(bool active)
+	{
+		s_multiview_active = active;
+	}
+
+	bool multiview_active()
+	{
+		return s_multiview_active.load();
+	}
+
+	bool exact_depth_programs_listed()
+	{
+		const auto* profile = camera_probe::get().profile();
+		return profile && !profile->screen_space_hud_exact_depth_programs.empty();
+	}
+
+	bool exact_depth_program(u64 vertex_ucode_hash)
+	{
+		const auto* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return false;
+		}
+		const auto& list = profile->screen_space_hud_exact_depth_programs;
+		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
 	}
 
 	void set_headset_active(bool active)

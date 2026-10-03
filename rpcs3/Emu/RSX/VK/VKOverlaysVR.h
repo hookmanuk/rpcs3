@@ -29,6 +29,6 @@ namespace vk
 
 		void update_uniforms(vk::command_buffer& cmd, vk::glsl::program* program) override;
 
-		void run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9]);
+		void run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9], u32 src_layer = 0); // src_layer: the eye of a stereo image (multiview)
 	};
 } // namespace vk

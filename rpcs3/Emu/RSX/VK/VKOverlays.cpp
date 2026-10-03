@@ -231,7 +231,8 @@ namespace vk
 	vk::framebuffer* overlay_pass::get_framebuffer(vk::image* target, VkRenderPass render_pass)
 	{
 		VkDevice dev = (*vk::get_current_renderer());
-		return vk::get_framebuffer(dev, target->width(), target->height(), m_num_input_attachments > 0, render_pass, { target });
+		return vk::get_framebuffer(dev, target->width(), target->height(), m_num_input_attachments > 0, render_pass, { target },
+			m_target_view_mask, m_target_view_mask ? 0 : m_target_layer, m_target_view_mask ? 2 : 1);
 	}
 
 	void overlay_pass::emit_geometry(vk::command_buffer& cmd, glsl::program* /*program*/)

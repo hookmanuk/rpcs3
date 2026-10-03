@@ -475,6 +475,12 @@ namespace vk
 
 	image_view* viewable_image::get_view(const rsx::texture_channel_remap_t& remap, VkImageAspectFlags mask)
 	{
+		// A stereo image's default view is its guest layer (0), so every internal pass keeps working on the left eye.
+		return get_layer_view(remap, mask, stereo_layers ? 0u : u32{umax});
+	}
+
+	image_view* viewable_image::get_layer_view(const rsx::texture_channel_remap_t& remap, VkImageAspectFlags mask, u32 layer)
+	{
 		u32 remap_encoding = remap.encoded;
 		if (remap_encoding == VK_REMAP_IDENTITY)
 		{
@@ -487,7 +493,7 @@ namespace vk
 			}
 		}
 
-		const u64 storage_key = remap_encoding | (static_cast<u64>(mask) << 32);
+		const u64 storage_key = remap_encoding | (static_cast<u64>(mask) << 32) | (layer == umax ? 0ull : (static_cast<u64>(layer + 1) << 48));
 		auto found = views.find(storage_key);
 		if (found != views.end())
 		{
@@ -513,10 +519,12 @@ namespace vk
 			break;
 		}
 
-		const VkImageSubresourceRange range = { aspect() & mask, 0, info.mipLevels, 0, info.arrayLayers };
+		const bool single_layer = layer != umax;
+		const VkImageSubresourceRange range = { aspect() & mask, 0, info.mipLevels, single_layer ? layer : 0, single_layer ? 1 : info.arrayLayers };
 		ensure(range.aspectMask);
+		ensure(!single_layer || layer < info.arrayLayers);
 
-		auto view = std::make_unique<vk::image_view>(*g_render_device, this, format(), VK_IMAGE_VIEW_TYPE_MAX_ENUM, real_mapping, range);
+		auto view = std::make_unique<vk::image_view>(*g_render_device, this, format(), single_layer ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_MAX_ENUM, real_mapping, range);
 		auto result = view.get();
 		views.emplace(storage_key, std::move(view));
 		return result;

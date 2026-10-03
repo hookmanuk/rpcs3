@@ -95,6 +95,38 @@ R"(
 #endif
 #endif
 
+#ifdef _VR_MULTIVIEW
+// VR fork (multiview): 2D samplers are arrays whose layer is the eye being rendered (a one-layer texture
+// clamps to layer 0). The 2D sampling macros above, redefined with the layer coordinate.
+#define VR_LAYER float(gl_ViewIndex)
+vec4 _vr_shadow_coord(const in vec3 c) { return vec4(c.xy, VR_LAYER, c.z); }
+
+#ifdef _ENABLE_TEX2D
+#undef TEX2D
+#undef TEX2D_BIAS
+#undef TEX2D_LOD
+#undef TEX2D_GRAD
+#undef TEX2D_PROJ
+#define TEX2D(index, coord2) _process_texel(texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER)), TEX_FLAGS(index))
+#define TEX2D_BIAS(index, coord2, bias) _process_texel(texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), bias), TEX_FLAGS(index))
+#define TEX2D_LOD(index, coord2, lod) _process_texel(textureLod(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), lod), TEX_FLAGS(index))
+#define TEX2D_GRAD(index, coord2, dpdx, dpdy) _process_texel(textureGrad(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER), dpdx, dpdy), TEX_FLAGS(index))
+#define TEX2D_PROJ(index, coord4) _process_texel(texture(TEX_NAME(index), vec3(COORD_PROJ2(index, coord4.xyw), VR_LAYER)), TEX_FLAGS(index))
+#endif
+
+#ifdef _ENABLE_SHADOW
+#undef TEX2D_SHADOW
+#undef TEX2D_SHADOWPROJ
+#ifdef _EMULATED_TEXSHADOW
+	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), _vr_shadow_coord(SHADOW_COORD(index, coord3)))
+	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), _vr_shadow_coord(SHADOW_COORD_PROJ(index, coord4)))
+#else
+	#define TEX2D_SHADOW(index, coord3) texture(TEX_NAME(index), vec4(COORD_SCALE2(index, coord3.xy), VR_LAYER, coord3.z))
+	#define TEX2D_SHADOWPROJ(index, coord4) texture(TEX_NAME(index), _vr_shadow_coord(COORD_PROJ3_SHADOW(index, coord4)))
+#endif
+#endif
+#endif // _VR_MULTIVIEW
+
 #ifdef _ENABLE_TEX3D
 #define TEX3D(index, coord3) _process_texel(texture(TEX_NAME(index), COORD_SCALE3(index, coord3)), TEX_FLAGS(index))
 #define TEX3D_BIAS(index, coord3, bias) _process_texel(texture(TEX_NAME(index), COORD_SCALE3(index, coord3), bias), TEX_FLAGS(index))

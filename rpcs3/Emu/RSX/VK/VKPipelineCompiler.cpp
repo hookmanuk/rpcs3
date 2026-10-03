@@ -132,6 +132,7 @@ namespace vk
 		vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 		vp.viewportCount = 1;
 		vp.scissorCount = 1;
+		vp.viewportCount = vp.scissorCount = (vk::get_renderpass_view_mask(create_info.renderpass_key) == 1) ? 2 : 1; // VR fork: multiview, one per view (gl_ViewportIndex = gl_ViewIndex)
 
 		auto pmss = &create_info.state.ms;
 		VkPipelineMultisampleStateCreateInfo ms2;

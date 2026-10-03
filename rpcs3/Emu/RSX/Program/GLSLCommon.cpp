@@ -499,10 +499,10 @@ namespace glsl
 					#include "GLSLSnippets/RSXProg/RSXFragmentTextureMSAAOpsInternal.glsl"
 				;
 
-				OS << fmt::replace_all(msaa_sampling_impl, "_MSAA_SAMPLER_TYPE_", "sampler2DMS");
+				OS << fmt::replace_all(msaa_sampling_impl, "_MSAA_SAMPLER_TYPE_", props.vr_multiview ? "sampler2DMSArray" : "sampler2DMS");
 				if (props.require_depth_conversion)
 				{
-					OS << fmt::replace_all(msaa_sampling_impl, "_MSAA_SAMPLER_TYPE_", "usampler2DMS");
+					OS << fmt::replace_all(msaa_sampling_impl, "_MSAA_SAMPLER_TYPE_", props.vr_multiview ? "usampler2DMSArray" : "usampler2DMS");
 				}
 			}
 		}

@@ -69,7 +69,7 @@ namespace vk
 		vkCmdPushConstants(cmd, program->layout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, fragment_push_constants_size, homography);
 	}
 
-	void vr_homography_warp_pass::run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9])
+	void vr_homography_warp_pass::run(vk::command_buffer& cmd, vk::viewable_image* src, vk::image* target, const f32 h[9], u32 src_layer)
 	{
 		for (u32 r = 0; r < 3; ++r)
 		{
@@ -84,7 +84,9 @@ namespace vk
 
 		const VkRenderPass render_pass = vk::get_renderpass(*m_device, vk::get_renderpass_key(target->format()));
 		const areau viewport = {0, 0, target->width(), target->height()};
-		overlay_pass::run(cmd, viewport, target, src->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY)), render_pass);
+		auto* src_view = src_layer ? src->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY), VK_IMAGE_ASPECT_COLOR_BIT, src_layer)
+		                           : src->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY));
+		overlay_pass::run(cmd, viewport, target, src_view, render_pass);
 		vk::end_renderpass(cmd);
 
 		src->pop_layout(cmd);

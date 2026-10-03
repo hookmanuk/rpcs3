@@ -1,5 +1,12 @@
 R"(
 #define ZCOMPARE_FUNC(index) _get_bits(TEX_FLAGS(index), DEPTH_COMPARE, 3)
+#ifdef _VR_MULTIVIEW
+#define _MS_TEXTURE_SIZE(tex) textureSize(tex).xy
+#define _MS_TEXEL_FETCH(tex, coord, s) texelFetch(tex, ivec3(coord, gl_ViewIndex), s)
+#else
+#define _MS_TEXTURE_SIZE(tex) textureSize(tex)
+#define _MS_TEXEL_FETCH(tex, coord, s) texelFetch(tex, coord, s)
+#endif
 #define ZS_READ_MS(index, coord) vec2(sampleTexture2DMS(TEX_NAME(index), coord, TEX_PARAM(index)).r, float(sampleTexture2DMS(TEX_NAME_STENCIL(index), coord, TEX_PARAM(index)).x))
 #define TEX2D_MS(index, coord2) _process_texel(sampleTexture2DMS(TEX_NAME(index), coord2, TEX_PARAM(index)), TEX_FLAGS(index))
 #define TEX2D_SHADOW_MS(index, coord3) vec4(comparison_passes(sampleTexture2DMS(TEX_NAME(index), coord3.xy, TEX_PARAM(index)).x, coord3.z, ZCOMPARE_FUNC(index)))
