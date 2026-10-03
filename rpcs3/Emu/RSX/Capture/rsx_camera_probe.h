@@ -370,6 +370,11 @@ namespace rsx::vr
 		// fully visible) instead of waiting for exact counts. Dragon's Dogma waits for its occlusion queries
 		// several times a frame; in stereo each wait is for both eyes' GPU work (~40% of the RSX thread at 4K per eye).
 		bool zcull_approximate = false;
+		// While VR renders, the RSX depth-bounds test is off. Its range is in the game camera's window depth, but the depth
+		// buffer holds each eye's, which changes with the head's rotation. Asura's Wrath bounds its dynamic light passes
+		// to the light's depth range: in the headset a lit disc went black or gold with the head's pitch, as its pixels
+		// left or entered the range. (Light passes also attenuate in the shader, so the range only saves GPU work.)
+		bool disable_depth_bounds = false;
 		// In stereo, memory copies (NV0039) into a display buffer are skipped. Killzone HD saves each finished frame to
 		// main memory and copies another memory image back into the display buffer; with Read Color Buffers the left
 		// eye was then reloaded from memory at 1x while the host-only right eye kept the scaled frame.

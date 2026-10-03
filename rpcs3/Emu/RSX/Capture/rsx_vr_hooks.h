@@ -48,6 +48,8 @@ namespace rsx::vr
 	bool depth_remap_program(u64 vertex_ucode_hash);
 	// The current vertex program is one of the profile's depth_remap_programs (its shaders carry RSX_SHADER_CONTROL_VR_DEPTH_REMAP).
 	bool depth_remap_active();
+	// The RSX depth-bounds test is off while VR renders (profile disable_depth_bounds): VKDraw.cpp's dynamic state.
+	bool depth_bounds_disabled();
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();
