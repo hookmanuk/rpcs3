@@ -64,7 +64,6 @@ public:
 	VkShaderModule handle = nullptr;
 	vk::glsl::shader shader;
 	std::vector<vk::glsl::program_input> uniforms;
-	bool use_last_provoking_vertex = false;
 
 	// Quick attribute indices
 	struct
@@ -83,6 +82,10 @@ public:
 	void Compile();
 	void SetInputs(std::vector<vk::glsl::program_input>& inputs);
 
+	u32 Flags() const { return m_ctrl; }
+
 private:
 	void Delete();
+
+	u32 m_ctrl = 0u;
 };
