@@ -1425,6 +1425,21 @@ namespace rsx::vr
 		return rate;
 	}
 
+	f64 vr_frame_limit(f64 limit)
+	{
+		if (limit <= 0. || !g_cfg.video.vr.enabled || !g_headset_active.load() || !camera_probe::get().profile())
+		{
+			return limit;
+		}
+		const f64 vr = static_cast<f64>(effective_vblank_rate());
+		static atomic_t<u32> s_logged{0};
+		if (const u32 key = static_cast<u32>(limit * 100.) ^ (static_cast<u32>(vr) << 16); s_logged.exchange(key) != key && vr != limit)
+		{
+			vr_probe_log.notice("VR: Frame limit %.2f replaced by the VR rate %.0f (VR Frame Rate setting).", limit, vr);
+		}
+		return vr;
+	}
+
 	static u64 vr_vblank_rate()
 	{
 		const u64 configured = g_cfg.video.vblank_rate;

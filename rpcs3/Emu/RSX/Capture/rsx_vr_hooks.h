@@ -33,6 +33,10 @@ namespace rsx::vr
 	// profile's vblanks_per_frame (Unlimited: the headset's refresh rate); otherwise the configured Vblank
 	// Rate (which is never modified).
 	u64 effective_vblank_rate();
+	// rsx::thread frame limiter: while a headset runs with a profile, a fixed Frame limit (the user's, or the online
+	// config database's: God of War Collection, Ratchet & Clank Collection, Super Stardust HD carry 60) is replaced by
+	// the VR rate above; the VR Frame Rate setting and the profile's max_fps choose it. Other limits pass unchanged.
+	f64 vr_frame_limit(f64 limit);
 	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
 	bool multiview_active();
 	// rsx::thread::get_current_vertex_program / get_current_fragment_program: sets or clears the fork's program

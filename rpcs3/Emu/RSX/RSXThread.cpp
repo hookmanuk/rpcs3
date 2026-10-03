@@ -3611,6 +3611,7 @@ namespace rsx
 		default:
 			break;
 		}
+		limit = rsx::vr::vr_frame_limit(limit); // VR fork: in VR a fixed frame limit follows the VR frame rate
 
 		if (double limit2 = g_cfg.video.second_frame_limit; limit2 >= 0.1 && (limit2 < limit || !limit))
 		{
