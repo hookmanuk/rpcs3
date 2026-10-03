@@ -58,6 +58,7 @@ namespace vk::xr
 			bool have_fov = false;
 			f32 tan_half_x = 0.f;
 			f32 tan_half_y = 0.f;
+			std::array<f32, 4> crop{0.f, 0.f, 1.f, 1.f}; // the part of each image the projection layer shows
 			s32 ready = -1; // ready_fences entry signalled after RPCS3's copy into this slot (own queue)
 		};
 
@@ -1225,7 +1226,18 @@ namespace vk::xr
 						view.pose.position = meta.eye_position[i];
 						view.fov = g_xr.hmd_fov ? meta.eye_fov[i] : XrFovf{-half_x, half_x, half_y, -half_y};
 						view.subImage.swapchain = g_xr.eyes[i].handle;
-						view.subImage.imageRect = {{0, 0}, {static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h)}};
+						// Profile display_rect: only the part of the image that holds the game's view.
+						const s32 x0 = static_cast<s32>(meta.crop[0] * g_xr.swapchain_w + 0.5f);
+						const s32 y0 = static_cast<s32>(meta.crop[1] * g_xr.swapchain_h + 0.5f);
+						const s32 x1 = static_cast<s32>(meta.crop[2] * g_xr.swapchain_w + 0.5f);
+						const s32 y1 = static_cast<s32>(meta.crop[3] * g_xr.swapchain_h + 0.5f);
+						view.subImage.imageRect = {{x0, y0}, {std::max(1, x1 - x0), std::max(1, y1 - y0)}};
+						if (static s32 s_logged_x0 = 0; i == 0 && x0 != s_logged_x0)
+						{
+							s_logged_x0 = x0;
+							xr_log.notice("Projection layer shows %dx%d at (%d, %d) of the %ux%u eye image (profile display_rect)",
+								x1 - x0, y1 - y0, x0, y0, g_xr.swapchain_w, g_xr.swapchain_h);
+						}
 						view.subImage.imageArrayIndex = 0;
 					}
 					projection.space = g_xr.space;
@@ -1486,7 +1498,7 @@ namespace vk::xr
 		g_xr.ready_pending = g_xr.ready_submitted[k] ? static_cast<s32>(k) : -1;
 	}
 
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
 		if (g_xr.writing < 0)
@@ -1519,6 +1531,7 @@ namespace vk::xr
 		slot.have_fov = have_fov;
 		slot.tan_half_x = tan_half_x;
 		slot.tan_half_y = tan_half_y;
+		slot.crop = crop;
 
 		slot.ready = std::exchange(g_xr.ready_pending, -1);
 		g_xr.latest = g_xr.writing;

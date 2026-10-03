@@ -26,7 +26,7 @@
 	void vr_stamp_targets(u32 pose, bool camera);
 	void vr_mark_3d_targets(bool camera); // camera draws, and draws sampling 3D content, mark their targets vr_has_3d
 	bool m_vr_flip_has_3d = true;         // the last displayed buffer held 3D content (vr_has_3d)
-	u32 m_vr_frames_2d = 0;               // consecutive frames with no camera draws whose displayed buffer held no 3D
+	u32 m_vr_frames_2d = 3;               // consecutive frames with no camera draws whose displayed buffer held no 3D (3: a new renderer starts on the fixed screen)
 	u32 m_vr_screen_frame_draws = 0;      // draws this frame matching the profile's screen_frame_draws
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
@@ -80,7 +80,7 @@
 	// Camera draws since the last view update, and view updates in a row without any:
 	// frames with no 3D at all (splash screens, videos, menus) are shown as the fixed screen.
 	u32 m_vr_camera_draws = 0;
-	u32 m_vr_frames_without_camera = 0;
+	u32 m_vr_frames_without_camera = 3; // 3: a new renderer (boot, executable switch) starts on the fixed screen until its first camera draw
 	// TEMPORARY diagnostic: per-frame trace of targets, boundaries, camera draws, blits and flips,
 	// logged for 6 consecutive frames every 150 flips.
 	std::string m_vr_trace;

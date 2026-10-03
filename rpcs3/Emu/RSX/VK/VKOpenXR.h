@@ -3,6 +3,7 @@
 #include "VulkanAPI.h"
 #include "util/types.hpp"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -68,8 +69,9 @@ namespace vk::xr
 
 	// Make the just-submitted eye pair the newest one, tagged with the pose it was
 	// rendered with (pose_id from locate_render_pose; 0 = none) and (game-FOV mode)
-	// its FOV. The frame thread presents it.
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id);
+	// its FOV. The frame thread presents it. crop: the part of each eye image the
+	// projection layer shows (x0, y0, x1, y1 as fractions; profile display_rect).
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f});
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
 	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)

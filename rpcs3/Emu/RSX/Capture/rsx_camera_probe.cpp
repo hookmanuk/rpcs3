@@ -943,6 +943,24 @@ namespace rsx::vr
 		{
 			profile->disable_depth_bounds = off == "true";
 		}
+		if (const YAML::Node rect = child(root, "display_rect"); rect && rect.IsSequence())
+		{
+			if (rect.size() != 4)
+			{
+				fail("display_rect: expected [x, y, width, height] in output pixels");
+			}
+			else
+			{
+				for (u32 i = 0; i < 4; ++i)
+				{
+					profile->display_rect[i] = rect[i].as<f32>();
+				}
+				if (profile->display_rect[2] <= 0.f || profile->display_rect[3] <= 0.f)
+				{
+					fail("display_rect: width and height must be positive");
+				}
+			}
+		}
 		if (read(root, "hud_depth", profile->hud_depth, false) && !(profile->hud_depth >= 1.f && profile->hud_depth <= 10.f))
 		{
 			fail("hud_depth must be between 1 and 10 (metres)");
@@ -1132,7 +1150,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "disable_depth_bounds", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "disable_depth_bounds", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -2312,6 +2330,25 @@ namespace rsx::vr
 				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
 				std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
 				std::fabs(rows[2][3]) > eps)
+			{
+				block.release();
+				return false;
+			}
+		}
+
+		// An off-aspect bare projection (God of War's HUD and menus) is screen space whether or not the headset view
+		// is on: on the fixed screen (no view) it is left as drawn, not taken for a camera draw. Counted as one there,
+		// a menu frame went back to the headset view, where the same draws are boxed and count as none, so the pause
+		// and Power Up menus switched between the two every few frames (shown twice, offset).
+		if (output_aspect_match && !m_vr_view && profile.screen_space_offaspect_projection)
+		{
+			constexpr f32 eps = 1e-5f;
+			if (std::fabs(rows[0][1]) < eps && std::fabs(rows[0][2]) < eps && std::fabs(rows[0][3]) < eps &&
+				std::fabs(rows[1][0]) < eps && std::fabs(rows[1][2]) < eps && std::fabs(rows[1][3]) < eps &&
+				std::fabs(rows[2][0]) < eps && std::fabs(rows[2][1]) < eps &&
+				std::fabs(rows[3][0]) < eps && std::fabs(rows[3][1]) < eps && std::fabs(rows[3][3]) < eps &&
+				std::fabs(rows[2][3]) > eps && std::fabs(rows[0][0]) > eps &&
+				std::fabs(std::fabs(rows[1][1] / rows[0][0]) / output_aspect - 1.f) > 0.1f)
 			{
 				block.release();
 				return false;

@@ -9,6 +9,7 @@
   "matrix_layout": "row_vectors",
   "camera_blocks": [256],
   "output_aspect_tolerance": 0.02,
+  "game_camera_programs": ["195bc177eb2f2dcf", "a19c1384b9bb0e02", "a35ef6b214e0c596", "a3eae669aa30c4a7", "b08e63826db6768f", "c760d3b1c5ed1efe", "cdfaf720236b6595", "fc75a2d57cd91a9a"],
 
   "camera_position": {
     "eye_baseline": 3.20128

@@ -375,6 +375,11 @@ namespace rsx::vr
 		// to the light's depth range: in the headset a lit disc went black or gold with the head's pitch, as its pixels
 		// left or entered the range. (Light passes also attenuate in the shader, so the range only saves GPU work.)
 		bool disable_depth_bounds = false;
+		// The part of the displayed frame that holds the game's 3D view, in output pixels (x, y, width, height;
+		// width 0 = the whole frame). The headset is shown only that part, so the view fills the eye. God of War
+		// renders its scene at 1216x684 and insets it in the 1280x720 display with a black border: the world looked
+		// ~5% smaller than the head's rotation, with black edges.
+		std::array<f32, 4> display_rect{};
 		// In stereo, memory copies (NV0039) into a display buffer are skipped. Killzone HD saves each finished frame to
 		// main memory and copies another memory image back into the display buffer; with Read Color Buffers the left
 		// eye was then reloaded from memory at 1x while the host-only right eye kept the scaled frame.

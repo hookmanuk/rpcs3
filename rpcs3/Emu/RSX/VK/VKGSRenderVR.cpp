@@ -3288,7 +3288,21 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 				pose = surface->vr_pose;
 			}
 		}
-		vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose);
+		// Profile display_rect: a 3D frame shows only the part of the display that holds the game's view (God of
+		// War's scene is inset with a black border); frames on the fixed screen show the whole picture.
+		std::array<f32, 4> crop{0.f, 0.f, 1.f, 1.f};
+		if (const auto* profile = rsx::vr::camera_probe::get().profile();
+			profile && profile->display_rect[2] > 0.f && !m_vr_video_on_screen && !g_cfg.video.vr.fixed_screen && vk::xr::projection_mode())
+		{
+			const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+			if (out.width && out.height)
+			{
+				const auto& r = profile->display_rect;
+				crop = {std::clamp(r[0] / out.width, 0.f, 1.f), std::clamp(r[1] / out.height, 0.f, 1.f),
+					std::clamp((r[0] + r[2]) / out.width, 0.f, 1.f), std::clamp((r[1] + r[3]) / out.height, 0.f, 1.f)};
+			}
+		}
+		vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop);
 		if (vr_tracing())
 		{
 			vr_trace_flush_cam();

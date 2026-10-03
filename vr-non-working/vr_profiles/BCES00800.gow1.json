@@ -14,6 +14,7 @@
   "matrix_layout": "row_vectors",
   "camera_blocks": [256],
   "output_aspect_tolerance": 0.02,
+  "display_rect": [32, 18, 1216, 684],
 
   "camera_position": {
     "eye_baseline": 0.864
