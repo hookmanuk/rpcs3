@@ -816,8 +816,6 @@ namespace rsx::vr
 		std::map<u16, std::vector<f64>> bare_scale_a_by_width;
 		std::vector<f64> bare_near_planes;
 		bool bare_projection = false;
-		std::set<u32> bare_screen_blocks; // blocks of bare projections without depth test (screen space)
-		std::set<u32> bare_scene_blocks;  // blocks of depth-tested bare projections (part of the scene)
 		u32 offaspect_bare_draws = 0; // bare projections without depth test and not at the output aspect
 		bool offaspect_projection = false;
 		u32 depth_offset_draws = 0;
@@ -876,7 +874,6 @@ namespace rsx::vr
 				// (WipEout's menu particle cloud) for the fixed box; depth-tested it is part of the
 				// scene and must follow the head like it (Ridge Racer 7's light glows and streaks,
 				// which floated in the HUD box with bare_projection on).
-				(s->depth_test ? bare_scene_blocks : bare_screen_blocks).insert(cam_base);
 				if (!s->depth_test)
 				{
 					bare_projection = true;
@@ -1424,16 +1421,7 @@ namespace rsx::vr
 				entries.push_back("    \"hud_skips_passes\": true");
 			if (hud_box_after_shader)
 				entries.push_back("    \"hud_box_after_shader\": true");
-			// Depth-tested bare projections in other blocks are scene geometry: list only the screen blocks
-			// (WipEout HD: the menu cloud's c[260] is screen space, the in-race glows' c[256] is the scene).
-			if (bare_projection && std::any_of(bare_scene_blocks.begin(), bare_scene_blocks.end(), [&](u32 b) { return !bare_screen_blocks.contains(b); }))
-			{
-				std::string list;
-				for (const u32 b : bare_screen_blocks)
-					list += fmt::format("%s%u", list.empty() ? "" : ", ", b);
-				entries.push_back(fmt::format("    \"bare_projection\": [%s]", list));
-			}
-			else if (bare_projection)
+			if (bare_projection)
 				entries.push_back("    \"bare_projection\": true");
 			if (depth_offset_projection)
 				entries.push_back("    \"depth_offset_projection\": true");
