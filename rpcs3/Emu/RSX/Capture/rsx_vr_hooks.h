@@ -13,6 +13,8 @@
 constexpr u32 RSX_SHADER_CONTROL_VR_MULTIVIEW = 0x00004000;
 // The variants that write the game's own depth per pixel (profile screen_space.hud_exact_depth_programs).
 constexpr u32 RSX_SHADER_CONTROL_VR_EXACT_DEPTH = 0x00002000;
+// The variants that rebuild positions from the depth buffer as the game's camera saw them (profile depth_remap_programs).
+constexpr u32 RSX_SHADER_CONTROL_VR_DEPTH_REMAP = 0x00001000;
 
 struct RSXVertexProgram;
 
@@ -32,15 +34,20 @@ namespace rsx::vr
 	// Multiview stereo is active (rsx_camera_probe.cpp): the shader programs carry RSX_SHADER_CONTROL_VR_MULTIVIEW.
 	bool multiview_active();
 	// rsx::thread::get_current_vertex_program / get_current_fragment_program: sets or clears the fork's program
-	// control bits: RSX_SHADER_CONTROL_VR_MULTIVIEW as multiview_active() says, RSX_SHADER_CONTROL_VR_EXACT_DEPTH as
-	// on_vertex_ucode() decided for the current vertex program.
+	// control bits: RSX_SHADER_CONTROL_VR_MULTIVIEW as multiview_active() says, RSX_SHADER_CONTROL_VR_EXACT_DEPTH and
+	// RSX_SHADER_CONTROL_VR_DEPTH_REMAP as on_vertex_ucode() decided for the current vertex program.
 	void set_vr_program_ctrl(u32& ctrl);
 	// rsx::thread::prefetch_vertex_program, after the ucode is analysed: whether the program is listed in the profile's
-	// screen_space.hud_exact_depth_programs. True when that changed (both programs' control bits then need updating).
+	// screen_space.hud_exact_depth_programs or depth_remap_programs. True when that changed (both programs' control
+	// bits then need updating).
 	bool on_vertex_ucode(const RSXVertexProgram& program);
 	// rsx_camera_probe.cpp: whether any program is listed, and whether this vertex ucode hash is one.
 	bool exact_depth_programs_listed();
 	bool exact_depth_program(u64 vertex_ucode_hash);
+	bool depth_remap_programs_listed();
+	bool depth_remap_program(u64 vertex_ucode_hash);
+	// The current vertex program is one of the profile's depth_remap_programs (its shaders carry RSX_SHADER_CONTROL_VR_DEPTH_REMAP).
+	bool depth_remap_active();
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();

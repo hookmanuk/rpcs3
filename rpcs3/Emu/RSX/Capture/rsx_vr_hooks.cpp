@@ -304,10 +304,11 @@ namespace rsx::reports
 	}
 } // namespace rsx::reports
 
-// RSX_SHADER_CONTROL_VR_MULTIVIEW and RSX_SHADER_CONTROL_VR_EXACT_DEPTH must stay clear of upstream's program control
-// bits (gcm_enums.h) and of each other. After a merge from upstream, add any new RSX_SHADER_CONTROL_* bit here.
-static_assert((RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_EXACT_DEPTH) == 0, "VR fork: the two VR control bits overlap");
-static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
+// The fork's RSX_SHADER_CONTROL_VR_* bits must stay clear of upstream's program control bits (gcm_enums.h) and of each
+// other. After a merge from upstream, add any new RSX_SHADER_CONTROL_* bit here.
+static_assert((RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_EXACT_DEPTH) == 0 && (RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0 &&
+	(RSX_SHADER_CONTROL_VR_EXACT_DEPTH & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0, "VR fork: two VR control bits overlap");
+static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
 													 RSX_SHADER_CONTROL_USED_REGS_MASK | RSX_SHADER_CONTROL_USES_KIL | RSX_SHADER_CONTROL_UNKNOWN0 | RSX_SHADER_CONTROL_UNKNOWN1 |
 													 RSX_SHADER_CONTROL_FLAT_SHADING | RSX_SHADER_CONTROL_ATTRIBUTE_INTERPOLATION | RSX_SHADER_CONTROL_INSTANCED_CONSTANTS |
 													 RSX_SHADER_CONTROL_INTERPRETER_MODEL | RSX_SHADER_CONTROL_8BIT_FRAMEBUFFER | RSX_SHADER_CONTROL_SRGB_FRAMEBUFFER |
@@ -319,15 +320,18 @@ static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DE
 
 namespace rsx::vr
 {
-	// on_vertex_ucode(): the decision for the current vertex program, and the decisions made so far by a cheap ucode
-	// fingerprint (size and the first instructions), so the full hash runs once per program. A collision only gives
-	// another program the exact depth, which equals its normal depth. RSX thread only; cleared on boot.
+	// on_vertex_ucode(): the decisions for the current vertex program, and those made so far by a cheap ucode
+	// fingerprint (size and the first instructions), so the full hash runs once per program (bit 0 exact depth,
+	// bit 1 depth remap). A collision only gives another program the exact depth, which equals its normal depth; a
+	// listed program's fingerprint is confirmed by the full hash each time, as the depth remap changes what a
+	// program reads. RSX thread only; cleared on boot.
 	static bool s_exact_depth = false;
-	static std::unordered_map<u64, bool> s_exact_depth_by_fingerprint;
+	static bool s_depth_remap = false;
+	static std::unordered_map<u64, u8> s_program_bits_by_fingerprint;
 
 	void on_boot()
 	{
-		s_exact_depth_by_fingerprint.clear();
+		s_program_bits_by_fingerprint.clear();
 		rsx::vr::camera_probe::get().reload_profile();
 	}
 
@@ -335,13 +339,19 @@ namespace rsx::vr
 	{
 		ctrl = multiview_active() ? (ctrl | RSX_SHADER_CONTROL_VR_MULTIVIEW) : (ctrl & ~RSX_SHADER_CONTROL_VR_MULTIVIEW);
 		ctrl = s_exact_depth ? (ctrl | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) : (ctrl & ~RSX_SHADER_CONTROL_VR_EXACT_DEPTH);
+		ctrl = s_depth_remap ? (ctrl | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) : (ctrl & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP);
+	}
+
+	bool depth_remap_active()
+	{
+		return s_depth_remap;
 	}
 
 	bool on_vertex_ucode(const RSXVertexProgram& program)
 	{
-		// Only for a profile that lists programs (Gran Turismo 5's menu cards).
-		bool exact = false;
-		if (exact_depth_programs_listed())
+		// Only for a profile that lists programs (Gran Turismo 5's menu cards, Asura's Wrath's shadow mask).
+		u8 bits = 0;
+		if (exact_depth_programs_listed() || depth_remap_programs_listed())
 		{
 			const auto& ucode = program.data;
 			u64 fingerprint = 0xcbf29ce484222325ull ^ ucode.size();
@@ -349,21 +359,31 @@ namespace rsx::vr
 			{
 				fingerprint = (fingerprint ^ ucode[i]) * 0x100000001b3ull;
 			}
-			if (const auto found = s_exact_depth_by_fingerprint.find(fingerprint); found != s_exact_depth_by_fingerprint.end())
+			const auto decide = [&]()
 			{
-				exact = found->second;
+				const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(program);
+				return static_cast<u8>((exact_depth_program(hash) ? 1 : 0) | (depth_remap_program(hash) ? 2 : 0));
+			};
+			if (const auto found = s_program_bits_by_fingerprint.find(fingerprint); found != s_program_bits_by_fingerprint.end())
+			{
+				bits = (found->second & 2) ? decide() : found->second;
 			}
 			else
 			{
-				exact = exact_depth_program(program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(program));
-				if (s_exact_depth_by_fingerprint.size() > 4096)
+				bits = decide();
+				if (s_program_bits_by_fingerprint.size() > 4096)
 				{
-					s_exact_depth_by_fingerprint.clear();
+					s_program_bits_by_fingerprint.clear();
 				}
-				s_exact_depth_by_fingerprint.emplace(fingerprint, exact);
+				s_program_bits_by_fingerprint.emplace(fingerprint, bits);
 			}
 		}
-		return std::exchange(s_exact_depth, exact) != exact;
+		const bool exact = (bits & 1) != 0;
+		const bool remap = (bits & 2) != 0;
+		const bool changed = exact != s_exact_depth || remap != s_depth_remap;
+		s_exact_depth = exact;
+		s_depth_remap = remap;
+		return changed;
 	}
 
 	void on_frame_end(u32 buffer, u32 draw_calls)

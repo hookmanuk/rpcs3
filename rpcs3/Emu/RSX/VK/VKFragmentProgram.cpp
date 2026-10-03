@@ -159,6 +159,7 @@ void VKFragmentDecompilerThread::insertInputs(std::stringstream & OS)
 		vk::get_varying_register_location
 	);
 	vk::vr_insert_exact_depth_fragment_input(OS, m_prog.ctrl); // VR fork: exact depth
+	vk::vr_insert_depth_remap_fragment_input(OS, m_prog.ctrl); // VR fork: depth remap
 }
 
 void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
@@ -540,6 +541,7 @@ void VKFragmentDecompilerThread::insertMainStart(std::stringstream & OS)
 
 		OS << "	const sampler_info texture_parameters_" << i << " = texture_parameters[texture_base_index + " << i << "];\n";
 	}
+	vk::vr_insert_depth_remap_fragment_start(OS, m_prog.ctrl, properties.in_register_mask, properties.redirected_sampler_mask); // VR fork: depth remap
 }
 
 void VKFragmentDecompilerThread::insertMainEnd(std::stringstream & OS)

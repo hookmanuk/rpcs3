@@ -553,7 +553,12 @@ u32 VKGSRender::vr_sampled_textures()
 		if (sampler_state->upload_context == rsx::texture_upload_context::framebuffer_storage)
 		{
 			vk::image* image = sampler_state->image_handle ? sampler_state->image_handle->image() : sampler_state->external_subresource_desc.external_handle;
-			// Depth render targets are fine (soft particles); colour ones mean post-processing.
+			// Depth render targets are fine (soft particles); colour ones mean post-processing. A depth one read as
+			// colour (its 24 bits as RGB) is noted for the profile generator (depth_remap_programs candidates).
+			if (image && !(image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT) && (current_fragment_program.texture_state.redirected_textures & (1u << i)))
+			{
+				kinds |= vr_texture_depth_as_colour;
+			}
 			if (!image || (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
 			{
 				// With hud_display_buffers_only, a pass reads the scene, a displayed frame or a
@@ -1067,7 +1072,8 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 		t0 = t;
 	};
 	static thread_local std::vector<u8> scratch;
-	scratch.resize(size);
+	const usz remap_size = vr_depth_remap_size(); // profile depth_remap_programs: the eye's depth remap follows the constants
+	scratch.resize(size + remap_size);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
 	// Ordinary stores, as fill_vertex_program_constants_data would but without its non-temporal (streaming)
 	// stores, which suit the write-combined ring: the camera classification reads this buffer right back,
@@ -1117,16 +1123,17 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 														   m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
+	vr_write_depth_remap(scratch.data() + size, remap_size, true);
 	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
-	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(size, alignment));
-	void* destination = m_transform_constants_ring_info.map(allocation, size);
-	std::memcpy(destination, scratch.data(), size);
+	const u64 allocation = m_transform_constants_allocator->alloc_bytes(utils::align(size + remap_size, alignment));
+	void* destination = m_transform_constants_ring_info.map(allocation, size + remap_size);
+	std::memcpy(destination, scratch.data(), size + remap_size);
 	m_transform_constants_ring_info.unmap();
 
 	m_xform_constants_dynamic_offset = allocation;
-	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, size,
+	m_vertex_constants_buffer_info = m_transform_constants_ring_info.window<16>(allocation, size + remap_size,
 		m_device->gpu().get_limits().maxUniformBufferRange);
 	m_xform_constants_dynamic_offset -= m_vertex_constants_buffer_info.offset;
 	m_program->bind_uniform(m_vertex_constants_buffer_info, vk::glsl::binding_set_index_vertex,
@@ -2778,6 +2785,26 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 	std::memset(buf + 88, 0, 8);                         // reserved0, reserved1
 }
 
+usz VKGSRender::vr_depth_remap_size() const
+{
+	// The compiled shaders read it (vk::vr_insert_depth_remap_vertex_end); the interpreter does not.
+	return (current_vertex_program.ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 64 : 0;
+}
+
+void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye)
+{
+	if (!size)
+	{
+		return;
+	}
+	f32 m[4][4] = {{1.f, 0.f, 0.f, 0.f}, {0.f, 1.f, 0.f, 0.f}, {0.f, 0.f, 1.f, 0.f}, {0.f, 0.f, 0.f, 1.f}};
+	if (eye)
+	{
+		rsx::vr::camera_probe::get().depth_remap_matrix(m);
+	}
+	std::memcpy(dst, m, sizeof(m));
+}
+
 // prepare_rtts(): surfaces the game reads back (see below) are copied as soon as they are left. The right eye's
 // batch for the pass runs when the left pass ends, so a copy recorded after it made each read wait for
 // the right eye's work too. When a listed section is about to be copied, end the left pass without
@@ -3466,7 +3493,8 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		t0 = t;
 	};
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
-	const usz stride = utils::align(size, alignment);
+	const usz remap_size = vr_depth_remap_size(); // profile depth_remap_programs: each eye's depth remap follows its constants
+	const usz stride = utils::align(size + remap_size, alignment);
 	static thread_local std::vector<u8> scratch;
 	scratch.resize(stride * 2);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
@@ -3492,6 +3520,8 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 	}
 	scale_offset_constants(scratch.data(), constant_ids);
 	std::memcpy(scratch.data() + stride, scratch.data(), size);
+	vr_write_depth_remap(scratch.data() + size, remap_size, false);
+	vr_write_depth_remap(scratch.data() + stride + size, remap_size, false);
 	lap(0);
 
 	const u16* reloc = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
@@ -3523,9 +3553,11 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		static thread_local std::vector<u8> pristine;
 		pristine.assign(scratch.begin(), scratch.begin() + size);
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
+		vr_write_depth_remap(scratch.data() + size, remap_size, true);
 		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 		probe.clear_box_mapped();
 		const bool right_world = probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
+		vr_write_depth_remap(scratch.data() + stride + size, remap_size, true);
 		bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		if (right_world != classified_world)
 		{
@@ -3538,10 +3570,12 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 			std::memcpy(scratch.data(), pristine.data(), size);
 			probe.clear_box_mapped();
 			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
+			vr_write_depth_remap(scratch.data() + size, remap_size, true);
 			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 			probe.clear_box_mapped();
 			std::memcpy(scratch.data() + stride, pristine.data(), size);
 			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
+			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true);
 			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		}
 		if (!left_box)

@@ -919,6 +919,18 @@ namespace rsx::vr
 				profile->game_camera_programs.push_back(hash);
 			}
 		}
+		if (const YAML::Node programs = child(root, "depth_remap_programs"); programs && programs.IsSequence())
+		{
+			for (const auto& program : programs)
+			{
+				const std::string text = program.as<std::string>();
+				char* end = nullptr;
+				const u64 hash = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end)
+					fail("depth_remap_programs: '" + text + "' is not a hex program hash");
+				profile->depth_remap_programs.push_back(hash);
+			}
+		}
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
@@ -1116,7 +1128,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -1182,6 +1194,23 @@ namespace rsx::vr
 			return false;
 		}
 		const auto& list = profile->screen_space_hud_exact_depth_programs;
+		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
+	}
+
+	bool depth_remap_programs_listed()
+	{
+		const auto* profile = camera_probe::get().profile();
+		return profile && !profile->depth_remap_programs.empty();
+	}
+
+	bool depth_remap_program(u64 vertex_ucode_hash)
+	{
+		const auto* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return false;
+		}
+		const auto& list = profile->depth_remap_programs;
 		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
 	}
 
@@ -2450,6 +2479,10 @@ namespace rsx::vr
 	void camera_probe::apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
 		const f32 (&game)[4][4], f32* const rows[4]) const
 	{
+		if (rsx::vr::depth_remap_active())
+		{
+			store_depth_remap(game, rows);
+		}
 		if (profile.linked_camera_blocks.empty() && !profile.camera_palette_last)
 		{
 			return;
@@ -3023,6 +3056,92 @@ namespace rsx::vr
 			}
 		}
 		m_vr_last_block_valid[eye] = true;
+	}
+
+	void camera_probe::store_depth_remap(const f32 (&game)[4][4], f32* const rows[4]) const
+	{
+		// Row vectors (clip = v * M): the game's clip position of the point an eye drew at clip e is
+		// e * T, T = eye^-1 * game. The depth buffer holds window depth d = z / w * sz + oz (the viewport's
+		// z scale and offset), so in (NDC x, NDC y, d, 1) the map is V^-1 * T * V, V: z' = z * sz + w * oz.
+		const f64 sz = rsx::method_registers.viewport_scale_z();
+		const f64 oz = rsx::method_registers.viewport_offset_z();
+		if (std::fabs(sz) < 1e-9)
+		{
+			return;
+		}
+		f64 a[4][8];
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				a[r][c] = rows[r][c];
+				a[r][c + 4] = r == c ? 1.0 : 0.0;
+			}
+		}
+		for (u32 c = 0; c < 4; ++c)
+		{
+			u32 pivot = c;
+			for (u32 r = c + 1; r < 4; ++r)
+			{
+				if (std::fabs(a[r][c]) > std::fabs(a[pivot][c]))
+					pivot = r;
+			}
+			if (std::fabs(a[pivot][c]) < 1e-12)
+			{
+				return;
+			}
+			if (pivot != c)
+			{
+				for (u32 k = 0; k < 8; ++k)
+					std::swap(a[c][k], a[pivot][k]);
+			}
+			const f64 inv = 1.0 / a[c][c];
+			for (u32 k = 0; k < 8; ++k)
+				a[c][k] *= inv;
+			for (u32 r = 0; r < 4; ++r)
+			{
+				if (r == c || a[r][c] == 0.0)
+					continue;
+				const f64 f = a[r][c];
+				for (u32 k = 0; k < 8; ++k)
+					a[r][k] -= f * a[c][k];
+			}
+		}
+		f64 t[4][4];
+		for (u32 r = 0; r < 4; ++r)
+		{
+			for (u32 c = 0; c < 4; ++c)
+			{
+				f64 sum = 0.0;
+				for (u32 k = 0; k < 4; ++k)
+					sum += a[r][k + 4] * game[k][c];
+				t[r][c] = sum;
+			}
+		}
+		// V^-1 * T: row 2 / sz, row 3 - oz / sz * row 2; then * V on each row: z' = z * sz + w * oz.
+		for (u32 c = 0; c < 4; ++c)
+		{
+			t[3][c] -= oz / sz * t[2][c];
+			t[2][c] /= sz;
+		}
+		for (u32 r = 0; r < 4; ++r)
+		{
+			m_depth_remap[r][0] = static_cast<f32>(t[r][0]);
+			m_depth_remap[r][1] = static_cast<f32>(t[r][1]);
+			m_depth_remap[r][2] = static_cast<f32>(t[r][2] * sz + t[r][3] * oz);
+			m_depth_remap[r][3] = static_cast<f32>(t[r][3]);
+		}
+		m_depth_remap_valid = true;
+	}
+
+	bool camera_probe::depth_remap_matrix(f32 (&out)[4][4]) const
+	{
+		if (!m_depth_remap_valid)
+		{
+			return false;
+		}
+		std::memcpy(out, m_depth_remap, sizeof(out));
+		return true;
 	}
 
 	bool camera_probe::map_vr_preprojected(f32 m[4][4], f32 eye_sign, u64 program_hash) const

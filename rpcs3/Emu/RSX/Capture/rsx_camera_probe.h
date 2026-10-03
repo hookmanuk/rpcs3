@@ -163,6 +163,14 @@ namespace rsx::vr
 		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn
 		// without colour). Probe gamecam= tries candidates live.
 		std::vector<u64> game_camera_programs;
+		// Vertex program ucode hashes of deferred passes whose fragment program rebuilds positions from a depth buffer
+		// through the game's camera, with fragment constants the head transform never reaches. In the headset the depth
+		// and screen position are the eye's, so the fragment shader maps them to the game's (the eye's camera block
+		// transform undone) before the program reads them (RSX_SHADER_CONTROL_VR_DEPTH_REMAP). The program's lowest
+		// texture coordinate must carry its clip position, and the depth be its lowest depth texture read as colour.
+		// Asura's Wrath: the characters' shadows are a screen-space mask (07d7202eb4af1d79) projecting the scene depth
+		// into each character's shadow map; in the headset the shadows slid across the characters as the head turned.
+		std::vector<u64> depth_remap_programs;
 		f32 output_aspect_tolerance = 0.f; // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
@@ -634,6 +642,7 @@ namespace rsx::vr
 		void clear_box_mapped() const
 		{
 			m_box_mapped = false;
+			m_depth_remap_valid = false;
 		}
 		// The draw just bound (since clear_box_mapped) was mapped into the HUD box through its constants.
 		bool box_mapped() const
@@ -641,6 +650,10 @@ namespace rsx::vr
 			return m_box_mapped;
 		}
 		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const;
+		// Profile depth_remap_programs: for the draw just bound (since clear_box_mapped), the matrix taking the eye's
+		// (NDC x, NDC y, window depth, 1) to the game's, homogeneous (row vector times matrix: 4 rows). False when no
+		// camera block of the draw took an eye transform (the identity then applies).
+		bool depth_remap_matrix(f32 (&out)[4][4]) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
 		bool scene_draws_by_clip_space() const;
 
@@ -821,6 +834,10 @@ namespace rsx::vr
 		mutable f32 m_vr_last_eye_block[2][4][4]{};
 		mutable bool m_vr_last_block_valid[2]{};
 		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
+		// The draw's depth remap matrix (see depth_remap_matrix), from its camera block as the game wrote it and as drawn for the eye.
+		mutable f32 m_depth_remap[4][4]{};
+		mutable bool m_depth_remap_valid = false;
+		void store_depth_remap(const f32 (&game)[4][4], f32* const rows[4]) const;
 		void apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
 			const f32 (&game)[4][4], f32* const rows[4]) const;
 

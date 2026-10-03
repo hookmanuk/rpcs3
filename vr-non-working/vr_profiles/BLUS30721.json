@@ -12,6 +12,7 @@
   "camera_slots_read_directly": true,
   "game_camera_aspects": [1.7647],
   "output_aspect_tolerance": 0.02,
+  "depth_remap_programs": ["07d7202eb4af1d79"],
 
   "camera_position": {
     "slot": 4,

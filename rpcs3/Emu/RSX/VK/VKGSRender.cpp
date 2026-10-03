@@ -2274,7 +2274,7 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 	m_xform_constants_data_size = transform_constants_size; // VR fork: bind_vr_eye_constants clones this allocation per eye
 	if (transform_constants_size)
 	{
-		buffer.reserve(transform_constants_size);
+		buffer.reserve(transform_constants_size + vr_depth_remap_size()); // VR fork: room for the depth remap matrix
 		auto buf = buffer.data();
 
 		const auto constant_ids = (transform_constants_size == 8192)
@@ -2282,6 +2282,7 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 			: std::span<const u16>(m_vertex_prog->constant_ids);
 		m_draw_processor.fill_vertex_program_constants_data(buf, constant_ids);
 		scale_offset_constants(buf, constant_ids); // VR fork: profile resolution_scaled_constants
+		vr_write_depth_remap(static_cast<u8*>(buf) + transform_constants_size, vr_depth_remap_size(), false); // VR fork: the identity
 	}
 }
 

@@ -95,6 +95,17 @@ namespace vk
 	void vr_insert_exact_depth_fragment_input(std::ostream& OS, u32 ctrl);
 	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl);
 
+	// Depth remap (RSX_SHADER_CONTROL_VR_DEPTH_REMAP, profile depth_remap_programs): the vertex shader passes the
+	// eye-to-game matrix that follows the program's vertex constants (constant_slots: the slots the CPU fills, 512 for
+	// a full bank) to the fragment shader. At the start of fs_main, the fragment shader reads the eye's depth at its
+	// pixel and maps it, with the screen position of its lowest texture coordinate (the pass's clip position), to the
+	// game's: the program then reads the game's position from that coordinate and the game's depth from its lowest
+	// depth texture read as colour (in_register_mask: the decompiler's inputs read, bit 4 tc0; depth_mask: those textures).
+	void vr_insert_depth_remap_vertex_output(std::ostream& OS, u32 ctrl);
+	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots);
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl);
+	void vr_insert_depth_remap_fragment_start(std::ostream& OS, u32 ctrl, u32 in_register_mask, u32 depth_mask);
+
 	// Shader interpreter (VKShaderInterpreter.cpp), with COMPILER_OPT_VR_MULTIVIEW in compiler_options.
 	void vr_insert_interpreter_vertex(std::ostream& OS, const std::string& vertex_interpreter, bool viewport_index);
 	void vr_insert_interpreter_fragment_extensions(std::ostream& OS, u64 compiler_options);

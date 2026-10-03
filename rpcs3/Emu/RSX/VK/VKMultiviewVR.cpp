@@ -12,7 +12,9 @@
 #include "Emu/RSX/Program/ShaderInterpreter.h"
 #include "Emu/RSX/Program/ShaderParam.h"
 #include "Utilities/StrFmt.h"
+#include "Emu/RSX/gcm_enums.h" // RSX_SHADER_CONTROL_INSTANCED_CONSTANTS
 
+#include <bit>
 #include <type_traits>
 
 // VR fork: multiview stereo, the bodies of the hooks in upstream's Vulkan files (see VKMultiviewVR.h), and the
@@ -275,8 +277,9 @@ namespace vk
 		}
 	}
 
-	// The varying after the RSX's (locations 0-15)
+	// The varyings after the RSX's (locations 0-15): exact depth, then the depth remap's 4 (17 to 20)
 	static constexpr int vr_exact_depth_location = 16;
+	static constexpr int vr_depth_remap_location = 17;
 
 	void vr_insert_exact_depth_vertex_output(std::ostream& OS, u32 ctrl)
 	{
@@ -302,6 +305,72 @@ namespace vk
 		OS << (unrestricted ? "		vr_exact_depth = vec2((z_near + vr_d * (z_far - z_near)) * vr_pre_xform.w, vr_pre_xform.w);\n"
 		                    : "		vr_exact_depth = vec2(vr_d * vr_pre_xform.w, vr_pre_xform.w);\n");
 		OS << "	}\n";
+	}
+
+	void vr_insert_depth_remap_vertex_output(std::ostream& OS, u32 ctrl)
+	{
+		if (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP)
+		{
+			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[4];\n";
+		}
+	}
+
+	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots)
+	{
+		if (!(ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP))
+		{
+			return;
+		}
+		// Instanced constants come from another buffer, without the matrix: the identity (the game's own reconstruction).
+		if (ctrl & RSX_SHADER_CONTROL_INSTANCED_CONSTANTS)
+		{
+			OS << "	vr_depth_remap = vec4[4](vec4(1., 0., 0., 0.), vec4(0., 1., 0., 0.), vec4(0., 0., 1., 0.), vec4(0., 0., 0., 1.));\n";
+			return;
+		}
+		OS << "	for (uint vr_i = 0; vr_i < 4; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
+	}
+
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl)
+	{
+		if (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP)
+		{
+			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[4]; // VR fork\n";
+		}
+	}
+
+	void vr_insert_depth_remap_fragment_start(std::ostream& OS, u32 ctrl, u32 in_register_mask, u32 depth_mask)
+	{
+		const u32 tc_mask = (in_register_mask >> 4) & 0x3ff; // FragmentProgramDecompiler's in_tc0 (bit 4) to in_tc9
+		if (!(ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) || !tc_mask || !depth_mask)
+		{
+			return;
+		}
+		const std::string tc = "tc" + std::to_string(std::countr_zero(tc_mask));
+		const std::string unit = std::to_string(std::countr_zero(depth_mask));
+		// The eye's (NDC x, NDC y, window depth) at this pixel, times the matrix: the game's, homogeneous. The texture
+		// coordinate holds the pass's clip position (the eye's: the camera block took the eye transform), and the
+		// depth texture is the pass's depth buffer, the size of its render target.
+		OS << "\n	// VR fork: depth remap (profile depth_remap_programs), before the program reads its position and depth\n";
+		OS << "	vec4 vr_remap_position;\n";
+		OS << "	vec2 vr_remap_zs;\n";
+		OS << "	{\n";
+		OS << "#ifdef _VR_MULTIVIEW\n";
+		OS << "		const ivec3 vr_px = ivec3(ivec2(gl_FragCoord.xy), gl_ViewIndex);\n";
+		OS << "#else\n";
+		OS << "		const ivec2 vr_px = ivec2(gl_FragCoord.xy);\n";
+		OS << "#endif\n";
+		OS << "		const float vr_w = " << tc << ".w != 0. ? " << tc << ".w : 1.;\n";
+		OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+		OS << "		vr_remap_position = vr_eye.x * vr_depth_remap[0] + vr_eye.y * vr_depth_remap[1] + vr_eye.z * vr_depth_remap[2] + vr_depth_remap[3];\n";
+		OS << "		vr_remap_zs = vec2(vr_remap_position.w != 0. ? clamp(vr_remap_position.z / vr_remap_position.w, 0., 1.) : vr_eye.z, float(texelFetch(tex" << unit << "_stencil, vr_px, 0).x));\n";
+		OS << "	}\n";
+		OS << "#define " << tc << " vr_remap_position\n";
+		OS << "#undef TEX2D_Z24X8_RGBA8\n";
+		OS << "#ifdef _VR_MULTIVIEW\n";
+		OS << "#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8((index == " << unit << ") ? vr_remap_zs : ZS_READ2D(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))\n";
+		OS << "#else\n";
+		OS << "#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8((index == " << unit << ") ? vr_remap_zs : ZS_READ(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))\n";
+		OS << "#endif\n\n";
 	}
 
 	void vr_insert_exact_depth_fragment_input(std::ostream& OS, u32 ctrl)

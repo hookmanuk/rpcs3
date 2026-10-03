@@ -328,6 +328,7 @@ void VKVertexDecompilerThread::insertOutputs(std::stringstream& OS, const std::v
 		OS << "layout(location=" << vk::get_varying_register_location("usr") << ") out flat uvec4 draw_params_payload;\n";
 	}
 	vk::vr_insert_exact_depth_vertex_output(OS, m_prog.ctrl); // VR fork: exact depth
+	vk::vr_insert_depth_remap_vertex_output(OS, m_prog.ctrl); // VR fork: depth remap
 }
 
 void VKVertexDecompilerThread::insertFSExport(std::stringstream& OS)
@@ -490,6 +491,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z *= gl_Position.w / vr_pre_xform.w;\n";
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
 	vk::vr_insert_exact_depth_vertex_end(OS, m_prog.ctrl); // VR fork: exact depth
+	vk::vr_insert_depth_remap_vertex_end(OS, m_prog.ctrl, properties.has_indexed_constants ? 512 : ::size32(m_constant_ids)); // VR fork: depth remap
 	OS << "}\n";
 }
 

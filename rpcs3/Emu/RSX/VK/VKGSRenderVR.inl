@@ -50,7 +50,8 @@
 	{
 		vr_texture_ordinary = 1,
 		vr_texture_colour_target = 2,
-		vr_texture_view_target = 4
+		vr_texture_view_target = 4,
+		vr_texture_depth_as_colour = 8 // a depth render target read as colour (a pass rebuilding positions from it)
 	};
 	u32 vr_sampled_textures();
 	bool vr_unboxed_draw();
@@ -366,6 +367,11 @@
 	void vr_apply_fragment_constant_overrides(const std::vector<const rsx::vr::fragment_constant_override*>* overrides, void* buf, usz size);
 	// Bytes 64 to 96 of the vertex context, after its matrix (shared by load_program_env and vr_hud_vertex_env).
 	void fill_vertex_env_tail(char* buf, f32 vr_keep_depth);
+	// Profile depth_remap_programs: the bytes of the eye-to-game depth remap matrix that follow the current program's
+	// vertex constants (64 for a listed program's compiled shaders, else 0), and their fill: the eye's, as the probe
+	// recorded it for the eye just transformed, or the identity (eye false, or no camera block transformed).
+	usz vr_depth_remap_size() const;
+	static void vr_write_depth_remap(void* dst, usz size, bool eye);
 
 	// prepare_rtts()
 	bool vr_before_prepare_rtts(); // early readback copies; true if any was recorded

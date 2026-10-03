@@ -47,7 +47,7 @@ namespace rsx::vr
 		constexpr f64 min_scene_coverage = 0.8;     // below: clip_space_scene_draws
 
 		// As VKGSRender's kinds: texture_view_target marks a view-shaped colour target (not a small mask or atlas).
-		constexpr u8 texture_ordinary = 1, texture_colour_target = 2, texture_view_target = 4;
+		constexpr u8 texture_ordinary = 1, texture_colour_target = 2, texture_view_target = 4, texture_depth_as_colour = 8;
 
 		// A 4-slot block as DP4 rows: clip[i] = dot(row_i, (v, 1)).
 		using mat4 = std::array<std::array<f64, 4>, 4>;
@@ -827,6 +827,7 @@ namespace rsx::vr
 		u32 covered_draws = 0;
 		std::map<u32, u32> bound_blocks;        // camera block -> draws that bind it (the first listed block a draw reads)
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
+		std::map<u64, u32> depth_reading_programs; // camera draws reading a depth buffer as colour, by vertex ucode
 		for (const draw_sample* s : views)
 		{
 			const slot_reader r{s->ids, s->values, s->full_bank};
@@ -855,6 +856,10 @@ namespace rsx::vr
 			prog.first++;
 			covered_draws++;
 			bound_blocks[cam_base]++;
+			if (s->textures & texture_depth_as_colour)
+			{
+				depth_reading_programs[s->ucode]++;
+			}
 
 			if (is_depth_offset_projection(cam->m))
 			{
@@ -1391,6 +1396,12 @@ namespace rsx::vr
 		if (depth_offset_projection)
 		{
 			vr_gen_log.notice("%u camera draws are camera-space geometry at a fixed depth (a 3D HUD): depth_offset_projection.", depth_offset_draws);
+		}
+		// Not written: the remap holds only when the program's lowest texture coordinate carries its clip position.
+		for (const auto& [ucode, count] : depth_reading_programs)
+		{
+			vr_gen_log.notice("Program %016llx: %u camera draws read the depth buffer as colour (a deferred pass rebuilding positions from it). "
+				"If its lighting or shadows slide over the scene as the head turns, list it in depth_remap_programs (Asura's Wrath).", ucode, count);
 		}
 		if (hud_block != umax || bare_projection || depth_offset_projection || offaspect_projection || passthrough_hud)
 		{
