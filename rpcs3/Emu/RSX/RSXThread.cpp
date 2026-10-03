@@ -1159,7 +1159,7 @@ namespace rsx
 
 		if (serialized)
 		{
-			fifo_ctrl->restore_state(restore_fifo_cmd, restore_fifo_count, restore_fifo_position);
+			fifo_ctrl->restore_state(restore_fifo_cmd, restore_fifo_count, restore_fifo_position + (restore_fifo_count ? 0 : 4)); // VR fork: saved between commands, the position is the next command's (restore_state steps back 4 only to resume one)
 		}
 
 		if (!send_event(0, event_flags, 0))
