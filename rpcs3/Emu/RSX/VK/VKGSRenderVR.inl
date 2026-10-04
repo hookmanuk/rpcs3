@@ -225,6 +225,7 @@
 	std::vector<utils::address_range32> m_vr_readback_ranges;
 	// VR: colour targets fully covered this frame (a pass or a full clear); see vr_clear_shown in emit_geometry.
 	std::vector<u32> m_vr_frame_covered;
+	std::unordered_map<const void*, u64> m_vr_layer_synced; // multiview: eye-invariant targets, the write tag their layer 1 last copied
 	std::unique_ptr<vk::image> m_xr_overlay_img;                                    // RPCS3 overlays for the OpenXR quad layer
 	std::unordered_map<u64, std::unique_ptr<vk::viewable_image>> m_vr_warp_scratch; // realign warp targets, by format and size
 	bool bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz source_size);
@@ -321,6 +322,7 @@
 
 	// bind_texture_env()
 	vk::image_view* vr_fragment_texture_view(u32 index, vk::texture_cache::sampled_image_descriptor* sampler_state, bool vr_right_eye);
+	bool vr_eye_invariant_target(const vk::render_target* rtt) const; // an off-aspect colour target without 3D content: the left image serves both eyes
 	vk::image_view* vr_vertex_texture_view(u32 index, vk::texture_cache::sampled_image_descriptor* sampler_state, vk::image_view* image_ptr);
 
 	// load_texture_env(): profile texture_redirects

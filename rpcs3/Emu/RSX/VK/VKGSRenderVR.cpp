@@ -10,6 +10,7 @@
 #include "VKOpenXR.h"
 #include "VKOverlaysVR.h"
 #include "VKHelpers.h"
+#include "VKMultiviewVR.h"
 #include "VKRenderPass.h"
 #include "VKResourceManager.h"
 #include "vkutils/buffer_object.h"
@@ -2247,6 +2248,25 @@ void VKGSRender::vr_end_draw()
 	}
 }
 
+// An off-aspect colour target that no camera draw reached (directly or through a texture) holds the same image in
+// both eyes: a shadow map drawn from the light. The right eye samples the left eye's surface instead of its own copy,
+// which the right-eye cache can evict and rebuild out of date (SEGA Rally Revo: the 912x912 shadow map's right copy
+// went missing for frames and came back with older casters, so shadows appeared and vanished in one eye at a time).
+// View-shaped targets (a HUD layer, a pass at the view's shape) and depth surfaces keep their per-eye copies.
+bool VKGSRender::vr_eye_invariant_target(const vk::render_target* rtt) const
+{
+	// Dev: RPCS3_VR_NO_INVARIANT=1 keeps the per-eye copies (A/B).
+	static const bool s_off = std::getenv("RPCS3_VR_NO_INVARIANT") != nullptr;
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (s_off || !profile || profile->offaspect_player_views || rtt->vr_has_3d || !(rtt->aspect() & VK_IMAGE_ASPECT_COLOR_BIT))
+	{
+		return false;
+	}
+	const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
+	const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
+	return !profile->is_view_target(rtt->get_surface_width<rsx::surface_metrics::pixels>(), rtt->get_surface_height<rsx::surface_metrics::pixels>(), output_aspect);
+}
+
 // bind_texture_env(): the view a fragment sampler reads. For the left eye this is the ordinary
 // cache's image_handle. Gate 5 render-target feedback: the ordinary texture cache resolves
 // guest addresses to the authoritative left-eye surface. During the right replay, substitute
@@ -2299,6 +2319,21 @@ vk::image_view* VKGSRender::vr_fragment_texture_view(u32 i, vk::texture_cache::s
 		if (profile && dummy)
 		{
 			shared_copy = desc.external_handle != nullptr;
+		}
+		else if (const auto invariant_source = [&](vk::image* src)
+					 {
+						 const auto* rtt = dynamic_cast<const vk::render_target*>(src);
+						 return rtt && vr_eye_invariant_target(rtt);
+					 };
+				 profile && (desc.external_handle || !desc.sections_to_copy.empty()) &&
+				 (!desc.external_handle || invariant_source(desc.external_handle)) &&
+				 std::all_of(desc.sections_to_copy.begin(), desc.sections_to_copy.end(), [&](const auto& section)
+					 {
+						 return !section.src || invariant_source(section.src);
+					 }))
+		{
+			// A copy (format conversion) of eye-invariant targets: SEGA Rally Revo reads its shadow map this way.
+			shared_copy = true;
 		}
 		else if (profile && (cubemap || atlas || mipmaps))
 		{
@@ -2363,6 +2398,10 @@ vk::image_view* VKGSRender::vr_fragment_texture_view(u32 i, vk::texture_cache::s
 			}
 			view = m_texture_cache.create_temporary_subresource(*m_current_command_buffer, desc);
 		}
+	}
+	else if (left_rtt && vr_eye_invariant_target(left_rtt))
+	{
+		// The left eye's image serves both eyes (see vr_eye_invariant_target).
 	}
 	else if (left_rtt)
 	{
@@ -2450,6 +2489,52 @@ void VKGSRender::vr_restore_texture(u32 i, const vr_texture_redirect& redirect)
 	{
 		rsx::method_registers.registers[NV4097_SET_TEXTURE_OFFSET + i * 8] = redirect.saved[0];
 		rsx::method_registers.registers[NV4097_SET_TEXTURE_FORMAT + i * 8] = redirect.saved[1];
+	}
+
+	// Multiview: an eye-invariant target (see vr_eye_invariant_target) is sampled at the eye's layer like any other.
+	// Its layer 1 can fall behind layer 0 (SEGA Rally Revo's shadow map: shadows in one eye only, coming and going), so
+	// after each write it takes a copy of layer 0 before it is read.
+	auto* sampler_state = static_cast<vk::texture_cache::sampled_image_descriptor*>(fs_sampler_state[i].get());
+	if (!m_vr_multiview || !sampler_state || sampler_state->upload_context != rsx::texture_upload_context::framebuffer_storage ||
+		!rsx::vr::camera_probe::get().render_enabled())
+	{
+		return;
+	}
+	const auto sync = [&](vk::image* image)
+	{
+		auto* rtt = dynamic_cast<vk::render_target*>(image);
+		if (!rtt || !rtt->stereo_layers || rtt->layers() < 2 || rtt->samples() > 1 || !vr_eye_invariant_target(rtt))
+		{
+			return;
+		}
+		auto [it, added] = m_vr_layer_synced.try_emplace(rtt, 0);
+		if (!added && it->second == rtt->last_use_tag)
+		{
+			return;
+		}
+		it->second = rtt->last_use_tag;
+		if (vk::is_renderpass_open(*m_current_command_buffer))
+		{
+			vk::end_renderpass(*m_current_command_buffer);
+		}
+		vk::vr_copy_left_to_right_layer(*m_current_command_buffer, rtt);
+	};
+	if (sampler_state->image_handle)
+	{
+		sync(sampler_state->image_handle->image());
+		return;
+	}
+	const auto& desc = sampler_state->external_subresource_desc;
+	if (desc.external_handle)
+	{
+		sync(desc.external_handle);
+	}
+	for (const auto& section : desc.sections_to_copy)
+	{
+		if (section.src)
+		{
+			sync(section.src);
+		}
 	}
 }
 
