@@ -15,3 +15,35 @@ PPU-ec112cfa3c2dae2ea6295d0e091bed942d550ff7:
       - [ be32, 0x0003daf0, 0x60840000 ] # ori r4, r4, 0
       - [ be32, 0x0003d598, 0x3f100000 ] # letterbox table {0.475, 0.5625} (0x3d5a0): letterbox entry = 0.5625
       - [ be32, 0x0003d5f0, 0x3f100000 ] # second table (0x3d6d0), same
+
+  "Wider view (VR culling)":
+    Games:
+      "Dragon's Dogma: Dark Arisen":
+        BLUS31155: [ 01.02 ]
+    Author: "VR fork"
+    Notes: "Widens the camera's field of view (55 degrees high) by the chosen scale, up to 150 degrees, where the camera builds its projection (0x536de8, the camera's field of view in degrees at +0x3c). The game culls the world against this frustum, so the scenery, sky and characters the headset shows beyond the game's own view are no longer missing when the head turns. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x1681500)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 2.0
+        Allowed Values:
+          "1.0 (off: 55 degrees high)": 1.0
+          "1.5 (82 degrees)": 1.5
+          "2.0 (110 degrees, recommended)": 2.0
+          "2.5 (137 degrees)": 2.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00536de8, 0x4914a719 ] # bl 0x1681500 (was lfs f5, 0x3c(r31): the field of view, degrees)
+      # min(field of view x Scale, 150 degrees); f1-f3 are live, so only r12, f0 and f13 are used
+      - [ be32, 0x01681500, 0xc0bf003c ] # lfs f5, 0x3c(r31)
+      - [ be32, 0x01681504, 0x3d800168 ] # lis r12, 0x168
+      - [ be32, 0x01681508, 0xc00c1540 ] # lfs f0, 0x1540(r12)   Scale
+      - [ be32, 0x0168150c, 0xeca50032 ] # fmuls f5, f5, f0
+      - [ be32, 0x01681510, 0xc00c1544 ] # lfs f0, 0x1544(r12)   maximum
+      - [ be32, 0x01681514, 0xeda50028 ] # fsubs f13, f5, f0
+      - [ be32, 0x01681518, 0xfcad282e ] # fsel f5, f13, f0, f5
+      - [ be32, 0x0168151c, 0x4e800020 ] # blr
+      - [ bef32, 0x01681540, "Scale" ]
+      - [ bef32, 0x01681544, 150.0 ]     # degrees
