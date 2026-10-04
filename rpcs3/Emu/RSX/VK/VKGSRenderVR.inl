@@ -373,7 +373,7 @@
 	// vertex constants (64 for a listed program's compiled shaders, else 0), and their fill: the eye's, as the probe
 	// recorded it for the eye just transformed, or the identity (eye false, or no camera block transformed).
 	usz vr_depth_remap_size() const;
-	static void vr_write_depth_remap(void* dst, usz size, bool eye);
+	void vr_write_depth_remap(void* dst, usz size, bool eye) const;
 
 	// prepare_rtts()
 	bool vr_before_prepare_rtts(); // early readback copies; true if any was recorded

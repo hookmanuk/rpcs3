@@ -2902,21 +2902,35 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 usz VKGSRender::vr_depth_remap_size() const
 {
 	// The compiled shaders read it (vk::vr_insert_depth_remap_vertex_end); the interpreter does not.
-	return (current_vertex_program.ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 64 : 0;
+	return (current_vertex_program.ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 80 : 0;
 }
 
-void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye)
+void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye) const
 {
 	if (!size)
 	{
 		return;
 	}
-	f32 m[4][4] = {{1.f, 0.f, 0.f, 0.f}, {0.f, 1.f, 0.f, 0.f}, {0.f, 0.f, 1.f, 0.f}, {0.f, 0.f, 0.f, 1.f}};
-	if (eye)
+	// The matrix, then (1 / the game projection's x scale, 1 / its y scale, the render target's host width, height): the
+	// ray variant (profile depth_remap_ray_texcoord) builds the game camera's ray from the remapped position and reads
+	// the depth texel under the pixel at the depth texture's own size. Zero scales = no eye transform (keep the game's ray).
+	f32 m[5][4] = {{1.f, 0.f, 0.f, 0.f}, {0.f, 1.f, 0.f, 0.f}, {0.f, 0.f, 1.f, 0.f}, {0.f, 0.f, 0.f, 1.f}, {}};
+	f32 px = 0.f, py = 0.f;
+	if (eye && rsx::vr::camera_probe::get().depth_remap_matrix(reinterpret_cast<f32(&)[4][4]>(m)) &&
+		rsx::vr::camera_probe::get().game_projection_scale(px, py))
 	{
-		rsx::vr::camera_probe::get().depth_remap_matrix(m);
+		// Dev: RPCS3_VR_REMAP_RAY_SIGN=<x sign><y sign> ("+-" etc.) flips the ray's axes (finding a game's view-space convention).
+		static const std::string s_signs = []() -> std::string
+		{
+			const char* v = std::getenv("RPCS3_VR_REMAP_RAY_SIGN");
+			return v ? v : "++";
+		}();
+		m[4][0] = (s_signs.size() > 0 && s_signs[0] == '-' ? -1.f : 1.f) / px;
+		m[4][1] = (s_signs.size() > 1 && s_signs[1] == '-' ? -1.f : 1.f) / py;
 	}
-	std::memcpy(dst, m, sizeof(m));
+	m[4][2] = m_draw_fbo ? static_cast<f32>(m_draw_fbo->width()) : 0.f;
+	m[4][3] = m_draw_fbo ? static_cast<f32>(m_draw_fbo->height()) : 0.f;
+	std::memcpy(dst, m, std::min(size, sizeof(m)));
 }
 
 // prepare_rtts(): surfaces the game reads back (see below) are copied as soon as they are left. The right eye's

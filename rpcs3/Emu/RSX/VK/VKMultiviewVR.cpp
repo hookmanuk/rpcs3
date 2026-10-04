@@ -13,6 +13,7 @@
 #include "Emu/RSX/Program/ShaderParam.h"
 #include "Utilities/StrFmt.h"
 #include "Emu/RSX/gcm_enums.h" // RSX_SHADER_CONTROL_INSTANCED_CONSTANTS
+#include "../Capture/rsx_camera_probe.h" // profile depth_remap_ray_texcoord, depth_remap_xyw
 
 #include <bit>
 #include <type_traits>
@@ -277,7 +278,7 @@ namespace vk
 		}
 	}
 
-	// The varyings after the RSX's (locations 0-15): exact depth, then the depth remap's 4 (17 to 20)
+	// The varyings after the RSX's (locations 0-15): exact depth, then the depth remap's 5 (17 to 21)
 	static constexpr int vr_exact_depth_location = 16;
 	static constexpr int vr_depth_remap_location = 17;
 
@@ -311,7 +312,7 @@ namespace vk
 	{
 		if (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP)
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[4];\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[5];\n";
 		}
 	}
 
@@ -324,17 +325,17 @@ namespace vk
 		// Instanced constants come from another buffer, without the matrix: the identity (the game's own reconstruction).
 		if (ctrl & RSX_SHADER_CONTROL_INSTANCED_CONSTANTS)
 		{
-			OS << "	vr_depth_remap = vec4[4](vec4(1., 0., 0., 0.), vec4(0., 1., 0., 0.), vec4(0., 0., 1., 0.), vec4(0., 0., 0., 1.));\n";
+			OS << "	vr_depth_remap = vec4[4](vec4(1., 0., 0., 0.), vec4(0., 1., 0., 0.), vec4(0., 0., 1., 0.), vec4(0., 0., 0., 1.), vec4(0.));\n";
 			return;
 		}
-		OS << "	for (uint vr_i = 0; vr_i < 4; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
+		OS << "	for (uint vr_i = 0; vr_i < 5; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
 	}
 
 	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl)
 	{
 		if (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP)
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[4]; // VR fork\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[5]; // VR fork\n";
 		}
 	}
 
@@ -347,6 +348,44 @@ namespace vk
 		}
 		const std::string tc = "tc" + std::to_string(std::countr_zero(tc_mask));
 		const std::string unit = std::to_string(std::countr_zero(depth_mask));
+		const auto* profile = rsx::vr::camera_probe::get().profile();
+		if (profile && profile->depth_remap_ray_texcoord >= 0 && (tc_mask >> profile->depth_remap_ray_texcoord & 1))
+		{
+			// Ray variant (profile depth_remap_ray_texcoord): the pass rebuilds a view-space position as its view ray
+			// (a varying built with the game's view, not a camera block) scaled to the depth's view distance, with its
+			// texture coordinates from the clip position. The clip position stays the eye's (it picks the texels), the
+			// depth texel under the pixel is read at the depth texture's own size (passes drawn below its resolution)
+			// and remapped to the game camera, and the ray becomes the game camera's ray to that point: (x / A, y / B, 1)
+			// of its game NDC, the camera probe's view frame (u = (X/A, Y/B, W), see remap_to_eye_fov; only the ray's
+			// direction up to sign matters, as such passes divide by its z). Sonic & All-Stars Racing Transformed's shadow cascades.
+			const std::string ray = "tc" + std::to_string(profile->depth_remap_ray_texcoord);
+			const std::string w = profile->depth_remap_xyw ? tc + ".z" : tc + ".w";
+			OS << "\n	// VR fork: depth remap, ray variant (profile depth_remap_programs + depth_remap_ray_texcoord)\n";
+			OS << "	vec4 vr_remap_ray;\n";
+			OS << "	vec2 vr_remap_zs;\n";
+			OS << "	{\n";
+			OS << "		const vec2 vr_scale = vec2(textureSize(tex" << unit << ", 0).xy) / max(vr_depth_remap[4].zw, vec2(1.));\n";
+			OS << "#ifdef _VR_MULTIVIEW\n";
+			OS << "		const ivec3 vr_px = ivec3(ivec2(gl_FragCoord.xy * vr_scale), gl_ViewIndex);\n";
+			OS << "#else\n";
+			OS << "		const ivec2 vr_px = ivec2(gl_FragCoord.xy * vr_scale);\n";
+			OS << "#endif\n";
+			OS << "		const float vr_w = " << w << " != 0. ? " << w << " : 1.;\n";
+			OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+			OS << "		const vec4 vr_g = vr_eye.x * vr_depth_remap[0] + vr_eye.y * vr_depth_remap[1] + vr_eye.z * vr_depth_remap[2] + vr_depth_remap[3];\n";
+			OS << "		const float vr_gw = vr_g.w != 0. ? vr_g.w : 1.;\n";
+			OS << "		vr_remap_zs = vec2(vr_g.w != 0. ? clamp(vr_g.z / vr_g.w, 0., 1.) : vr_eye.z, float(texelFetch(tex" << unit << "_stencil, vr_px, 0).x));\n";
+			OS << "		vr_remap_ray = vr_depth_remap[4].x != 0. ? vec4(vr_g.x / vr_gw * vr_depth_remap[4].x, vr_g.y / vr_gw * vr_depth_remap[4].y, 1., 0.) : " << ray << ";\n";
+			OS << "	}\n";
+			OS << "#define " << ray << " vr_remap_ray\n";
+			OS << "#undef TEX2D_Z24X8_RGBA8\n";
+			OS << "#ifdef _VR_MULTIVIEW\n";
+			OS << "#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8((index == " << unit << ") ? vr_remap_zs : ZS_READ2D(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))\n";
+			OS << "#else\n";
+			OS << "#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8((index == " << unit << ") ? vr_remap_zs : ZS_READ(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))\n";
+			OS << "#endif\n\n";
+			return;
+		}
 		// The eye's (NDC x, NDC y, window depth) at this pixel, times the matrix: the game's, homogeneous. The texture
 		// coordinate holds the pass's clip position (the eye's: the camera block took the eye transform), and the
 		// depth texture is the pass's depth buffer, the size of its render target.

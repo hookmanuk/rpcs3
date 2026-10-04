@@ -971,6 +971,14 @@ namespace rsx::vr
 				profile->depth_remap_programs.push_back(hash);
 			}
 		}
+		if (std::string ray; read(root, "depth_remap_ray_texcoord", ray, false))
+		{
+			profile->depth_remap_ray_texcoord = std::clamp(std::atoi(ray.c_str()), -1, 9);
+		}
+		if (std::string xyw; read(root, "depth_remap_xyw", xyw, false))
+		{
+			profile->depth_remap_xyw = xyw == "true";
+		}
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
@@ -3249,6 +3257,17 @@ namespace rsx::vr
 			m_depth_remap[r][3] = static_cast<f32>(t[r][3]);
 		}
 		m_depth_remap_valid = true;
+	}
+
+	bool camera_probe::game_projection_scale(f32& x, f32& y) const
+	{
+		if (!m_vr_proj_valid || m_vr_proj_x <= 0.f || m_vr_proj_y <= 0.f)
+		{
+			return false;
+		}
+		x = m_vr_proj_x;
+		y = m_vr_proj_y;
+		return true;
 	}
 
 	bool camera_probe::depth_remap_matrix(f32 (&out)[4][4]) const

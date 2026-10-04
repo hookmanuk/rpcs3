@@ -171,6 +171,11 @@ namespace rsx::vr
 		// Asura's Wrath: the characters' shadows are a screen-space mask (07d7202eb4af1d79) projecting the scene depth
 		// into each character's shadow map; in the headset the shadows slid across the characters as the head turned.
 		std::vector<u64> depth_remap_programs;
+		// depth_remap_ray_texcoord: the texture coordinate holding the pass's view-space ray (built with the game's view);
+		// the remap replaces it with the game camera's ray to the point the eye sees (Sonic's shadow cascades). -1 = none.
+		s32 depth_remap_ray_texcoord = -1;
+		// depth_remap_xyw: the clip position texture coordinate is packed (x, y, w) instead of (x, y, z, w).
+		bool depth_remap_xyw = false;
 		f32 output_aspect_tolerance = 0.f; // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
@@ -666,6 +671,8 @@ namespace rsx::vr
 		// (NDC x, NDC y, window depth, 1) to the game's, homogeneous (row vector times matrix: 4 rows). False when no
 		// camera block of the draw took an eye transform (the identity then applies).
 		bool depth_remap_matrix(f32 (&out)[4][4]) const;
+		// The game camera's projection x and y scales (P00, P11), for depth_remap_ray_texcoord. False when unknown.
+		bool game_projection_scale(f32& x, f32& y) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).
 		bool scene_draws_by_clip_space() const;
 
