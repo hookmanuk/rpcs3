@@ -27,5 +27,8 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Killzone 2 | BCUS98116 | `vr_profiles/BCUS98116.json` (needs Write and Read Color Buffers) | |
 | Kingdom Hearts HD 1.5 ReMIX (KH Final Mix) | BLUS31212 | `vr_profiles/BLUS31212.json` (launcher), `BLUS31212.kingdom.json` | `patches/BLUS31212_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
 | Kingdom Hearts HD 2.5 ReMIX (KH II Final Mix) | BLUS31460 | `vr_profiles/BLUS31460.json` (launcher), `BLUS31460.kingdom2.json` | `patches/BLUS31460_patch.yml` (*Unlocked frame rate (VR)*, on by default) |
+| Sonic & All-Stars Racing Transformed | BLUS30839 | `vr_profiles/BLUS30839.json` | `patches/BLUS30839_patch.yml` (*Unlocked frame rate*, *Wider view (VR culling)*, both on by default) |
+| Dynasty Warriors: GUNDAM | BLUS30058 | `vr_profiles/BLUS30058.json` | `patches/BLUS30058_patch.yml` (*Frame rate follows VR*, *Wider view (VR culling)*, both on by default) |
+| X-Men Origins: Wolverine | BLUS30268 | `vr_profiles/BLUS30268.json` (72 FPS: Vblank 144) | `patches/BLUS30268_patch.yml` (*Unlocked frame rate (VR)* on by default; *Present every vblank (flat 60 FPS)* off) |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

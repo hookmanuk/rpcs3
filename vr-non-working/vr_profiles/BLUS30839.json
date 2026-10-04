@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30839",
+  "app_version": "01.00",
+  "name": "Sonic & All-Stars Racing Transformed™",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [138, 4, 0],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0108432,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 138,
+    "hud_box_after_shader": true
+  }
+}

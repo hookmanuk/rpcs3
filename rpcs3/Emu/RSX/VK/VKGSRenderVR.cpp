@@ -1824,6 +1824,35 @@ void VKGSRender::vr_setup_draw()
 		{
 			rsx_log.notice("VR why %016llx: %s", why, key);
 		}
+		// The first vertices' attribute 0 (float arrays only), to tell clip, NDC and pixel positions apart in programs
+		// that take positions the game projected itself. At most 8 draws a probe.
+		static u32 s_vertex_logs = 0;
+		const auto& pos = rsx::method_registers.vertex_arrays_info[0];
+		if (s_vertex_logs < 8 && pos.size() >= 3 && pos.type() == rsx::vertex_base_type::f && pos.stride() &&
+			rsx::method_registers.current_draw_clause.command != rsx::draw_command::inlined_array)
+		{
+			s_vertex_logs++;
+			const u32 base = rsx::get_address(rsx::get_vertex_offset_from_base(rsx::method_registers.vertex_data_base_offset(), pos.offset() & 0x7fffffff), pos.offset() >> 31);
+			const bool indexed = rsx::method_registers.current_draw_clause.command == rsx::draw_command::indexed;
+			const u32 first = rsx::method_registers.current_draw_clause.min_index();
+			std::string verts;
+			for (u32 v = 0; v < 4; ++v)
+			{
+				u32 index = first + v;
+				if (indexed)
+				{
+					const bool u32_indices = rsx::method_registers.index_type() == rsx::index_array_type::u32;
+					const u32 ia = rsx::get_address(rsx::method_registers.index_array_address(), rsx::method_registers.index_array_location()) + (first + v) * (u32_indices ? 4 : 2);
+					index = u32_indices ? static_cast<u32>(vm::read32(ia)) : static_cast<u32>(vm::read16(ia));
+				}
+				const u32 a = base + (index + rsx::method_registers.vertex_data_base_index()) * pos.stride();
+				if (!vm::check_addr(a, vm::page_readable, 16))
+					break;
+				fmt::append(verts, " (%g %g %g %g)", std::bit_cast<f32>(static_cast<u32>(vm::read32(a))), std::bit_cast<f32>(static_cast<u32>(vm::read32(a + 4))),
+					std::bit_cast<f32>(static_cast<u32>(vm::read32(a + 8))), pos.size() >= 4 ? std::bit_cast<f32>(static_cast<u32>(vm::read32(a + 12))) : 1.f);
+			}
+			rsx_log.notice("VR why %016llx vertices:%s", why, verts);
+		}
 	}
 	d.saved_env_info = m_vertex_env_buffer_info;
 	d.saved_env_offset = m_vertex_env_dynamic_offset;

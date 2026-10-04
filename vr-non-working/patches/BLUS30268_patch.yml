@@ -1,0 +1,26 @@
+Version: 1.2
+
+PPU-1967a332fcb03f5c7b1540671268da920155a352:
+  "Unlocked frame rate (VR)":
+    Games:
+      "X-Men Origins: Wolverine":
+        BLUS30268: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The game presents a frame every second vblank (30 FPS on a TV) and its main loop also caps itself at 62 FPS (0x670678 waits for a 62 FPS target from 0xeb9918, given with V-sync on; 0 = no limit). This removes the cap, so the frame rate is half the vblank rate: in VR the profile runs the vblank at twice the headset rate (72 Hz -> 144). The game steps by measured time, so it stays real-time. For flat play at 60 FPS also enable 'Present every vblank (flat 60 FPS)'."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00eb9918, 0x60000000 ] # nop (was lfs f1, 0x4e0(r3): the 62 FPS target; f1 keeps 0.0, no limit)
+
+  "Present every vblank (flat 60 FPS)":
+    Games:
+      "X-Men Origins: Wolverine":
+        BLUS30268: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Flat play: presents a frame on every vblank instead of every second one (60 FPS at Vblank 60, with 'Unlocked frame rate (VR)'). The game's vblank handler (0x18a0cf0) flips the pending buffer once its vblank count since the last flip exceeds 1; this makes it exceed 0. Leave it off in VR: stereo frames take longer than one 144 Hz vblank, and the frame rate would alternate between one and two vblanks."
+    Patch Version: 1.0
+    Enabled By Default: false
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x018a0d2c, 0x2b090000 ] # cmplwi cr6, r9, 0 (was cmplwi cr6, r9, 1: two vblanks a flip)

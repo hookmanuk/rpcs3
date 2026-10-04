@@ -1,0 +1,47 @@
+Version: 1.2
+
+PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Sonic & All-Stars Racing Transformed":
+        BLUS30839: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one: the game runs at the vblank rate (60 on a TV, the headset's refresh rate in VR) instead of 30. The game steps by measured time, so it stays real-time at any rate. The vblank handler (0x21821c) releases the flip label every [0xc2e4d8] vblanks (2); this makes it 1."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00218230, 0x38a00001 ] # li r5, 1 (was lwz r5, -0x1b28(r5): the flip interval, 2)
+
+  "Wider view (VR culling)":
+    Games:
+      "Sonic & All-Stars Racing Transformed":
+        BLUS30839: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the race camera's field of view (50 degrees high on the grid, up to about 80 with boost) by the chosen scale, up to 150 degrees, where the game copies it into the render camera (0xb8024). The game culls the scenery and the sky against this frustum, so the parts of the track and sky the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment (0xbe8f90)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 3.0
+        Allowed Values:
+          "1.0 (off: 50 degrees high)": 1.0
+          "1.5 (75 degrees)": 1.5
+          "2.0 (100 degrees)": 2.0
+          "2.5 (125 degrees)": 2.5
+          "3.0 (150 degrees, maximum, recommended)": 3.0
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x000b8024, 0x48b30f6d ] # bl 0xbe8f90 (was lfs f1, 0x144(r31): the field of view, radians)
+      # min(field of view x Scale, 150 degrees); r11, f0 and f13 are free between the calls around 0xb8024
+      - [ be32, 0x00be8f90, 0xc03f0144 ] # lfs f1, 0x144(r31)
+      - [ be32, 0x00be8f94, 0x3d6000bf ] # lis r11, 0xbf
+      - [ be32, 0x00be8f98, 0xc00b8fb0 ] # lfs f0, -0x7050(r11)   Scale
+      - [ be32, 0x00be8f9c, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x00be8fa0, 0xc00b8fb4 ] # lfs f0, -0x704c(r11)   maximum
+      - [ be32, 0x00be8fa4, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x00be8fa8, 0xfc2d082e ] # fsel f1, f13, f0, f1
+      - [ be32, 0x00be8fac, 0x4e800020 ] # blr
+      - [ bef32, 0x00be8fb0, "Scale" ]
+      - [ bef32, 0x00be8fb4, 2.61799 ]   # 150 degrees (radians)

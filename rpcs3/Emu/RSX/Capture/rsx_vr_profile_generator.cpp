@@ -772,6 +772,10 @@ namespace rsx::vr
 		// aspect: Bayonetta's post passes keep a row-layout pixel matrix in c[8], which read as the
 		// scene's columns looks perspective with the screen's proportions.
 		bool require_rigid = false;
+		// Stray data that is not square at the output aspect either: the renderer's aspect test rejects it where the
+		// rigid test can let it through (Dynasty Warriors: GUNDAM's characters keep light vectors in c[0..3], the
+		// terrain's camera block; taken for a camera, the mobile suits were drawn stretched across the view).
+		bool stray_offaspect = false;
 		std::set<u32> stray_bases;
 		std::map<u32, u32> nonrigid_scene_draws;
 		for (const draw_sample* s : views)
@@ -797,6 +801,7 @@ namespace rsx::vr
 						vr_gen_log.notice("Program %u holds non-camera data in c[%u]: require_rigid_camera.", s->program, base);
 					}
 					require_rigid = true;
+					stray_offaspect |= !aspect_matches(b->m, output_aspect, 0.1);
 					stray_bases.insert(base);
 				}
 				break;
@@ -1364,7 +1369,11 @@ namespace rsx::vr
 				nonrigid_text += fmt::format("%s%u", nonrigid_text.empty() ? "" : ", ", b);
 			json += fmt::format("  \"nonrigid_camera_blocks\": [%s],\n", nonrigid_text);
 		}
-		if (overlapping)
+		if (!overlapping && stray_offaspect && view_aspect == output_aspect)
+		{
+			vr_gen_log.notice("Stray data in a camera block is off the output aspect: require_camera_aspect.");
+		}
+		if (overlapping || (stray_offaspect && view_aspect == output_aspect))
 			json += "  \"require_camera_aspect\": true,\n";
 		// Indexed programs were sampled by the slots they read directly; the renderer gets their whole
 		// bank, where bone matrices can pass for a camera block (Dragon's Dogma: bones at c[3]).

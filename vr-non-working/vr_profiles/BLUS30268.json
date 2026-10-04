@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30268",
+  "app_version": "01.00",
+  "name": "X-Men Origins: Wolverine",
+  "max_fps": 72,
+  "default_fps": 72,
+  "vblanks_per_frame": 2,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0],
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 4,
+    "eye_baseline": 3.1984
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0122177,
+    "convergence": 127.936,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 200,
+    "hud_skips_passes": true
+  }
+}

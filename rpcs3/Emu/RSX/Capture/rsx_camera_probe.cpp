@@ -3257,6 +3257,17 @@ namespace rsx::vr
 			return false;
 		}
 
+		// Dev (probe why=<this program>): the camera blocks it is mapped through, a few times.
+		if (static u32 s_logged = 0; m_why_program == program_hash && s_logged < 4)
+		{
+			s_logged++;
+			const auto& g = m_vr_last_block[eye];
+			const auto& e = m_vr_last_eye_block[eye];
+			vr_probe_log.notice("VR why %016llx eye %u game block (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g) eye block (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g)",
+				program_hash, eye, g[0][0], g[0][1], g[0][2], g[0][3], g[1][0], g[1][1], g[1][2], g[1][3], g[2][0], g[2][1], g[2][2], g[2][3], g[3][0], g[3][1], g[3][2], g[3][3],
+				e[0][0], e[0][1], e[0][2], e[0][3], e[1][0], e[1][1], e[1][2], e[1][3], e[2][0], e[2][1], e[2][2], e[2][3], e[3][0], e[3][1], e[3][2], e[3][3]);
+		}
+
 		// A pre-projected vertex c is a point in the game's clip space: c * B^-1 is that
 		// point (homogeneous, in the space B was applied to), and * B_eye draws it for
 		// this eye exactly as the camera draws were, eye offset and head position

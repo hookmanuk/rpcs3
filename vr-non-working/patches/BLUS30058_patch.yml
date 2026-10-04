@@ -1,0 +1,48 @@
+Version: 1.2
+
+PPU-9646f248a20f34e52d47a1b012cfe592ae391eba:
+  "Frame rate follows VR":
+    Games:
+      "Dynasty Warriors: GUNDAM":
+        BLUS30058: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The game already presents a frame every vblank, but steps the battle one 1/60 s frame per frame, so it runs fast above 60 FPS (2x at 120). The battle update (0x5dd3c) takes the step in 60 Hz frames from a constant (1.0); this loads it from the word at 0x45f880 (in the last page of the data segment) instead, which the VR profile sets to 60 / the frame rate (game_vblank_frames_f32). The patch seeds it with 1.0, so without the profile the game is unchanged."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ bef32, 0x0045f880, 1.0 ]       # the step in 60 Hz frames, until the VR profile sets 60 / fps
+      - [ be32, 0x0005dd3c, 0xc02232c8 ] # lfs f1, 0x32c8(r2): 0x45f880 (was lfs f1, -0x71d8(r2): 1.0)
+
+  "Wider view (VR culling)":
+    Games:
+      "Dynasty Warriors: GUNDAM":
+        BLUS30058: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the battle camera's field of view (30 degrees high, 51 across) by the chosen scale, up to 120 degrees high, where the camera update copies it from the settings into the camera (0x23ee44). The game culls mobile suits, effects and scenery against this frustum, so what the headset shows beyond the game's own view is no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused end of the code segment (0x43a400)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 3.0
+        Allowed Values:
+          "1.0 (off: 30 degrees high)": 1.0
+          "2.0 (60 degrees)": 2.0
+          "2.5 (75 degrees)": 2.5
+          "3.0 (90 degrees, recommended)": 3.0
+          "3.5 (105 degrees)": 3.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0023ee44, 0x481fb5bd ] # bl 0x43a400 (was stfs f0, 0x138(r3): the camera's field of view, radians)
+      # camera +0x138 = min(field of view x Scale, 120 degrees); f12, f13 and r11 are free here, LR is on the stack
+      - [ be32, 0x0043a400, 0x3d600044 ] # lis r11, 0x44
+      - [ be32, 0x0043a404, 0xc1aba440 ] # lfs f13, -0x5bc0(r11)   Scale
+      - [ be32, 0x0043a408, 0xec000372 ] # fmuls f0, f0, f13
+      - [ be32, 0x0043a40c, 0xc1aba444 ] # lfs f13, -0x5bbc(r11)   maximum
+      - [ be32, 0x0043a410, 0xed806828 ] # fsubs f12, f0, f13
+      - [ be32, 0x0043a414, 0xfc0c036e ] # fsel f0, f12, f13, f0
+      - [ be32, 0x0043a418, 0xd0030138 ] # stfs f0, 0x138(r3)
+      - [ be32, 0x0043a41c, 0x4e800020 ] # blr
+      - [ bef32, 0x0043a440, "Scale" ]
+      - [ bef32, 0x0043a444, 2.0944 ]    # 120 degrees (radians)
