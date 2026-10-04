@@ -843,6 +843,33 @@ namespace rsx::vr
 		std::map<u32, u32> bound_blocks;        // camera block -> draws that bind it (the first listed block a draw reads)
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		std::map<u64, u32> depth_reading_programs; // camera draws reading a depth buffer as colour, by vertex ucode
+		// Matrices of draws that read the depth buffer as colour: deferred light and shadow volumes. A box drawn in camera
+		// space at a fixed depth with one of them (and its stencil pass, which shares the matrix but reads nothing) is part
+		// of the lighting, not a 3D HUD (Sonic & All-Stars Racing Transformed's shadow cascades took depth_offset_projection,
+		// and in the headset a dark band sat in the HUD box).
+		const auto matrix_key = [](const mat4& m)
+		{
+			std::array<f32, 16> k{};
+			for (u32 i = 0; i < 16; ++i)
+				k[i] = static_cast<f32>(m[i / 4][i % 4]);
+			return k;
+		};
+		std::set<std::array<f32, 16>> depth_reading_matrices;
+		for (const draw_sample* s : views)
+		{
+			if (!(s->textures & texture_depth_as_colour))
+				continue;
+			const slot_reader r{s->ids, s->values, s->full_bank};
+			for (const u32 base : blocks)
+			{
+				if (auto b = read_block(r, base, layout_of(base)); b && is_camera_projection(b->m))
+				{
+					depth_reading_matrices.insert(matrix_key(b->m));
+					break;
+				}
+			}
+		}
+		u32 deferred_volume_draws = 0;
 		for (const draw_sample* s : views)
 		{
 			const slot_reader r{s->ids, s->values, s->full_bank};
@@ -878,8 +905,15 @@ namespace rsx::vr
 
 			if (is_depth_offset_projection(cam->m))
 			{
-				// Camera-space geometry at a fixed depth (a 3D HUD): not the camera.
-				depth_offset_draws++;
+				// Camera-space geometry at a fixed depth (a 3D HUD): not the camera. Unless it is a deferred volume (above).
+				if ((s->textures & texture_depth_as_colour) || depth_reading_matrices.contains(matrix_key(cam->m)))
+				{
+					deferred_volume_draws++;
+				}
+				else
+				{
+					depth_offset_draws++;
+				}
 				continue;
 			}
 
@@ -1416,6 +1450,10 @@ namespace rsx::vr
 		if (depth_offset_projection)
 		{
 			vr_gen_log.notice("%u camera draws are camera-space geometry at a fixed depth (a 3D HUD): depth_offset_projection.", depth_offset_draws);
+		}
+		if (deferred_volume_draws)
+		{
+			vr_gen_log.notice("%u camera draws at a fixed depth are deferred light or shadow volumes (they or their matrix read the depth buffer): not a 3D HUD.", deferred_volume_draws);
 		}
 		// Not written: the remap holds only when the program's lowest texture coordinate carries its clip position.
 		for (const auto& [ucode, count] : depth_reading_programs)
