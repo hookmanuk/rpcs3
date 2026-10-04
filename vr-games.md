@@ -194,6 +194,7 @@ measured yet.
 
 ### 11. God of War (BCES00800, God of War Collection, UK disc 01.00): headset refresh rate
 
+- Make sure your game configuration Default Resolution is 720p, 1080p will not work: Right-click God of War Collection → Change Custom Configuration → GPU → set Resolution to 1280x720.
 - Start it from the collection's game selector. The selector and its intro show on a flat screen in front of you.
 - **Frame rate:** the headset's refresh rate, at real-time speed (the VR profile sets the game's frame rate). The
   VR build's patch *QTE button mashing at any frame rate (VR)* (on by default) keeps the button-mashing QTEs (the
@@ -206,6 +207,7 @@ measured yet.
 
 ### 12. God of War II (BCES00800, God of War Collection, UK disc 01.00): headset refresh rate
 
+- Make sure your game configuration Default Resolution is 720p, 1080p will not work: Right-click God of War Collection → Change Custom Configuration → GPU → set Resolution to 1280x720.
 - Start it from the collection's game selector, as God of War.
 - **Frame rate:** the headset's refresh rate, at real-time speed (the VR profile sets the game's frame rate). No
   patch needed: its QTEs already run in real time at any rate.
