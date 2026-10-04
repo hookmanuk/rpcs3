@@ -403,6 +403,9 @@ namespace rsx::vr
 			u32 address = 0;
 			bool deref = false;
 			u32 offset = 0;
+			// game_vblank_frames_f32 only: { "address": "...", "scale": n } writes n x the value (Jak II: 5 x 60 / fps =
+			// its clocks' ticks of 1/300 s per frame).
+			f32 scale = 1.f;
 		};
 		std::vector<guest_address> game_refresh_rate_f32;
 		// Guest floats holding the game's time step for one frame (Ridge Racer 7: its

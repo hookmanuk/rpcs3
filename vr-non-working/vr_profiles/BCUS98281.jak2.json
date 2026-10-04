@@ -3,9 +3,10 @@
   "title_id": "BCUS98281",
   "app_version": "01.00",
   "name": "Jak and Daxter Collection",
-  "max_fps": 60,
-  "default_fps": 60,
+  "max_fps": 0,
+  "default_fps": 0,
 
+  "game_vblank_frames_f32": [{ "address": "0x16ba300", "scale": 5 }],
   "matrix_layout": "column_vectors",
   "camera_blocks": [0],
   "camera_slots_read_directly": true,

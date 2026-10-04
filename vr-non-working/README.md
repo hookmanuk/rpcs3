@@ -21,7 +21,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | The Darkness | BLUS30035 | `vr_profiles/BLUS30035.json` (stereo lighting broken) | community *60 FPS* patch |
 | Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
 | Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (90 FPS real-time; stereo via `texture_redirects`) | |
-| Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json`, `BCUS98281.jak2.json` | |
+| Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json` (60 FPS), `BCUS98281.jak2.json` | `patches/BCUS98281_patch.yml` (*Frame rate follows VR (Jak II)*, on by default) |
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |
 | MotorStorm: Pacific Rift | BCUS98155 | `vr_profiles/BCUS98155.json` | `patches/BCUS98155_patch.yml` |
 | Killzone 2 | BCUS98116 | `vr_profiles/BCUS98116.json` (needs Write and Read Color Buffers) | |

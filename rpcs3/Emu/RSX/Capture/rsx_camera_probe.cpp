@@ -1068,7 +1068,19 @@ namespace rsx::vr
 				for (const auto& target : targets)
 				{
 					title_profile::guest_address a;
-					if (parse_guest_address(key, target.as<std::string>(), a))
+					// "0x..." / "[0x...]+0x...", or { "address": "...", "scale": n }
+					std::string text = target.IsMap() ? std::string() : target.as<std::string>();
+					if (target.IsMap())
+					{
+						read(target, "address", text);
+						read(target, "scale", a.scale, false);
+						if (!(a.scale > 0.f))
+						{
+							fail(fmt::format("%s: scale must be positive", key));
+							continue;
+						}
+					}
+					if (parse_guest_address(key, text, a))
 					{
 						list.push_back(a);
 					}
@@ -1604,13 +1616,14 @@ namespace rsx::vr
 			}
 			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
 			const f32 current = value;
-			if (current >= 0.1f && current <= 2.f && current != vblank_frames)
+			const f32 scaled = vblank_frames * target.scale;
+			if (current >= 0.1f * target.scale && current <= 2.f * target.scale && current != scaled)
 			{
-				value = vblank_frames;
+				value = scaled;
 				static u32 s_logged = 0;
 				if (s_logged++ < 4)
 				{
-					vr_probe_log.notice("Game vblank length at 0x%x: %.4f -> %.4f frames of 60 Hz (vblank %.2f Hz)", address, current, vblank_frames, rate);
+					vr_probe_log.notice("Game vblank length at 0x%x: %.4f -> %.4f (%g x frames of 60 Hz, vblank %.2f Hz)", address, current, scaled, target.scale, rate);
 				}
 			}
 		}

@@ -1,0 +1,17 @@
+Version: 1.2
+
+PPU-8e1c4ebd491b282343cf29003e102f59fe86e21f: # Jak2.self (Jak II)
+  "Frame rate follows VR (Jak II)":
+    Games:
+      "Jak and Daxter Collection":
+        BCUS98281: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Jak II's clocks count ticks of 1/300 s and add the display's time-factor every frame: 5.0 (NTSC), so the game runs fast above 60 FPS (2x at 120). The game's set-time-ratios (recompiled at 0x317db0) takes time-factor from a word at 0x16ba300 (just past the data segment) instead of its constant; the VR profile sets it to 300 / fps (game_vblank_frames_f32 with scale 5), so the game keeps real-time speed at the headset rate. The patch seeds it with 5.0: without the profile the game is unchanged."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ bef32, 0x016ba300, 5.0 ]       # ticks per frame, until the VR profile sets 300 / fps
+      - [ be32, 0x00317db0, 0x3d60016c ] # lis r11, 0x16c          (was lfs f0, 0x920(r27): 5.0, the NTSC time-factor)
+      - [ be32, 0x00317db4, 0x800ba300 ] # lwz r0, -0x5d00(r11)    (was stfs f0, 0x400(r27))
+      - [ be32, 0x00317db8, 0x901b0400 ] # stw r0, 0x400(r27)      (was lwz r0, 0x400(r27)); then stwbrx to display+0x58 as before
