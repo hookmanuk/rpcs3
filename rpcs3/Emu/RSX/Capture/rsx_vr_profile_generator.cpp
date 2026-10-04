@@ -972,6 +972,11 @@ namespace rsx::vr
 						return;
 					if (std::fabs(v[3] - 1.0) > 1e-4)
 						return;
+					// A (0, 0, 0, 1) constant is a camera-relative engine's own eye (Wolverine c[4]), not a position:
+					// matched against a camera block whose float noise puts its eye point just off the origin, it
+					// gave the eye offset to a slot the lighting reads (one eye's walls 25% darker).
+					if (std::fabs(v[0]) + std::fabs(v[1]) + std::fabs(v[2]) < 1e-6)
+						return;
 					const f64 d = std::sqrt((v[0] - (*e)[0]) * (v[0] - (*e)[0]) + (v[1] - (*e)[1]) * (v[1] - (*e)[1]) + (v[2] - (*e)[2]) * (v[2] - (*e)[2]));
 					if (d < tolerance)
 					{

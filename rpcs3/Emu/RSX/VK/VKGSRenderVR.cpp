@@ -3589,6 +3589,13 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		                   (vr_profile && std::find(vr_profile->game_camera_programs.begin(), vr_profile->game_camera_programs.end(), hash) != vr_profile->game_camera_programs.end());
 	}
 	bool classified_world = false;
+	// Dev (probe why=<this program>): the game's constants, to log afterwards which slots each eye changed.
+	const bool why_this = probe.why_program() && probe.why_program() == vr_vertex_program_hash();
+	static thread_local std::vector<u8> why_game;
+	if (why_this)
+	{
+		why_game.assign(scratch.begin(), scratch.begin() + size);
+	}
 	if (!keep_game_camera)
 	{
 		// The untransformed constants, to redo an eye when the two classify the draw differently (a rule that
@@ -3632,6 +3639,25 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		m_vr_mv_box_scissor = left_box || right_box;
 	}
 	lap(1);
+
+	if (static u32 s_why_logs = 0; why_this && s_why_logs < 6)
+	{
+		s_why_logs++;
+		std::string text;
+		const usz slots = size / 16;
+		for (usz i = 0; i < slots; ++i)
+		{
+			const f32* g = reinterpret_cast<const f32*>(why_game.data() + i * 16);
+			const f32* l = reinterpret_cast<const f32*>(scratch.data() + i * 16);
+			const f32* r = reinterpret_cast<const f32*>(scratch.data() + stride + i * 16);
+			if (std::memcmp(g, l, 16) != 0 || std::memcmp(g, r, 16) != 0)
+			{
+				fmt::append(text, "\n   c[%u] game (%g %g %g %g) left (%g %g %g %g) right (%g %g %g %g)", constant_ids.empty() ? static_cast<u32>(i) : constant_ids[i],
+					g[0], g[1], g[2], g[3], l[0], l[1], l[2], l[3], r[0], r[1], r[2], r[3]);
+			}
+		}
+		rsx_log.notice("VR why %016llx eye constants (keep game camera %d, world %d), changed slots:%s", vr_vertex_program_hash(), keep_game_camera, classified_world, text.empty() ? " none" : text);
+	}
 
 	const u64 allocation = m_transform_constants_allocator->alloc_bytes(stride * 2);
 	void* destination = m_transform_constants_ring_info.map(allocation, stride * 2);
