@@ -244,6 +244,8 @@
 	bool m_fragment_constants_overridden = false;
 	u64 m_vr_last_emu_flip_us = 0;     // last game flip (not an overlay/UI refresh)
 	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
+	u32 m_vr_reduced_scale_draws = 0;  // profile reduced_scale_frames draws in this game frame
+	u16 vr_resolution_scale(u16 configured_percent) const; // flip(): the Resolution Scale to render at (reduced_scale_frames)
 
 	// ---- Multiview stereo (plans/7-multiview-plan.md): both eyes in one draw --------------------
 	// Render targets have two layers (layer 0 the guest's picture, layer 1 the right eye), every draw

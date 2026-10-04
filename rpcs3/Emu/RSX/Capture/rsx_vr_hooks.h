@@ -57,6 +57,12 @@ namespace rsx::vr
 
 	// rsx::thread::on_init: a new boot; drop the previous game's per-frame profile cache.
 	void on_boot();
+	// Profile reduced_scale_frames. VKGSRender, at each game frame boundary: whether the frame had one of the listed
+	// draws. VKGSRender::flip: the Resolution Scale to render at (the configured one, or the profile's lower one while
+	// such frames show, until 3 frames without them).
+	void note_reduced_scale_frame(bool listed_draw_seen);
+	u16 effective_resolution_scale(u16 configured_percent);
+
 	// rsx::thread::on_frame_end: stereo inspector, camera probe poll, game refresh rate, profile generator, dev hooks.
 	void on_frame_end(u32 buffer, u32 draw_calls);
 	// rsx::thread::flip: RPCS3_VR_FRAMESTATS.

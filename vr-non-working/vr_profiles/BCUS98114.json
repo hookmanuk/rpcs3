@@ -3,6 +3,11 @@
   "title_id": "BCUS98114",
   "app_version": "01.00",
   "name": "Gran Turismo 5",
+  "reduced_scale_frames": {
+    "draws": [{ "program": "ddee4cd4c5991aba", "texture": "2560x1440" }],
+    "scale": 200
+  },
+  "skip_readback_sections": ["0xc9db5a80"],
   "max_fps": 0,
   "default_fps": 0,
   "game_frame_time_f32": ["0x184680c", "0x184acc0"],

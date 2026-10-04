@@ -1474,6 +1474,8 @@ void VKGSRender::vr_update_view()
 	// game-state word says front end, goes on the fixed screen as a whole.
 	const bool screen_frame = m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state();
 	m_vr_screen_frame_draws = 0;
+	rsx::vr::note_reduced_scale_frame(m_vr_reduced_scale_draws != 0);
+	m_vr_reduced_scale_draws = 0;
 	const bool no_3d = screen_frame || (no_3d_mode == frames_without_3d_mode::always ? m_vr_frames_without_camera >= 3 :
 																					   no_3d_mode == frames_without_3d_mode::automatic && m_vr_frames_2d >= 3);
 	if (static bool s_no_3d = false; no_3d != s_no_3d)
@@ -2590,6 +2592,27 @@ bool VKGSRender::vr_skip_draw()
 		}
 	}
 
+	// Profile reduced_scale_frames: a frame with one of these draws renders at the profile's lower Resolution Scale.
+	if (const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
+		profile && !profile->reduced_scale_draws.empty())
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[0];
+		const u16 width = tex.enabled() ? tex.width() : 0;
+		const u16 height = tex.enabled() ? tex.height() : 0;
+		const auto& list = profile->reduced_scale_draws;
+		if (std::any_of(list.begin(), list.end(), [&](const auto& d)
+				{
+					return d.width == width && d.height == height;
+				}))
+		{
+			const u64 h = hash();
+			m_vr_reduced_scale_draws += std::any_of(list.begin(), list.end(), [&](const auto& d)
+				{
+					return d.program == h && d.width == width && d.height == height;
+				});
+		}
+	}
+
 	// RPCS3_VR_RTDUMP with prog=<hash>: dump the requested surfaces of both eyes just before this program draws.
 	if (m_vr_rtdump_program && m_vr_rtdump_armed && hash() == m_vr_rtdump_program &&
 		!(m_vr_rtdump_skip && m_vr_rtdump_skip--))
@@ -2629,6 +2652,12 @@ void VKGSRender::vr_before_draw_setup()
 	// produce several emitted subdraws, so the ordinal is assigned here and the subdraw index
 	// is recorded separately.
 	rsx::vr::stereo_inspector::get().begin_draw_clause();
+}
+
+// flip(): the Resolution Scale to render at: the configured one, or the profile's reduced_scale_frames scale.
+u16 VKGSRender::vr_resolution_scale(u16 configured_percent) const
+{
+	return rsx::vr::effective_resolution_scale(configured_percent);
 }
 
 // VKGSRender(): Gate 6: OpenXR must be initialised before the Vulkan instance so the runtime's

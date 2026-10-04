@@ -803,6 +803,34 @@ namespace rsx::vr
 				profile->screen_space_unboxed_draws.push_back(draw);
 			}
 		}
+		if (const YAML::Node reduced = child(root, "reduced_scale_frames"); reduced && reduced.IsMap())
+		{
+			if (std::string scale; read(reduced, "scale", scale, false))
+			{
+				profile->reduced_scale_percent = static_cast<u16>(std::clamp(std::atoi(scale.c_str()), 25, 800));
+			}
+			if (const YAML::Node draws = child(reduced, "draws"); draws && draws.IsSequence())
+			{
+				for (const YAML::Node& node : draws)
+				{
+					std::string program, texture;
+					read(node, "program", program);
+					read(node, "texture", texture);
+					char* end = nullptr;
+					title_profile::unboxed_draw draw{};
+					draw.program = std::strtoull(program.c_str(), &end, 16);
+					u32 w = 0, h = 0;
+					if (program.empty() || !end || *end || std::sscanf(texture.c_str(), "%ux%u", &w, &h) != 2)
+					{
+						fail("reduced_scale_frames.draws: expected {\"program\": \"<vertex ucode hash>\", \"texture\": \"<width>x<height>\"}");
+						continue;
+					}
+					draw.width = static_cast<u16>(w);
+					draw.height = static_cast<u16>(h);
+					profile->reduced_scale_draws.push_back(draw);
+				}
+			}
+		}
 		if (const YAML::Node draws = child(screen_space, "screen_frame_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -1205,8 +1233,15 @@ namespace rsx::vr
 				profile->occlusion_depth_readback.emplace_back(start, size);
 			}
 		}
+		if (const YAML::Node sections = child(root, "skip_readback_sections"); sections && sections.IsSequence())
+		{
+			for (const auto& node : sections)
+			{
+				profile->skip_readback_sections.push_back(static_cast<u32>(std::strtoul(node.as<std::string>().c_str(), nullptr, 16)));
+			}
+		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -1505,10 +1540,59 @@ namespace rsx::vr
 		return fps && (!headset || fps < headset) ? 10 : 0;
 	}
 
-	bool occlusion_depth_readback(u32 start, u32 end)
+	bool occlusion_depth_readback(u32 start, u32 end, void* memory)
 	{
+		// Dev: RPCS3_VR_FLUSH_LOG=1 counts the texture-cache flushes (GPU readbacks, each a wait for the GPU) per
+		// range and logs the busiest every 2 s.
+		if (static const bool s_flush_log = std::getenv("RPCS3_VR_FLUSH_LOG") != nullptr; s_flush_log)
+		{
+			static std::mutex s_mutex;
+			static std::map<std::pair<u32, u32>, u32> s_counts;
+			static u64 s_last = get_system_time();
+			std::lock_guard lock(s_mutex);
+			s_counts[{start, end - start + 1}]++;
+			if (const u64 now = get_system_time(); now - s_last >= 2'000'000)
+			{
+				std::vector<std::pair<u32, std::pair<u32, u32>>> top;
+				u32 total = 0;
+				for (const auto& [k, n] : s_counts)
+				{
+					top.emplace_back(n, k);
+					total += n;
+				}
+				std::sort(top.rbegin(), top.rend());
+				std::string text;
+				for (usz i = 0; i < std::min<usz>(top.size(), 8); ++i)
+				{
+					fmt::append(text, " 0x%x+0x%x x%u;", top[i].second.first, top[i].second.second, top[i].first);
+				}
+				vr_probe_log.notice("VR flushes over %.1f s: %u (%u ranges):%s", (now - s_last) / 1e6, total, ::size32(top), text);
+				s_counts.clear();
+				s_last = now;
+			}
+		}
+		// Dev: RPCS3_VR_SKIP_FLUSH=<hex start> skips the readback of a section starting there (memory left as it is).
+		if (static const u32 s_skip = []() -> u32
+			{
+				const char* v = std::getenv("RPCS3_VR_SKIP_FLUSH");
+				return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0;
+			}();
+			s_skip && start == s_skip)
+		{
+			return true;
+		}
 		camera_probe& probe = camera_probe::get();
 		const title_profile* profile = probe.profile();
+		if (profile && !profile->skip_readback_sections.empty() &&
+			std::find(profile->skip_readback_sections.begin(), profile->skip_readback_sections.end(), start) != profile->skip_readback_sections.end())
+		{
+			static atomic_t<bool> s_logged{false};
+			if (!s_logged.exchange(true))
+			{
+				vr_probe_log.notice("VR: readback of the section at 0x%x skipped (skip_readback_sections).", start);
+			}
+			return true;
+		}
 		if (!profile || profile->occlusion_depth_readback.empty() || !probe.render_enabled())
 		{
 			return false;
@@ -1522,6 +1606,7 @@ namespace rsx::vr
 				{
 					vr_probe_log.notice("VR: occlusion depth readback at 0x%x..0x%x answered with far depth (occlusion_depth_readback).", base, base + size - 1);
 				}
+				std::memset(memory, 0xff, end - start + 1);
 				return true;
 			}
 		}

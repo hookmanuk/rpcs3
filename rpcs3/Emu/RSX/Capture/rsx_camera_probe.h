@@ -303,6 +303,10 @@ namespace rsx::vr
 		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
 		// of a 2D fire background), which the headset view pulls apart. List a draw only the menu makes (its logo).
 		std::vector<unboxed_draw> screen_space_screen_frame_draws;
+		// reduced_scale_frames: while frames contain one of these draws, the Resolution Scale is lowered to
+		// reduced_scale_percent (Gran Turismo 5's pre-race grid screen renders its 3D view 2x2 supersampled).
+		std::vector<unboxed_draw> reduced_scale_draws;
+		u16 reduced_scale_percent = 0;
 		// Draws skipped entirely while VR is enabled, same match as unboxed_draws; each entry has a name and an
 		// on/off flag ("hidden") so a player can switch an effect back on (Killzone HD: film grain).
 		std::vector<unboxed_draw> hidden_draws;
@@ -472,6 +476,10 @@ namespace rsx::vr
 		// popping), and the read waited for almost the whole stereo scene. Reads there get
 		// far depth everywhere at once: nothing is culled by occlusion. "0xADDR:0xSIZE" each.
 		std::vector<std::pair<u32, u32>> occlusion_depth_readback;
+		// skip_readback_sections: texture-cache sections starting at these addresses are never read back (memory is left as
+		// the guest wrote it). For render targets RPCS3 keeps over texture memory that nothing draws into any more: Gran
+		// Turismo 5's 512x512 at 0xc9db5a80, read back once a frame because the track textures inside it are uploaded.
+		std::vector<u32> skip_readback_sections;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
@@ -545,8 +553,10 @@ namespace rsx::vr
 	// HUD box distance in metres: the HUD Depth setting, or with Auto the VR profile's hud_depth, else 2 m.
 	f32 effective_hud_depth();
 
-	// True while stereo is rendered and [start, end] overlaps the profile's occlusion_depth_readback.
-	bool occlusion_depth_readback(u32 start, u32 end);
+	// vk::cached_texture_section::imp_flush, before waiting for the GPU: true when the fork answers the readback itself.
+	// The section starts at one of the profile's skip_readback_sections (memory left as it is), or, while stereo is
+	// rendered, [start, end] overlaps the profile's occlusion_depth_readback (memory filled with far depth).
+	bool occlusion_depth_readback(u32 start, u32 end, void* memory);
 
 	// While alive, full-bank constant uploads (programs with indexed constants) expose only the slots
 	// in `ids` (the program's directly read constants) to camera block matching on this thread. Null or

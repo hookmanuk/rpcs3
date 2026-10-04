@@ -864,6 +864,38 @@ namespace rsx::vr
 		}
 	}
 
+	static atomic_t<u32> s_reduced_scale_frames = 0; // game frames left at the reduced scale
+
+	void note_reduced_scale_frame(bool listed_draw_seen)
+	{
+		if (listed_draw_seen)
+		{
+			s_reduced_scale_frames = 3;
+		}
+		else if (const u32 n = s_reduced_scale_frames; n)
+		{
+			s_reduced_scale_frames = n - 1;
+		}
+	}
+
+	u16 effective_resolution_scale(u16 configured_percent)
+	{
+		const auto& probe = camera_probe::get();
+		const title_profile* profile = probe.profile();
+		const bool reduce = s_reduced_scale_frames && profile && profile->reduced_scale_percent && profile->reduced_scale_percent < configured_percent &&
+			probe.render_enabled();
+		const u16 percent = reduce ? profile->reduced_scale_percent : configured_percent;
+		if (static u16 s_last = 0; s_last != percent)
+		{
+			if (s_last)
+			{
+				rsx_log.notice("VR: Resolution Scale %u%% (%s).", percent, reduce ? "the profile's reduced_scale_frames show" : "configured");
+			}
+			s_last = percent;
+		}
+		return percent;
+	}
+
 	bool savestate_disc_folder_as_iso(const std::string& library_path, std::string& disc_info, std::string& argv0)
 	{
 		constexpr std::string_view bdvd = "/dev_bdvd/";

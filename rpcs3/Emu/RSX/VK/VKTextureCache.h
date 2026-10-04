@@ -305,11 +305,9 @@ namespace vk
 			// Calculate smallest range to flush - for framebuffers, the raster region is enough
 			const auto range = (context == rsx::texture_upload_context::framebuffer_storage) ? get_section_range() : get_confirmed_range();
 
-			// VR fork: a depth readback the game uses for occlusion culling is answered at once with
-			// far depth (the eye's depth would hide visible objects; see occlusion_depth_readback).
-			if (rsx::vr::occlusion_depth_readback(range.start, range.end))
+			// VR fork: readbacks the fork answers without waiting for the GPU (see occlusion_depth_readback).
+			if (rsx::vr::occlusion_depth_readback(range.start, range.end, get_ptr(range.start)))
 			{
-				std::memset(get_ptr(range.start), 0xff, range.length());
 				return;
 			}
 
