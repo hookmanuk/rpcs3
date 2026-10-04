@@ -1464,7 +1464,9 @@ namespace rsx::vr
 		for (const auto& [ucode, count] : depth_reading_programs)
 		{
 			vr_gen_log.notice("Program %016llx: %u camera draws read the depth buffer as colour (a deferred pass rebuilding positions from it). "
-				"If its lighting or shadows slide over the scene as the head turns, list it in depth_remap_programs (Asura's Wrath).", ucode, count);
+				"If its lighting or shadows slide over the scene as the head turns, list it in depth_remap_programs (Asura's Wrath); "
+				"if its fragment program scales a view-ray texture coordinate by the depth, also depth_remap_ray_texcoord (and depth_remap_xyw "
+				"for an (x, y, w) clip position), as for Sonic's shadow cascades.", ucode, count);
 		}
 		if (hud_block != umax || bare_projection || depth_offset_projection || offaspect_projection || passthrough_hud)
 		{
