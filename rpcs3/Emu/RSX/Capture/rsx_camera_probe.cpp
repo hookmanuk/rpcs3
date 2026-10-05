@@ -959,6 +959,10 @@ namespace rsx::vr
 		{
 			profile->camera_slots_read_directly = direct == "true";
 		}
+		if (std::string y_down; read(root, "view_y_down", y_down, false))
+		{
+			profile->view_y_down = y_down == "true";
+		}
 		if (const YAML::Node redirects = child(root, "texture_redirects"); redirects && redirects.IsSequence())
 		{
 			for (const YAML::Node& node : redirects)
@@ -1296,7 +1300,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -2909,6 +2913,11 @@ namespace rsx::vr
 		// The draw's clip basis is (NDC x = right, NDC y = up unless flip_y,
 		// clip w = forward). Conjugate by S = diag(1, sy, -1), which is its own
 		// inverse, and transpose: a camera turned by R sees view vectors by R^T.
+		const title_profile* profile = this->profile();
+		if (profile && profile->view_y_down)
+		{
+			flip_y = !flip_y;
+		}
 		const f32 s[3] = {1.f, flip_y ? -1.f : 1.f, -1.f};
 		for (u32 i = 0; i < 3; ++i)
 		{
@@ -2922,7 +2931,6 @@ namespace rsx::vr
 		// eye separation (the profile's eye_baseline, in world units) stands for ipd
 		// metres of real separation, so that ratio is the world scale, and the
 		// eye_scale knob scales both together.
-		const title_profile* profile = this->profile();
 		const f32 eye_baseline = profile ? profile->eye_baseline : 0.f;
 		const f32 units_per_metre = ipd > 0.01f ? eye_baseline * eye_scale / ipd : 0.f;
 		for (u32 i = 0; i < 3; ++i)

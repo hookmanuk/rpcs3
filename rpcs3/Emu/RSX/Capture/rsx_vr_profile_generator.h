@@ -62,6 +62,7 @@ namespace rsx::vr
 			bool full_bank = false;
 			bool indexed = false;
 			bool depth_test = false;
+			bool viewport_y_down = false; // the viewport's y scale is positive: NDC +Y is down the screen
 			u8 textures = 0; // bit 0 ordinary textures, bit 1 colour render targets, bit 2 a view-shaped one, bit 3 depth read as colour
 			u32 target = 0;  // colour address 0
 			u64 ucode = 0;   // vertex program ucode hash

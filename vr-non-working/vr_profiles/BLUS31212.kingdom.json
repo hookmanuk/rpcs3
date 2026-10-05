@@ -12,6 +12,7 @@
   "camera_blocks": [256],
   "camera_palette": [260, 444],
   "camera_slots_read_directly": true,
+  "view_y_down": true,
   "require_rigid_camera": true,
   "output_aspect_tolerance": 0.02,
 

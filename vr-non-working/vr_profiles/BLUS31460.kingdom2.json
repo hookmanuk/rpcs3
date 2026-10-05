@@ -11,6 +11,7 @@
   "matrix_layout": "column_vectors",
   "camera_blocks": [256, 56],
   "camera_slots_read_directly": true,
+  "view_y_down": true,
   "require_rigid_camera": true,
   "output_aspect_tolerance": 0.02,
 

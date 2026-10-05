@@ -156,6 +156,10 @@ namespace rsx::vr
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
 		// directly (the program's constant_ids), as the profile generator samples them.
 		bool camera_slots_read_directly = false;
+		// The game's clip space has NDC +Y pointing down the screen (its viewport's y scale is positive: Kingdom
+		// Hearts 1.5). The head pose is turned into that basis with y flipped, else head pitch and roll turn the
+		// world the wrong way (yaw is unaffected). Same as RPCS3_OPENXR_FLIP_Y, for this game only.
+		bool view_y_down = false;
 		// Textures read at `from` (a main-memory copy the SPUs process, which has only the left eye) are read
 		// from the render target at `to` instead, per eye (Puppeteer: scene 0xc0750000 -> SPU post -> 0x399c0000).
 		std::vector<std::pair<u32, u32>> texture_redirects;

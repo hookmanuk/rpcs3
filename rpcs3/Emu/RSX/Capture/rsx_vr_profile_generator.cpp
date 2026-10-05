@@ -330,6 +330,7 @@ namespace rsx::vr
 		s.full_bank = constant_ids.empty();
 		s.indexed = indexed;
 		s.depth_test = depth_test;
+		s.viewport_y_down = rsx::method_registers.viewport_scale_y() > 0.f;
 		s.textures = static_cast<u8>(textures);
 		s.target = target;
 		s.ucode = ucode;
@@ -1591,6 +1592,24 @@ namespace rsx::vr
 		}
 		if (overlapping || (stray_offaspect && view_aspect == output_aspect))
 			json += "  \"require_camera_aspect\": true,\n";
+		{
+			// The scene's viewport flips y (NDC +Y down the screen): without view_y_down head pitch and roll turn the
+			// world the wrong way (Kingdom Hearts 1.5 and 2.5). Judged on the depth-tested draws at the view's aspect.
+			usz scene = 0, y_down = 0;
+			for (const draw_sample& s : samples)
+			{
+				if (s.depth_test && s.height && std::fabs((static_cast<f64>(s.width) / s.height) / view_aspect - 1.0) <= view_aspect_tolerance)
+				{
+					scene++;
+					y_down += s.viewport_y_down;
+				}
+			}
+			if (scene && y_down * 2 > scene)
+			{
+				vr_gen_log.notice("The scene's viewport has NDC +Y down (%u of %u scene draws): view_y_down.", y_down, scene);
+				json += "  \"view_y_down\": true,\n";
+			}
+		}
 		// Indexed programs were sampled by the slots they read directly; the renderer gets their whole
 		// bank, where bone matrices can pass for a camera block (Dragon's Dogma: bones at c[3]).
 		if (std::any_of(samples.begin(), samples.end(), [](const draw_sample& s)
