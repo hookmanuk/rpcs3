@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "rsx_camera_probe.h"
+#include "rsx_vr_profile_generator.h"
 #include <array>
 #include <set>
 
@@ -1560,6 +1561,7 @@ namespace rsx::vr
 
 	bool occlusion_depth_readback(u32 start, u32 end, void* memory)
 	{
+		profile_generator::get().note_readback(start, end - start + 1);
 		// Dev: RPCS3_VR_FLUSH_LOG=1 counts the texture-cache flushes (GPU readbacks, each a wait for the GPU) per
 		// range and logs the busiest every 2 s.
 		if (static const bool s_flush_log = std::getenv("RPCS3_VR_FLUSH_LOG") != nullptr; s_flush_log)

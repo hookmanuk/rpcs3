@@ -310,6 +310,7 @@ namespace rsx::vr
 		{
 			std::lock_guard lock(m_mutex);
 			m_samples.clear();
+			m_readbacks.clear();
 		}
 		m_frame_counter = 0;
 		m_frames_sampled = 0;
@@ -402,6 +403,19 @@ namespace rsx::vr
 
 		std::lock_guard lock(m_mutex);
 		m_samples.push_back(std::move(s));
+	}
+
+	void profile_generator::note_readback(u32 start, u32 length)
+	{
+		if (m_state.load() != state::sampling)
+		{
+			return;
+		}
+		std::lock_guard lock(m_mutex);
+		if (m_readbacks.size() < 256)
+		{
+			m_readbacks[{start, length}]++;
+		}
 	}
 
 	void profile_generator::on_frame_end()
@@ -1380,6 +1394,40 @@ namespace rsx::vr
 			json += fmt::format("  \"max_fps\": %u,\n  \"default_fps\": %u,\n", max_fps, max_fps);
 			if (vblanks_per_frame > 1)
 				json += fmt::format("  \"vblanks_per_frame\": %u,\n", vblanks_per_frame);
+		}
+		{
+			// GPU readbacks during the play time. Each waits for the GPU (in stereo for both eyes' work so far); small
+			// results read back every frame (exposure, sun visibility: Gran Turismo 5) can take a frame late.
+			std::map<std::pair<u32, u32>, u32> readbacks;
+			{
+				std::lock_guard lock(m_mutex);
+				readbacks = std::move(m_readbacks);
+				m_readbacks.clear();
+			}
+			std::map<u32, u32> per_length;
+			std::string listed;
+			for (const auto& [range, count] : readbacks)
+			{
+				per_length[range.second] += count;
+				fmt::append(listed, " 0x%x+0x%x x%.2f/frame;", range.first, range.second, m_flips ? count / static_cast<f64>(m_flips) : 0.);
+			}
+			if (!readbacks.empty())
+			{
+				vr_gen_log.notice("GPU readbacks while sampling (%u frames):%s", m_flips, listed);
+			}
+			std::string lengths;
+			for (const auto& [length, count] : per_length)
+			{
+				if (length <= 0x1000 && m_flips && count >= m_flips * 8 / 10)
+				{
+					fmt::append(lengths, "%s%u", lengths.empty() ? "" : ", ", length);
+				}
+			}
+			if (!lengths.empty())
+			{
+				json += fmt::format("  \"late_readback_lengths\": [%s],\n", lengths);
+				vr_gen_log.notice("Small results read back every frame: late_readback_lengths [%s] (check they still change).", lengths);
+			}
 		}
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);

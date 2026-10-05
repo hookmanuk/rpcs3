@@ -19,6 +19,8 @@
 #include "util/types.hpp"
 #include "util/atomic.hpp"
 
+#include <map>
+
 namespace rsx::vr
 {
 	class profile_generator
@@ -46,6 +48,10 @@ namespace rsx::vr
 
 		// Frame boundary (game flips only).
 		void on_frame_end();
+
+		// vk texture cache flush (camera_probe hook): a GPU readback of [start, start + length) while sampling.
+		// Small ranges the game reads back every frame become late_readback_lengths suggestions.
+		void note_readback(u32 start, u32 length);
 
 	private:
 		struct draw_sample
@@ -86,5 +92,6 @@ namespace rsx::vr
 
 		std::mutex m_mutex;
 		std::vector<draw_sample> m_samples;
+		std::map<std::pair<u32, u32>, u32> m_readbacks; // (start, length) -> count over the play time, under m_mutex
 	};
 } // namespace rsx::vr
