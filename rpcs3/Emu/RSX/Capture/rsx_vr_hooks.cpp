@@ -304,6 +304,19 @@ namespace rsx::reports
 		const auto* profile = probe.profile();
 		return !(profile && profile->zcull_approximate && probe.render_enabled());
 	}
+
+	// Relaxed ZCULL Sync: the setting, or the VR profile's zcull_relaxed_sync while VR renders (the RSX thread then
+	// does not wait for occlusion results the game reads back each frame; in stereo each wait covers both eyes' work).
+	bool relaxed_zcull_sync()
+	{
+		if (g_cfg.video.relaxed_zcull_sync)
+		{
+			return true;
+		}
+		const auto& probe = rsx::vr::camera_probe::get();
+		const auto* profile = probe.profile();
+		return profile && profile->zcull_relaxed_sync && probe.render_enabled();
+	}
 } // namespace rsx::reports
 
 // The fork's RSX_SHADER_CONTROL_VR_* bits must stay clear of upstream's program control bits (gcm_enums.h) and of each

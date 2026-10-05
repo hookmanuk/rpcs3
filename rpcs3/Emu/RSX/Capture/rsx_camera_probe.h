@@ -387,6 +387,8 @@ namespace rsx::vr
 		// fully visible) instead of waiting for exact counts. Dragon's Dogma waits for its occlusion queries
 		// several times a frame; in stereo each wait is for both eyes' GPU work (~40% of the RSX thread at 4K per eye).
 		bool zcull_approximate = false;
+		// true: while VR renders, the RSX thread does not wait for occlusion query results (as Relaxed ZCULL Sync). SEGA Rally Revo.
+		bool zcull_relaxed_sync = false;
 		// The part of the displayed frame that holds the game's 3D view, in output pixels (x, y, width, height;
 		// width 0 = the whole frame). The headset is shown only that part, so the view fills the eye. God of War
 		// renders its scene at 1216x684 and insets it in the 1280x720 display with a black border: the world looked

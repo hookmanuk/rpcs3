@@ -6,6 +6,8 @@
   "max_fps": 0,
   "default_fps": 0,
 
+  "zcull_relaxed_sync": true,
+
   "matrix_layout": "row_vectors",
   "camera_blocks": [8, 0, 4],
   "require_camera_aspect": true,

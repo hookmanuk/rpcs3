@@ -30,6 +30,7 @@ namespace rsx
 	namespace reports
 	{
 		bool precise_zpass_count(); // VR fork: g_cfg.video.precise_zpass_count unless the VR profile asks for approximate reports (rsx_vr_hooks.cpp)
+		bool relaxed_zcull_sync(); // VR fork: g_cfg.video.relaxed_zcull_sync, or the VR profile's zcull_relaxed_sync while VR renders (rsx_vr_hooks.cpp)
 		struct occlusion_query_info
 		{
 			u32 driver_handle;

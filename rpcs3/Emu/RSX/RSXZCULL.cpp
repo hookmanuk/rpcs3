@@ -429,7 +429,7 @@ namespace rsx
 				return;
 			}
 
-			if (g_cfg.video.relaxed_zcull_sync)
+			if (relaxed_zcull_sync()) // VR fork: profile zcull_relaxed_sync
 			{
 				update(ptimer, 0, true);
 				return;
@@ -571,7 +571,7 @@ namespace rsx
 					m_next_tsc = m_tsc + min_zcull_tick_us;
 
 					// Schedule a queue flush if needed
-					if (!g_cfg.video.relaxed_zcull_sync && m_critical_reports_in_flight &&
+					if (!relaxed_zcull_sync() && m_critical_reports_in_flight && // VR fork: profile zcull_relaxed_sync
 						front.query && front.query->num_draws && front.query->sync_tag > m_sync_tag)
 					{
 						const auto elapsed = m_tsc - front.query->timestamp;
