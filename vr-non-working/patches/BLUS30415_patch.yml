@@ -1,0 +1,34 @@
+Version: 1.2
+
+PPU-750889872c0ff8cc186c61cf94e64dff190b619f:
+  "Wider view (VR culling)":
+    Games:
+      "Dragon Age: Origins":
+        BLUS30415: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the cameras' field of view (60 degrees high) by the chosen scale (2.0 by default: at 2.5 the castle fireplace's flames stretch out into the room), up to 150 degrees, where the camera builds its projection (0x71b85c, the camera's field of view at +0x130). The game culls the scene against this frustum, so the walls, floors and characters the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x144f980)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 2.0
+        Allowed Values:
+          "1.0 (off: 60 degrees high)": 1.0
+          "1.5 (90 degrees)": 1.5
+          "2.0 (120 degrees, recommended)": 2.0
+          "2.5 (150 degrees, maximum: fire effects can stretch)": 2.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0071b85c, 0x48d34125 ] # bl 0x144f980 (was lfs f3, 0x130(r31): the field of view, radians)
+      # min(field of view x Scale, 150 degrees); f1 and f2 are live (aspect), so only r12, f0 and f13 are used
+      - [ be32, 0x0144f980, 0xc07f0130 ] # lfs f3, 0x130(r31)
+      - [ be32, 0x0144f984, 0x3d800145 ] # lis r12, 0x145
+      - [ be32, 0x0144f988, 0xc00cf9c0 ] # lfs f0, -0x640(r12)   Scale
+      - [ be32, 0x0144f98c, 0xec630032 ] # fmuls f3, f3, f0
+      - [ be32, 0x0144f990, 0xc00cf9c4 ] # lfs f0, -0x63c(r12)   maximum
+      - [ be32, 0x0144f994, 0xeda30028 ] # fsubs f13, f3, f0
+      - [ be32, 0x0144f998, 0xfc6d182e ] # fsel f3, f13, f0, f3
+      - [ be32, 0x0144f99c, 0x4e800020 ] # blr
+      - [ bef32, 0x0144f9c0, "Scale" ]
+      - [ bef32, 0x0144f9c4, 2.61799 ]   # 150 degrees (radians)

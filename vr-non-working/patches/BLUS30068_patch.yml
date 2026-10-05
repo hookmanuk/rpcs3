@@ -1,0 +1,46 @@
+Version: 1.2
+
+PPU-cf7bf795662e7da4af16f0131ac7c3bef86776ce:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "SEGA Rally Revo":
+        BLUS30068: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one: the game runs at the vblank rate (60 on a TV, the headset's refresh rate in VR) instead of 30. The game steps by measured time, so it stays real-time at any rate. The flip (0x1e3978) releases GCM label 0x42 with the vsync interval [0x10361bd4] (2), which the vblank handler counts down before the next flip; this passes 1."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x001df79c, 0x38a00001 ] # li r5, 1 (was lwz r5, 0(r9): the vsync interval, 2)
+
+  "Wider view (VR culling)":
+    Games:
+      "SEGA Rally Revo":
+        BLUS30068: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the cameras' field of view (60 degrees high in the race) by the chosen scale (2.0 by default: 72 Hz in VR at 300%; 2.5 drops to 68), up to 150 degrees, where the game builds the projection from the camera record (0x174640, all camera modes). The game culls the scenery against this frustum, so the ground and scenery the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x4d7140)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 2.0
+        Allowed Values:
+          "1.0 (off: 60 degrees high)": 1.0
+          "1.5 (90 degrees)": 1.5
+          "2.0 (120 degrees, recommended)": 2.0
+          "2.5 (150 degrees, maximum: misses 72 Hz in VR)": 2.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00174640, 0x48362b01 ] # bl 0x4d7140 (was lfs f1, 8(r11): the field of view, radians)
+      # min(field of view x Scale, 150 degrees); r12, f0 and f13 are free up to the perspective call (0x174644)
+      - [ be32, 0x004d7140, 0xc02b0008 ] # lfs f1, 8(r11)
+      - [ be32, 0x004d7144, 0x3d80004d ] # lis r12, 0x4d
+      - [ be32, 0x004d7148, 0xc00c7180 ] # lfs f0, 0x7180(r12)   Scale
+      - [ be32, 0x004d714c, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x004d7150, 0xc00c7184 ] # lfs f0, 0x7184(r12)   maximum
+      - [ be32, 0x004d7154, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x004d7158, 0xfc2d082e ] # fsel f1, f13, f0, f1
+      - [ be32, 0x004d715c, 0x4e800020 ] # blr
+      - [ bef32, 0x004d7180, "Scale" ]
+      - [ bef32, 0x004d7184, 2.61799 ]   # 150 degrees (radians)

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30068",
+  "app_version": "01.00",
+  "name": "SEGA Rally Revo™",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [8, 0, 4],
+  "require_camera_aspect": true,
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 4,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0121785,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "passthrough_hud": true,
+    "hud_display_buffers_only": true
+  }
+}

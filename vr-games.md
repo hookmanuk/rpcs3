@@ -296,6 +296,9 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | Sonic & All-Stars Racing Transformed | BLUS30839 | 90 Hz (120 with Wider view off) | The VR build's patches *Unlocked frame rate (follows Vblank Rate)* (real-time at any rate) and *Wider view (VR culling)* (Scale 3.0: the track and sky fill the headset's view) are on by default. Distant soft shadows can differ between the eyes. Not tested in a headset. |
 | Dynasty Warriors: GUNDAM | BLUS30058 | 120 Hz | The VR build's patches *Frame rate follows VR* (keeps battles at real-time speed above 60) and *Wider view (VR culling)* are on by default. Official Mode battles checked; space missions and cutscenes not. Not tested in a headset. |
 | X-Men Origins: Wolverine | BLUS30268 | 72 Hz | The VR build's patch *Unlocked frame rate (VR)* (on by default) removes the game's 62 FPS cap; the profile runs it at 72 (Vblank 144). For flat 60 FPS also enable *Present every vblank (flat 60 FPS)*. Some surfaces are shaded differently in each eye, and the sky can end at the edge of the game's view. Not tested in a headset. |
+| SEGA Rally Revo | BLUS30068 | 72 Hz | The VR build's patches *Unlocked frame rate (follows Vblank Rate)* (real-time at any rate) and *Wider view (VR culling)* are on by default. Savestates need Compatible Savestate Mode and Disable SPU GETLLAR Spin Optimization. Not tested in a headset. |
+| Dragon Age: Origins | BLUS30415 | 120 Hz | No frame-rate patch needed (real time at any rate). Patch *Wider view (VR culling)* (Scale 2.0) fills the headset's view. The HUD sits in the world-fixed screen. Not tested in a headset. |
+| Dragon Age II | BLUS30645 | below 72 (70-71 in fights) | No frame-rate patch needed (real time at any rate). The HUD sits in the world-fixed screen. Not tested in a headset. |
 
 ---
 

@@ -529,20 +529,21 @@ bool VKGSRender::vr_is_passthrough_hud()
 {
 	// Into a buffer no camera draw wrote (the finished frame or a display buffer), with
 	// at least one ordinary texture and no colour render target (post-processing reads those).
+	// A program the profile lists in hud_programs is HUD wherever it draws in full-frame buffers, also untextured
+	// (fills) and without a colour target (Dragon Age: Origins' Scaleform HUD masks its minimap and portrait in the
+	// depth/stencil buffer with colour writes off; left out, the masks stayed on the face while the rest moved).
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	const u64 hash = profile && !profile->screen_space_hud_programs.empty() ? vr_vertex_program_hash() : 0;
+	const bool listed = hash && std::find(profile->screen_space_hud_programs.begin(), profile->screen_space_hud_programs.end(), hash) != profile->screen_space_hud_programs.end();
 	const u32 target = m_framebuffer_layout.color_addresses[0];
-	if (!target)
+	if (!target && !listed)
 	{
 		return false;
 	}
-	if (std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end())
+	if (target && !listed && std::find(m_vr_camera_targets.begin(), m_vr_camera_targets.end(), target) != m_vr_camera_targets.end())
 	{
 		// Unless the profile lists this program as HUD (drawn into the scene's final image).
-		const auto* profile = rsx::vr::camera_probe::get().profile();
-		const u64 hash = profile && !profile->screen_space_hud_programs.empty() ? vr_vertex_program_hash() : 0;
-		if (!hash || std::find(profile->screen_space_hud_programs.begin(), profile->screen_space_hud_programs.end(), hash) == profile->screen_space_hud_programs.end())
-		{
-			return false;
-		}
+		return false;
 	}
 	// Full frame or larger: smaller buffers are intermediate passes (ICO's shadow mask).
 	// The frame is the scene or the output, whichever is narrower: Ridge Racer 7 renders
@@ -557,6 +558,10 @@ bool VKGSRender::vr_is_passthrough_hud()
 
 	// A small render target is HUD art too (Dragon's Dogma's minimap, drawn into a 256x256 target first).
 	const u32 kinds = vr_sampled_textures();
+	if (listed)
+	{
+		return !(kinds & vr_texture_view_target);
+	}
 	return (kinds & (vr_texture_ordinary | vr_texture_colour_target)) && !(kinds & vr_texture_view_target);
 }
 

@@ -30,5 +30,8 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Sonic & All-Stars Racing Transformed | BLUS30839 | `vr_profiles/BLUS30839.json` | `patches/BLUS30839_patch.yml` (*Unlocked frame rate*, *Wider view (VR culling)*, both on by default) |
 | Dynasty Warriors: GUNDAM | BLUS30058 | `vr_profiles/BLUS30058.json` | `patches/BLUS30058_patch.yml` (*Frame rate follows VR*, *Wider view (VR culling)*, both on by default) |
 | X-Men Origins: Wolverine | BLUS30268 | `vr_profiles/BLUS30268.json` (72 FPS: Vblank 144) | `patches/BLUS30268_patch.yml` (*Unlocked frame rate (VR)* on by default; *Present every vblank (flat 60 FPS)* off) |
+| SEGA Rally Revo | BLUS30068 | `vr_profiles/BLUS30068.json` | `patches/BLUS30068_patch.yml` (*Unlocked frame rate (follows Vblank Rate)*, *Wider view (VR culling)*, both on by default) |
+| Dragon Age: Origins | BLUS30415 | `vr_profiles/BLUS30415.json` | `patches/BLUS30415_patch.yml` (*Wider view (VR culling)*) |
+| Dragon Age II | BLUS30645 | `vr_profiles/BLUS30645.json` (just under 72 FPS in busy fights) | |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

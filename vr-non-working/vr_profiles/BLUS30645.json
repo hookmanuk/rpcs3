@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30645",
+  "app_version": "01.00",
+  "name": "Dragon Age II",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [256, 269, 263, 271],
+  "require_rigid_camera": true,
+  "require_camera_aspect": true,
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.02,
+  "clip_space_scene_draws": true,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0121785,
+    "convergence": 2.56,
+    "eye_offset": "baseline_per_w"
+  },
+
+  "screen_space": {
+    "orthographic_block": 260,
+    "passthrough_hud": true,
+    "hud_programs": ["fb607f82e6910e72", "2fb564a1e6dc9ad1", "f7fb6105c0d5ebac", "2f3922b03a474047"]
+  }
+}
