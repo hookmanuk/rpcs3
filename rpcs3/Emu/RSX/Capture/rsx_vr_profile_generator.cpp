@@ -1139,7 +1139,7 @@ namespace rsx::vr
 				}
 			}
 		}
-		std::map<u32, u32> hud_hits, pass_hits, mask_hits;
+		std::map<u32, u32> hud_hits, pass_hits, mask_hits, ortho_draws, depth_tested_hits, output_pixel_hits;
 		for (const draw_sample* s : hud_views)
 		{
 			if (s->full_bank)
@@ -1164,6 +1164,11 @@ namespace rsx::vr
 					hud_hits[base]++;
 				if ((s->textures & texture_colour_target) && !(s->textures & texture_view_target))
 					mask_hits[base]++;
+				ortho_draws[base]++;
+				if (s->depth_test)
+					depth_tested_hits[base]++;
+				if (std::fabs(sx * eye.width - 2.0) < 0.01)
+					output_pixel_hits[base]++;
 			}
 		}
 		u32 hud_block = umax;
@@ -1192,6 +1197,20 @@ namespace rsx::vr
 		if (hud_box_after_shader)
 		{
 			vr_gen_log.notice("%u HUD draws sample a small render target (a mask drawn by the HUD): hud_box_after_shader.", mask_hits[hud_block]);
+		}
+		// Not written (each needs a look in the headset): HUD draws that depth-test their own layers, and a HUD laid
+		// out in other units than its fills (most draws in other units: a HUD in output pixels is just that, Demon's Souls).
+		if (hud_block != umax && depth_tested_hits[hud_block] >= 10)
+		{
+			vr_gen_log.notice("%u HUD draws depth-test. If HUD layers reorder or vanish as the head moves, set screen_space.hud_keep_depth "
+				"(Shadow of the Colossus' menus); if stacked 3D HUD art cuts through itself in slices, list its programs in "
+				"screen_space.hud_exact_depth_programs (Gran Turismo 5).", depth_tested_hits[hud_block]);
+		}
+		if (hud_block != umax && output_pixel_hits[hud_block] >= 10 && ortho_draws[hud_block] >= 2 * output_pixel_hits[hud_block])
+		{
+			vr_gen_log.notice("%u of the HUD block's %u draws map output pixels 1:1 and the rest use other units (fills, fades, text coverage "
+				"beside a HUD layout). If menu text breaks up or HUD elements leave trails as the head turns, set "
+				"screen_space.output_pixel_draws_not_hud (Gran Turismo 5).", output_pixel_hits[hud_block], ortho_draws[hud_block]);
 		}
 
 		// 4b. HUD drawn without a matrix (positions already in screen space: ICO's pause menu,
@@ -1278,7 +1297,39 @@ namespace rsx::vr
 					palette_draws, blocks[0], palette_last);
 			}
 		}
+		// A draw through the HUD block (boxed by orthographic_block already).
+		const auto hud_block_draw = [&](const draw_sample& s)
+		{
+			if (hud_block == umax || s.full_bank)
+				return false;
+			const slot_reader r{s.ids, s.values, false};
+			const u32 layout = layout_of(hud_block);
+			auto b = read_block(r, hud_block, layout);
+			if (!b && layout == layout_rows)
+				b = read_flat_rows(r, hud_block);
+			return b && !is_perspective(b->m);
+		};
+		// A 2D transform in two consecutive slots, x = (sx, 0, 0, tx) and y = (0, sy, 0, ty) with pixel-sized scales:
+		// Scaleform-style HUDs (Dragon Age: Origins c[0..1], Dragon Age II c[256..257]). The HUD block, if the game has
+		// one, is for its other HUD; left out, these stayed on the face when the head turned.
+		const auto screen_rows_2d = [&](const draw_sample& s)
+		{
+			if (s.full_bank)
+				return false;
+			const auto pixel = [](f64 v) { return std::fabs(v) > 0 && std::fabs(v) < 0.01; };
+			const auto zero = [](f64 v) { return std::fabs(v) < 1e-7; };
+			for (usz i = 0; i + 1 < s.ids.size(); ++i)
+			{
+				const auto& x = s.values[i];
+				const auto& y = s.values[i + 1];
+				if (s.ids[i + 1] == s.ids[i] + 1 && pixel(x[0]) && zero(x[1]) && zero(x[2]) && zero(y[0]) && pixel(y[1]) && zero(y[2]))
+					return true;
+			}
+			return false;
+		};
 		std::map<u64, std::pair<u32, u32>> flat_hud; // program ucode -> (draws, draws into a camera target)
+		std::map<u64, u32> screen_2d;                // program ucode -> 2D-transform draws
+		std::map<u64, u32> preprojected;             // program ucode -> depth-tested matrix-less draws into this frame's scene
 		std::set<u32> frame_camera_targets;
 		u32 flat_hud_draws = 0;
 		for (const auto& s : samples)
@@ -1297,7 +1348,24 @@ namespace rsx::vr
 			}
 			const bool full_frame = std::fabs((static_cast<f64>(s.width) / s.height) / output_aspect - 1.0) <= view_aspect_tolerance &&
 			                        s.width * 20u >= eye.width * 19u;
-			if (!full_frame || s.depth_test || !(s.textures & texture_ordinary) || (s.textures & texture_colour_target) || !matrix_less(s))
+			if (!full_frame)
+			{
+				continue;
+			}
+			if (s.depth_test)
+			{
+				// Positions the game projected itself, depth-tested into the scene (ICO's flames: NDC with w = 1).
+				if (frame_camera_targets.contains(s.target) && matrix_less(s))
+					preprojected[s.ucode]++;
+				continue;
+			}
+			// Untextured too: the HUD fills and masks its art in depth/stencil with colour writes off (Dragon Age: Origins).
+			if (!(s.textures & texture_view_target) && !hud_block_draw(s) && screen_rows_2d(s))
+			{
+				screen_2d[s.ucode]++;
+				continue;
+			}
+			if (!(s.textures & texture_ordinary) || (s.textures & texture_colour_target) || !matrix_less(s))
 			{
 				continue;
 			}
@@ -1306,9 +1374,34 @@ namespace rsx::vr
 			h.second += frame_camera_targets.contains(s.target) ? 1 : 0;
 			flat_hud_draws++;
 		}
-		const bool passthrough_hud = hud_block == umax && flat_hud_draws >= 20;
 		std::vector<u64> hud_programs;
-		if (passthrough_hud)
+		u32 screen_2d_draws = 0;
+		for (const auto& [ucode, count] : screen_2d)
+		{
+			vr_gen_log.notice("2D-transform HUD program %016llx: %u draws.", ucode, count);
+			if (count >= 5)
+			{
+				hud_programs.push_back(ucode);
+				screen_2d_draws += count;
+			}
+		}
+		if (screen_2d_draws)
+		{
+			vr_gen_log.notice("%u full-frame draws through a 2D transform (x and y rows of pixel scale: a Scaleform-style HUD): passthrough_hud, "
+				"their %u programs in hud_programs (boxed also untextured, for their masks).", screen_2d_draws, ::size32(hud_programs));
+		}
+		for (const auto& [ucode, count] : preprojected)
+		{
+			if (count >= 5)
+			{
+				vr_gen_log.notice("Program %016llx: %u depth-tested draws into the scene without a matrix (positions projected by the game). "
+					"If they stay fixed to the view as the head turns, list it in screen_space.preprojected_programs (ICO's flames, "
+					"Dynasty Warriors: GUNDAM's effects).", ucode, count);
+			}
+		}
+		const bool flat_passthrough = hud_block == umax && flat_hud_draws >= 20;
+		const bool passthrough_hud = flat_passthrough || screen_2d_draws != 0;
+		if (flat_passthrough)
 		{
 			for (const auto& [ucode, counts] : flat_hud)
 			{
@@ -1427,6 +1520,42 @@ namespace rsx::vr
 			{
 				json += fmt::format("  \"late_readback_lengths\": [%s],\n", lengths);
 				vr_gen_log.notice("Small results read back every frame: late_readback_lengths [%s] (check they still change).", lengths);
+			}
+			for (const auto& [range, count] : readbacks)
+			{
+				// Gran Turismo 5: a 512x512 render target at 0xc9db5a80 over memory nothing drew into any more, read back
+				// with a full GPU wait each frame because textures inside it were uploaded.
+				if (range.second > 0x1000 && m_flips && count >= m_flips * 8 / 10)
+				{
+					vr_gen_log.notice("Section 0x%x (0x%x bytes) is read back every frame, each waiting for the GPU. If the game never reads it "
+						"(a stale render target over memory nothing draws into), skip_readback_sections [\"0x%x\"] removes the wait; never "
+						"for data the game reads.", range.first, range.second, range.first);
+				}
+			}
+		}
+		{
+			// Small off-screen passes multiply by the Resolution Scale too (16x at 400%) for no visible gain.
+			u32 draws = 0, small = 0;
+			std::set<std::pair<u16, u16>> sizes;
+			for (const auto& s : samples)
+			{
+				if (s.program == umax || !s.width)
+					continue;
+				draws++;
+				if (std::max(s.width, s.height) <= 512 && s.width * 2u < eye.width)
+				{
+					small++;
+					sizes.emplace(s.width, s.height);
+				}
+			}
+			if (draws && small * 5 >= draws)
+			{
+				std::string listed;
+				for (const auto& [w, h] : sizes)
+					fmt::append(listed, "%s%ux%u", listed.empty() ? "" : ", ", w, h);
+				vr_gen_log.notice("%u of %u draws go to render targets of 512 or less (%s). If the game is GPU-bound in VR, min_scalable_dimension "
+					"512 keeps them at their own size (Gran Turismo 5: about 2 ms a frame at 400%%); compare pictures, a pass shown directly "
+					"gets blurry.", small, draws, listed);
 			}
 		}
 		json += "\n";
