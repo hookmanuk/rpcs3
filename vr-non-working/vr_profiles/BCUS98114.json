@@ -10,7 +10,7 @@
   "skip_readback_sections": ["0xc9db5a80"],
   "late_readback_sections": ["0xc57f8000"],
   "late_readback_lengths": [512],
-  "min_scalable_dimension": 512,
+  "min_scalable_dimension": 511,
   "car_draw_limit": { "tiers": [{ "cars": 2 }, { "cars": 4, "keep_percent": 85 }, { "cars": 0, "keep_percent": 70 }], "body_programs": ["84b91fd2a878d672", "47aeae27a85d4863"] },
   "max_fps": 0,
   "default_fps": 0,
@@ -40,6 +40,7 @@
     "output_pixel_draws_not_hud": true,
     "subviewport_cameras_in_box": true,
     "hud_keep_depth": true,
+    "screen_frame_draws": [{ "program": "095a653b00894379", "texture": "2560x1440" }],
     "hud_exact_depth_programs": ["2f7d1792dfd94351"]
   }
 }
