@@ -438,6 +438,7 @@ namespace vk::xr
 			if (!check(g_xr.xrCreateSwapchain(g_xr.session, &info, &chain.handle), "xrCreateSwapchain"))
 			{
 				chain.handle = XR_NULL_HANDLE;
+				if (static u32 s_n = 0; s_n++ < 4) xr_log.error("Eye swapchain %ux%u (VkFormat %d) was refused.", width, height, static_cast<s32>(format));
 				return false;
 			}
 

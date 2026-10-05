@@ -480,6 +480,19 @@ namespace rsx::vr
 		// the guest wrote it). For render targets RPCS3 keeps over texture memory that nothing draws into any more: Gran
 		// Turismo 5's 512x512 at 0xc9db5a80, read back once a frame because the track textures inside it are uploaded.
 		std::vector<u32> skip_readback_sections;
+		// late_readback_sections / late_readback_lengths: sections starting at these addresses, or of exactly these
+		// lengths in bytes, are read back without waiting for the GPU. A read before the GPU copy finished leaves the
+		// guest's memory as it is (the value of an earlier frame) and the result is written there when the copy lands
+		// (next flip). For small results the game reads every frame and can take a frame late: Gran Turismo 5's 16x8
+		// exposure (512 bytes, a ring of three whose address changes per session), whose read waited for the whole
+		// stereo scene.
+		std::vector<u32> late_readback_sections;
+		std::vector<u32> late_readback_lengths;
+		// min_scalable_dimension: raises the game's Minimum Scalable Dimension (render targets whose larger side is at
+		// most this many pixels are not scaled by the Resolution Scale) while VR is enabled. For small off-screen passes
+		// the scale multiplies like the view (16x the pixels at 400%) for no visible gain: Gran Turismo 5's 256x511
+		// reflection maps and 512-wide exposure and glare passes (~2 ms a frame at 400% in stereo).
+		u16 min_scalable_dimension = 0;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
@@ -919,3 +932,14 @@ namespace rsx::vr
 		f32 m_raw_add = 0.f;
 	};
 } // namespace rsx::vr
+
+namespace vk
+{
+	class event;
+	// VR fork, vk::cached_texture_section::imp_flush before waiting for the GPU (VKGSRenderVR.cpp): true when the section
+	// is one of the profile's late_readback_sections and its copy (fence) is still pending; the write to guest memory is
+	// queued for when the fence is set.
+	bool vr_late_readback(const event* fence, u32 start, u32 length);
+	// Writes the queued late readbacks whose copies have landed (RSX thread, each flip).
+	void vr_complete_late_readbacks();
+}

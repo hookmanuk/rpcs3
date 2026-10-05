@@ -208,6 +208,8 @@ namespace rsx
 		bool swizzled;
 	};
 
+	namespace vr { u16 min_scalable_dimension(u16 configured); } // VR fork: profile min_scalable_dimension (rsx_vr_hooks.cpp)
+
 	struct surface_scaling_config_t
 	{
 		u16 scale_percent = 100;

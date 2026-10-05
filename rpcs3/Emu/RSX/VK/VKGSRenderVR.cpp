@@ -13,6 +13,7 @@
 #include "VKMultiviewVR.h"
 #include "VKRenderPass.h"
 #include "VKResourceManager.h"
+#include "VKDMA.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/scratch.h"
 
@@ -41,6 +42,71 @@ static_assert(rsx::texture_control_bits::VR_REPROJECT_BIT > rsx::texture_control
 namespace vk
 {
 	VkImageViewType get_view_type(rsx::texture_dimension_extended type); // VKDraw.cpp
+}
+
+extern thread_local std::chrono::steady_clock::time_point g_vr_readback_start; // VKGSRenderVRDev.cpp, dev timer
+extern atomic_t<u64> g_vr_readback_pre_ns;
+
+// Profile late_readback_sections (see rsx_camera_probe.h): readbacks whose GPU copy is still pending return at once,
+// leaving the guest memory as it is, and the copy is written there at the next flips once its fence is set. The
+// fence belongs to the section; a section re-created (the game's next copy into it) disposes it through the resource
+// manager, so a pending entry is dropped after three flips (GT5 reuses each of its three slots every third frame).
+namespace vk
+{
+	namespace
+	{
+		struct vr_late_readback_t
+		{
+			const event* fence;
+			u32 start;
+			u32 length;
+			u32 flips;
+		};
+		std::mutex g_vr_late_mutex;
+		std::vector<vr_late_readback_t> g_vr_late;
+	}
+
+	bool vr_late_readback(const event* fence, u32 start, u32 length)
+	{
+		if (g_vr_readback_start != std::chrono::steady_clock::time_point{})
+		{
+			g_vr_readback_pre_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - g_vr_readback_start).count();
+			g_vr_readback_start = {};
+		}
+		const auto* profile = g_cfg.video.vr.enabled ? rsx::vr::camera_probe::get().profile() : nullptr;
+		if (!fence || !profile || (std::find(profile->late_readback_sections.begin(), profile->late_readback_sections.end(), start) == profile->late_readback_sections.end() &&
+			std::find(profile->late_readback_lengths.begin(), profile->late_readback_lengths.end(), length) == profile->late_readback_lengths.end()))
+		{
+			return false;
+		}
+		if (fence->status() == VK_EVENT_SET)
+		{
+			return false; // landed: the ordinary readback, which does not wait
+		}
+		static atomic_t<bool> s_logged{false};
+		if (!s_logged.exchange(true))
+		{
+			rsx_log.notice("VR: readback of 0x%x+0x%x answered late (late_readback_sections/lengths).", start, length);
+		}
+		std::lock_guard lock(g_vr_late_mutex);
+		std::erase_if(g_vr_late, [&](const vr_late_readback_t& e) { return e.start == start; });
+		g_vr_late.push_back({fence, start, length, 0});
+		return true;
+	}
+
+	void vr_complete_late_readbacks()
+	{
+		std::lock_guard lock(g_vr_late_mutex);
+		std::erase_if(g_vr_late, [](vr_late_readback_t& e)
+		{
+			if (e.fence->status() == VK_EVENT_SET)
+			{
+				vk::flush_dma(e.start, e.length);
+				return true;
+			}
+			return ++e.flips >= 3;
+		});
+	}
 }
 
 // A display buffer's memory drawn at the display buffer's size: Gran Turismo 5 also renders its
@@ -2545,6 +2611,24 @@ void VKGSRender::vr_restore_texture(u32 i, const vr_texture_redirect& redirect)
 // dev probe key hide=<hash>[@<target>]. Returns true after finishing the draw as a no-op.
 bool VKGSRender::vr_skip_draw()
 {
+	if (m_gpuprof_target && m_gpuprof_enabled > 0 && m_framebuffer_layout.color_addresses[0] == m_gpuprof_target)
+	{
+		// Dev GPU profiler: per-draw segment after the draw's textures loaded ("fmt" 0x20000 + the draw's index).
+		gpuprof_mark({m_gpuprof_target, m_framebuffer_layout.width, m_framebuffer_layout.height, 0x20000u + m_gpuprof_draw});
+		static u32 s_logged = 0;
+		if (s_logged++ < 8)
+		{
+			std::string t;
+			for (u32 i = 0; i < 16; ++i)
+			{
+				if (const auto& tex = rsx::method_registers.fragment_textures[i]; tex.enabled())
+					t += fmt::format(" t%u=%08x %ux%u fmt 0x%x", i, rsx::get_address(tex.offset(), tex.location()), tex.width(), tex.height(), tex.format());
+			}
+			rsx_log.notice("GPU profile: draw %u into 0x%x vp %016llx:%s", m_gpuprof_draw, m_gpuprof_target,
+				program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program), t);
+		}
+	}
+
 	const auto hash = [&]()
 	{
 		return program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
@@ -3162,6 +3246,16 @@ void VKGSRender::vr_submit_early_copies(bool any)
 // scaled_image_from_memory(), before the blit: profile current_frame_copies, the stereo inspector's note and the trace.
 void VKGSRender::vr_before_blit(rsx::blit_src_info& src, const rsx::blit_dst_info& dst)
 {
+	if (gpuprof_enabled())
+	{
+		// Dev GPU profiler: a segment per blit, keyed by its destination ("fmt" 0x30000; size is the source's).
+		gpuprof_mark({vm::get_addr(dst.pixels), src.width, src.height, 0x30000u + static_cast<u32>(src.format)});
+		static u32 s_logged = 0;
+		if (s_logged++ < 64)
+			rsx_log.notice("GPU profile: blit %08x %ux%u fmt %u -> %08x clip %ux%u scale %.3fx%.3f", vm::get_addr(src.pixels), src.width, src.height,
+				static_cast<u32>(src.format), vm::get_addr(dst.pixels), dst.clip_width, dst.clip_height, dst.scale_x, dst.scale_y);
+	}
+
 	if (vk::xr::is_running())
 	{
 		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->current_frame_copies)
@@ -3190,6 +3284,11 @@ void VKGSRender::vr_before_blit(rsx::blit_src_info& src, const rsx::blit_dst_inf
 // drawn with, and the right eye gets the same copy.
 void VKGSRender::vr_after_blit(const rsx::blit_src_info& src, const rsx::blit_dst_info& dst, bool interpolate)
 {
+	if (gpuprof_enabled())
+	{
+		gpuprof_mark({vm::get_addr(dst.pixels), src.width, src.height, 0x40000u + static_cast<u32>(src.format)}); // dev: after the blit
+	}
+
 	if (vk::xr::is_running())
 	{
 		const auto find = [&](u32 address, u32 pitch) -> vk::render_target*

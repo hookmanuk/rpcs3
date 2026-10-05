@@ -1803,7 +1803,7 @@ namespace rsx
 						scaling_config =
 						{
 							.scale_percent = static_cast<u16>(g_cfg.video.resolution_scale_percent),
-							.min_scalable_dimension = static_cast<u16>(g_cfg.video.min_scalable_dimension),
+							.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)), // VR fork
 						};
 					}
 

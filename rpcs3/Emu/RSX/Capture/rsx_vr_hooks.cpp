@@ -896,6 +896,12 @@ namespace rsx::vr
 		return percent;
 	}
 
+	u16 min_scalable_dimension(u16 configured)
+	{
+		const title_profile* profile = g_cfg.video.vr.enabled ? camera_probe::get().profile() : nullptr;
+		return profile ? std::max(configured, profile->min_scalable_dimension) : configured;
+	}
+
 	bool savestate_disc_folder_as_iso(const std::string& library_path, std::string& disc_info, std::string& argv0)
 	{
 		constexpr std::string_view bdvd = "/dev_bdvd/";

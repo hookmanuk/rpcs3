@@ -20,6 +20,10 @@
 
 #include <vulkan/vulkan_core.h>
 
+// Dev GPU profiler: when a readback (on this thread) reached imp_flush, to split its time (VKGSRenderVR.cpp, vr_late_readback).
+thread_local std::chrono::steady_clock::time_point g_vr_readback_start{};
+atomic_t<u64> g_vr_readback_pre_ns{0};
+
 void VKGSRender::vr_trace_copy_reads(bool camera)
 {
 	// TEMPORARY diagnostic. K{address:context:age}: a texture that is not a live render
@@ -180,8 +184,8 @@ void VKGSRender::gpuprof_flip(const rsx::frame_statistics_t& stats)
 				m_gpuprof_flip_ms = m_gpuprof_ctxwait_ms = 0.;
 				std::fill(std::begin(m_gpuprof_rsx_us), std::end(m_gpuprof_rsx_us), 0);
 				m_gpuprof_wall_ms = 0.;
-				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.1f/frame, last at 0x%x)",
-					m_gpuprof_readback_ns.exchange(0) / 1e6 / 120, m_gpuprof_readbacks.exchange(0) / 120., m_gpuprof_readback_addr.load());
+				text += fmt::format("; guest blocked in GPU readbacks %.2f ms/frame (%.2f of it waiting for the RSX thread and the copy) (%.1f/frame, last at 0x%x)",
+					m_gpuprof_readback_ns.exchange(0) / 1e6 / 120, g_vr_readback_pre_ns.exchange(0) / 1e6 / 120, m_gpuprof_readbacks.exchange(0) / 120., m_gpuprof_readback_addr.load());
 				m_gpuprof_sync_ms = 0.;
 				m_gpuprof_syncs = 0;
 				for (usz i = 0; i < std::min<usz>(order.size(), 24); ++i)
@@ -321,6 +325,8 @@ void VKGSRender::vr_on_draw_begin()
 // flip(), first thing: the pending right-eye batch, the surface dump request and the GPU profiler's frame end.
 void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 {
+	vk::vr_complete_late_readbacks();
+
 	// Gate 6: the right eye's last batched draws must land before it is presented.
 	vr_batch_flush();
 
@@ -391,6 +397,7 @@ void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 VKGSRender::vr_readback_scope::vr_readback_scope(VKGSRender* renderer, const vk::texture_cache::thrashed_set& result, u32 address, bool is_writing)
 	: r(renderer)
 {
+	g_vr_readback_start = start;
 	if (rsx::vr::camera_probe::get().render_enabled())
 	{
 		std::lock_guard lock(r->m_vr_readback_mutex);
@@ -418,6 +425,7 @@ VKGSRender::vr_readback_scope::vr_readback_scope(VKGSRender* renderer, const vk:
 
 VKGSRender::vr_readback_scope::~vr_readback_scope()
 {
+	g_vr_readback_start = {};
 	if (r->m_gpuprof_enabled > 0)
 	{
 		r->m_gpuprof_readback_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count();

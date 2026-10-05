@@ -1240,8 +1240,26 @@ namespace rsx::vr
 				profile->skip_readback_sections.push_back(static_cast<u32>(std::strtoul(node.as<std::string>().c_str(), nullptr, 16)));
 			}
 		}
+		if (const YAML::Node sections = child(root, "late_readback_sections"); sections && sections.IsSequence())
+		{
+			for (const auto& node : sections)
+			{
+				profile->late_readback_sections.push_back(static_cast<u32>(std::strtoul(node.as<std::string>().c_str(), nullptr, 16)));
+			}
+		}
+		if (const YAML::Node min_scalable = child(root, "min_scalable_dimension"); min_scalable && min_scalable.IsScalar())
+		{
+			profile->min_scalable_dimension = static_cast<u16>(std::clamp(std::atoi(min_scalable.as<std::string>().c_str()), 0, 4096));
+		}
+		if (const YAML::Node lengths = child(root, "late_readback_lengths"); lengths && lengths.IsSequence())
+		{
+			for (const auto& node : lengths)
+			{
+				profile->late_readback_lengths.push_back(static_cast<u32>(std::strtoul(node.as<std::string>().c_str(), nullptr, 0)));
+			}
+		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -1571,13 +1589,19 @@ namespace rsx::vr
 				s_last = now;
 			}
 		}
-		// Dev: RPCS3_VR_SKIP_FLUSH=<hex start> skips the readback of a section starting there (memory left as it is).
-		if (static const u32 s_skip = []() -> u32
+		// Dev: RPCS3_VR_SKIP_FLUSH=<hex start>[,<hex start>...] skips the readback of sections starting there (memory left as it is).
+		static const std::vector<u32> s_skip = []()
+		{
+			std::vector<u32> r;
+			for (const char* v = std::getenv("RPCS3_VR_SKIP_FLUSH"); v && *v;)
 			{
-				const char* v = std::getenv("RPCS3_VR_SKIP_FLUSH");
-				return v ? static_cast<u32>(std::strtoul(v, nullptr, 16)) : 0;
-			}();
-			s_skip && start == s_skip)
+				char* e = nullptr;
+				r.push_back(static_cast<u32>(std::strtoul(v, &e, 16)));
+				v = (e && *e == ',') ? e + 1 : nullptr;
+			}
+			return r;
+		}();
+		if (!s_skip.empty() && std::find(s_skip.begin(), s_skip.end(), start) != s_skip.end())
 		{
 			return true;
 		}

@@ -305,8 +305,8 @@ namespace vk
 			// Calculate smallest range to flush - for framebuffers, the raster region is enough
 			const auto range = (context == rsx::texture_upload_context::framebuffer_storage) ? get_section_range() : get_confirmed_range();
 
-			// VR fork: readbacks the fork answers without waiting for the GPU (see occlusion_depth_readback).
-			if (rsx::vr::occlusion_depth_readback(range.start, range.end, get_ptr(range.start)))
+			// VR fork: readbacks the fork answers without waiting for the GPU (see occlusion_depth_readback, vr_late_readback).
+			if (rsx::vr::occlusion_depth_readback(range.start, range.end, get_ptr(range.start)) || vk::vr_late_readback(dma_fence.get(), range.start, range.length()))
 			{
 				return;
 			}

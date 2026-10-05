@@ -1011,7 +1011,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	const rsx::surface_scaling_config_t active_res_scaling_config =
 	{
 		.scale_percent = vr_resolution_scale(static_cast<u16>(g_cfg.video.resolution_scale_percent)), // VR fork: profile reduced_scale_frames
-		.min_scalable_dimension = static_cast<u16>(g_cfg.video.min_scalable_dimension),
+		.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)), // VR fork: profile min_scalable_dimension
 	};
 
 	if (active_res_scaling_config != this->resolution_scaling_config)
