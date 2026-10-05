@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30321",
+  "app_version": "01.00",
+  "name": "MX vs ATV Reflex",
+  "max_fps": 30,
+  "default_fps": 30,
+  "vblanks_per_frame": 2,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [4, 76, 16],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 8,
+    "eye_baseline": 0.640033
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0132247,
+    "convergence": 25.6013,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "orthographic_block": 24
+  }
+}

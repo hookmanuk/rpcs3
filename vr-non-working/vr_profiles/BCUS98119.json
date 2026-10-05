@@ -3,7 +3,8 @@
   "title_id": "BCUS98119",
   "app_version": "01.00",
   "name": "inFamous",
-  "max_fps": 0,
+  "max_fps": 90,
+  "default_fps": 90,
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [263, 256, 260, 259],
@@ -18,7 +19,8 @@
   "stereo": {
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0128706,
-    "convergence": 256
+    "convergence": 256,
+    "eye_offset": "baseline"
   },
 
   "screen_space": {

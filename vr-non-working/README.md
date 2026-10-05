@@ -33,5 +33,6 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | SEGA Rally Revo | BLUS30068 | `vr_profiles/BLUS30068.json` | `patches/BLUS30068_patch.yml` (*Unlocked frame rate (follows Vblank Rate)*, *Wider view (VR culling)*, both on by default) |
 | Dragon Age: Origins | BLUS30415 | `vr_profiles/BLUS30415.json` | `patches/BLUS30415_patch.yml` (*Wider view (VR culling)*) |
 | Dragon Age II | BLUS30645 | `vr_profiles/BLUS30645.json` (just under 72 FPS in busy fights) | |
+| MX vs ATV Reflex | BLUS30321 | `vr_profiles/BLUS30321.json` (generated, 30 FPS; not checked) | |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).
