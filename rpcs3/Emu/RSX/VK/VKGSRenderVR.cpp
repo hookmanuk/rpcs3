@@ -1538,7 +1538,7 @@ void VKGSRender::vr_update_view()
 	const auto no_3d_mode = no_3d_profile ? no_3d_profile->screen_space_frames_without_3d_as_screen : frames_without_3d_mode::never;
 	// A frame with one of the profile's screen_frame_draws (a composed menu), or drawn while a screen_frames_when
 	// game-state word says front end, goes on the fixed screen as a whole.
-	const bool screen_frame = m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state();
+	const bool screen_frame = m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state() || rsx::vr::cinematic_frame_on_screen();
 	m_vr_screen_frame_draws = 0;
 	rsx::vr::note_reduced_scale_frame(m_vr_reduced_scale_draws != 0);
 	m_vr_reduced_scale_draws = 0;

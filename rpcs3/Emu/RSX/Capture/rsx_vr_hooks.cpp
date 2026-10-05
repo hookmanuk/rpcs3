@@ -883,7 +883,7 @@ namespace rsx::vr
 		const auto& probe = camera_probe::get();
 		const title_profile* profile = probe.profile();
 		const bool reduce = s_reduced_scale_frames && profile && profile->reduced_scale_percent && profile->reduced_scale_percent < configured_percent &&
-			probe.render_enabled();
+			probe.render_enabled() && g_cfg.video.vr.cinematic_scenes != vr_cinematic_scenes::full_quality;
 		const u16 percent = reduce ? profile->reduced_scale_percent : configured_percent;
 		if (static u16 s_last = 0; s_last != percent)
 		{
@@ -894,6 +894,11 @@ namespace rsx::vr
 			s_last = percent;
 		}
 		return percent;
+	}
+
+	bool cinematic_frame_on_screen()
+	{
+		return s_reduced_scale_frames && g_cfg.video.vr.cinematic_scenes == vr_cinematic_scenes::fixed_screen;
 	}
 
 	u16 min_scalable_dimension(u16 configured)

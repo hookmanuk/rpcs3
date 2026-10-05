@@ -55,6 +55,18 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrCinematicScenes">
+           <property name="title">
+            <string>Cinematic Scenes</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrCinematicScenes_layout">
+            <item>
+             <widget class="QComboBox" name="vrCinematicScenes"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QGroupBox" name="gb_vrHudScale">
            <property name="title">
             <string>HUD Scale</string>

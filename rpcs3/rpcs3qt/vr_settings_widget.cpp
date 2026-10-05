@@ -42,6 +42,9 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	enhance_checkbox(emu_settings_type::VRHudFixed, ui->vrHudFixed, tooltips.settings.vr_hud_fixed);
 	enhance_checkbox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
+	m_emu_settings->EnhanceComboBox(ui->vrCinematicScenes, emu_settings_type::VRCinematicScenes);
+	subscribe_tooltip(ui->gb_vrCinematicScenes, tooltips.settings.vr_cinematic_scenes);
+	ui->gb_vrCinematicScenes->setVisible(vr_profile && vr_profile->reduced_scale_percent);
 	{
 		// Each game's default rate, from its VR profile, with the headset refresh rates that
 		// are an exact multiple of it.

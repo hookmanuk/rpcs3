@@ -62,6 +62,8 @@ namespace rsx::vr
 	// such frames show, until 3 frames without them).
 	void note_reduced_scale_frame(bool listed_draw_seen);
 	u16 effective_resolution_scale(u16 configured_percent);
+	// VR Cinematic Scenes set to Fixed Screen, during the profile's reduced_scale_frames: the frame goes on the fixed screen.
+	bool cinematic_frame_on_screen();
 
 	// rsx::thread::on_frame_end: stereo inspector, camera probe poll, game refresh rate, profile generator, dev hooks.
 	void on_frame_end(u32 buffer, u32 draw_calls);

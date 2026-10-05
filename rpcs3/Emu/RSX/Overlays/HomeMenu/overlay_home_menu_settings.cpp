@@ -212,6 +212,11 @@ namespace rsx
 						return default_fps ? fmt::format("%s (%u FPS)", text, default_fps) : fmt::format("%s (headset refresh rate)", text);
 					});
 			}
+			// Only for games whose VR profile marks cinematic scenes (reduced_scale_frames).
+			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->reduced_scale_percent)
+			{
+				add_dropdown(&g_cfg.video.vr.cinematic_scenes, localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES);
+			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			{

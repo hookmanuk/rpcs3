@@ -403,3 +403,11 @@ enum class vr_frame_rate
 	unlimited, // the headset's refresh rate
 };
 
+// VR fork: the scenes a VR profile marks as cinematic (reduced_scale_frames: Gran Turismo 5's pre-race views).
+enum class vr_cinematic_scenes
+{
+	lower_resolution, // the profile's reduced Resolution Scale, in the headset view
+	fixed_screen,     // the reduced scale, on the fixed screen with the game's own camera
+	full_quality,     // the configured Resolution Scale, in the headset view
+};
+

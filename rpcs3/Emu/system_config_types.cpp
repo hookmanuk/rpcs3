@@ -786,6 +786,22 @@ void fmt_class_string<vsync_mode>::format(std::string& out, u64 arg)
 }
 
 template <>
+void fmt_class_string<vr_cinematic_scenes>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](vr_cinematic_scenes value)
+	{
+		switch (value)
+		{
+		case vr_cinematic_scenes::lower_resolution: return "Lower Resolution";
+		case vr_cinematic_scenes::fixed_screen: return "Fixed Screen";
+		case vr_cinematic_scenes::full_quality: return "Full Quality";
+		}
+
+		return unknown;
+	});
+}
+
+template <>
 void fmt_class_string<vr_frame_rate>::format(std::string& out, u64 arg)
 {
 	format_enum(out, arg, [](vr_frame_rate value)
