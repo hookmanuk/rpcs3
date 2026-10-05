@@ -268,6 +268,13 @@
 	void vr_mv_begin_query_segment();        // begin the guest's query (two slots) inside the open multiview pass
 	void vr_mv_end_query_segment(const vk::command_buffer& cmd); // the pass ends: end the open pair, continue with the next draw
 	void vr_mv_clear_eye_rects(const std::vector<VkClearAttachment>& clear_descriptors, const VkClearRect& left, const VkClearRect& right);
+	// A sub-viewport clear boxed into the HUD (GT5's mirror): each eye's image of the cleared rectangle, a slanted quad
+	// with the head turned (vr_map_clear_rect). The clear covers the quad in horizontal bands; the rest of its bounding
+	// box (which the draws' scissor allows) gets the nearest depth, so the draws, which the game clips with that
+	// scissor, cannot reach past the quad.
+	f32 m_vr_clear_quads[2][4][2]{};
+	bool m_vr_clear_quads_valid = false;
+	void vr_mv_clear_eye_quads(const std::vector<VkClearAttachment>& clear_descriptors);
 	vk::viewable_image* vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image);
 	// Multiview hooks in upstream functions
 	bool vr_bind_viewport();                 // bind_viewport(): one viewport and scissor per view; true when handled

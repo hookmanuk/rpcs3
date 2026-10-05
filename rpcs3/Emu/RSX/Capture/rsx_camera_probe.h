@@ -656,7 +656,9 @@ namespace rsx::vr
 		// subviewport_cameras_in_box: a scissored clear through a sub-viewport of a view target (the
 		// rear-view mirror's) moves into the box with the draws. rect: host pixels x1, y1, x2, y2, in
 		// the left eye; right_rect receives the right eye's (shifted by the HUD parallax).
-		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4]) const;
+		// quads (optional): each eye's (left, right) image of the clear's four corners in host pixels, in the order
+		// (x1, y1), (x2, y1), (x1, y2), (x2, y2): turned with the head the box shows the rectangle as a slanted quad.
+		bool map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4], f32 (*quads)[4][2] = nullptr) const;
 		void clear_hud_env_request() const
 		{
 			m_hud_env_request = false;
@@ -689,7 +691,7 @@ namespace rsx::vr
 		{
 			return m_box_mapped;
 		}
-		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const;
+		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4], f32 (*corners)[2] = nullptr) const;
 		// Profile depth_remap_programs: for the draw just bound (since clear_box_mapped), the matrix taking the eye's
 		// (NDC x, NDC y, window depth, 1) to the game's, homogeneous (row vector times matrix: 4 rows). False when no
 		// camera block of the draw took an eye transform (the identity then applies).

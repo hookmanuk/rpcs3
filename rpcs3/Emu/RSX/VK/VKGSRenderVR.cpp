@@ -2917,9 +2917,11 @@ std::optional<areai> VKGSRender::vr_map_clear_rect(u16 fb_width, u16 fb_height, 
 	{
 		f32 rect[4] = {static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h)};
 		f32 right[4];
+		m_vr_clear_quads_valid = false;
 		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
-				fb_width, fb_height, rect, right))
+				fb_width, fb_height, rect, right, m_vr_clear_quads))
 		{
+			m_vr_clear_quads_valid = true;
 			scissor_x = static_cast<u16>(std::floor(rect[0]));
 			scissor_y = static_cast<u16>(std::floor(rect[1]));
 			scissor_w = static_cast<u16>(std::ceil(rect[2]) - scissor_x);
@@ -4017,9 +4019,109 @@ bool VKGSRender::vr_clear_attachments(const std::vector<VkClearAttachment>& clea
 		return false;
 	}
 
+	if (std::exchange(m_vr_clear_quads_valid, false))
+	{
+		vr_mv_clear_eye_quads(clear_descriptors);
+		return true;
+	}
 	const VkClearRect right_region = {{{right_clear->x1, right_clear->y1}, {static_cast<u32>(right_clear->width()), static_cast<u32>(right_clear->height())}}, 0, 1};
 	vr_mv_clear_eye_rects(clear_descriptors, region, right_region);
 	return true;
+}
+
+void VKGSRender::vr_mv_clear_eye_quads(const std::vector<VkClearAttachment>& clear_descriptors)
+{
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+
+	// The nearest depth for the clear's depth range (a far clear value means a LESS-style test).
+	std::optional<VkClearAttachment> near_depth;
+	for (const auto& d : clear_descriptors)
+	{
+		if (d.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+		{
+			VkClearAttachment n = d;
+			n.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			n.clearValue.depthStencil.depth = d.clearValue.depthStencil.depth >= 0.5f ? 0.f : 1.f;
+			near_depth = n;
+		}
+	}
+
+	const u32 width = m_draw_fbo->width();
+	const u32 height = m_draw_fbo->height();
+	constexpr u32 bands = 256;
+	std::vector<VkClearRect> inside, outside;
+	inside.reserve(bands);
+	outside.reserve(bands * 2);
+	for (u8 eye = 0; eye < 2; ++eye)
+	{
+		inside.clear();
+		outside.clear();
+		const auto& c = m_vr_clear_quads[eye];
+		const f32 poly[4][2] = {{c[0][0], c[0][1]}, {c[1][0], c[1][1]}, {c[3][0], c[3][1]}, {c[2][0], c[2][1]}};
+		f32 bx1 = poly[0][0], bx2 = poly[0][0], by1 = poly[0][1], by2 = poly[0][1];
+		for (const auto& p : poly)
+		{
+			bx1 = std::min(bx1, p[0]); bx2 = std::max(bx2, p[0]);
+			by1 = std::min(by1, p[1]); by2 = std::max(by2, p[1]);
+		}
+		const s32 ix1 = std::clamp(static_cast<s32>(std::floor(bx1)), 0, static_cast<s32>(width));
+		const s32 ix2 = std::clamp(static_cast<s32>(std::ceil(bx2)), 0, static_cast<s32>(width));
+		const s32 iy1 = std::clamp(static_cast<s32>(std::floor(by1)), 0, static_cast<s32>(height));
+		const s32 iy2 = std::clamp(static_cast<s32>(std::ceil(by2)), 0, static_cast<s32>(height));
+		if (ix2 <= ix1 || iy2 <= iy1)
+		{
+			continue;
+		}
+		const s32 step = std::max<s32>(1, (iy2 - iy1 + bands - 1) / bands);
+		for (s32 y = iy1; y < iy2; y += step)
+		{
+			const s32 yb = std::min(y + step, iy2);
+			// The quad's x range over this band: its vertices inside it and its edges' crossings of the band's two lines.
+			f32 lo = FLT_MAX, hi = -FLT_MAX;
+			for (u32 i = 0; i < 4; ++i)
+			{
+				const f32* a = poly[i];
+				const f32* b = poly[(i + 1) % 4];
+				if (a[1] >= y && a[1] <= yb)
+				{
+					lo = std::min(lo, a[0]); hi = std::max(hi, a[0]);
+				}
+				for (const f32 line : {static_cast<f32>(y), static_cast<f32>(yb)})
+				{
+					if ((a[1] - line) * (b[1] - line) <= 0.f && a[1] != b[1])
+					{
+						const f32 x = a[0] + (b[0] - a[0]) * (line - a[1]) / (b[1] - a[1]);
+						lo = std::min(lo, x); hi = std::max(hi, x);
+					}
+				}
+			}
+			const s32 xl = lo <= hi ? std::clamp(static_cast<s32>(std::floor(lo)), ix1, ix2) : ix2;
+			const s32 xr = lo <= hi ? std::clamp(static_cast<s32>(std::ceil(hi)), xl, ix2) : ix2;
+			if (xr > xl)
+				inside.push_back({{{xl, y}, {static_cast<u32>(xr - xl), static_cast<u32>(yb - y)}}, 0, 1});
+			if (xl > ix1)
+				outside.push_back({{{ix1, y}, {static_cast<u32>(xl - ix1), static_cast<u32>(yb - y)}}, 0, 1});
+			if (ix2 > xr)
+				outside.push_back({{{xr, y}, {static_cast<u32>(ix2 - xr), static_cast<u32>(yb - y)}}, 0, 1});
+		}
+
+		const u8 view_mask = (eye == 0) ? 2 : 3;
+		const u64 key = vk::get_renderpass_key(m_fbo_images, {}, view_mask);
+		VkRenderPass pass = vk::get_renderpass(*m_device, key);
+		vk::framebuffer_holder* fbo = vk::get_framebuffer(*m_device, static_cast<u16>(width), static_cast<u16>(height), VK_FALSE, pass, m_fbo_images, view_mask, 0, 2);
+		fbo->add_ref();
+		vk::begin_renderpass(*m_current_command_buffer, pass, fbo->value, {positionu{0u, 0u}, sizeu{width, height}});
+		if (!inside.empty())
+			vkCmdClearAttachments(*m_current_command_buffer, ::size32(clear_descriptors), clear_descriptors.data(), ::size32(inside), inside.data());
+		if (near_depth && !outside.empty())
+			vkCmdClearAttachments(*m_current_command_buffer, 1, &*near_depth, ::size32(outside), outside.data());
+		vk::end_renderpass(*m_current_command_buffer);
+		fbo->release();
+	}
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 }
 
 // clear_surface(): the partial-colour-mask route (a quad through attachment_clear_pass) per eye, as vr_clear_attachments.

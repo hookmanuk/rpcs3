@@ -3052,7 +3052,7 @@ namespace rsx::vr
 		map_vr_screen_box(block.rows, eye_sign, static_cast<f32>(eye.width) / eye.height);
 	}
 
-	bool camera_probe::map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4]) const
+	bool camera_probe::map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4], f32 (*corners)[2]) const
 	{
 		// rect: x1, y1, x2, y2 in host pixels, replaced by the bounds of its image in the box.
 		const f32 vsx = rsx::method_registers.viewport_scale_x(), vsy = rsx::method_registers.viewport_scale_y();
@@ -3084,6 +3084,11 @@ namespace rsx::vr
 			}
 			const f32 x = (o[0] / o[3] * vsx + vox) * host_scale_x;
 			const f32 y = (o[1] / o[3] * vsy + voy) * host_scale_y;
+			if (corners)
+			{
+				corners[corner][0] = x;
+				corners[corner][1] = y;
+			}
 			out[0] = std::min(out[0], x);
 			out[1] = std::min(out[1], y);
 			out[2] = std::max(out[2], x);
@@ -3233,7 +3238,7 @@ namespace rsx::vr
 		}
 	}
 
-	bool camera_probe::map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4]) const
+	bool camera_probe::map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4], f32 (*quads)[4][2]) const
 	{
 		const title_profile* p = profile();
 		const size2u shown = g_fxo->get<rsx::avconf>().video_frame_size();
@@ -3251,8 +3256,8 @@ namespace rsx::vr
 		f32 box[4][4];
 		std::copy(rect, rect + 4, right_rect);
 		const f32 aspect = static_cast<f32>(shown.width) / shown.height;
-		const bool mapped = map_vr_passthrough_hud(box, 1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, right_rect) &&
-		                    map_vr_passthrough_hud(box, -1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, rect);
+		const bool mapped = map_vr_passthrough_hud(box, 1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, right_rect, quads ? quads[1] : nullptr) &&
+		                    map_vr_passthrough_hud(box, -1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, rect, quads ? quads[0] : nullptr);
 		m_hud_env_request = request;
 		return mapped;
 	}
