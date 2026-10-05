@@ -5,7 +5,7 @@
   "name": "Gran Turismo 5",
   "reduced_scale_frames": {
     "draws": [{ "program": "ddee4cd4c5991aba", "texture": "2560x1440" }],
-    "scale": 200
+    "scale": 150
   },
   "skip_readback_sections": ["0xc9db5a80"],
   "late_readback_sections": ["0xc57f8000"],
