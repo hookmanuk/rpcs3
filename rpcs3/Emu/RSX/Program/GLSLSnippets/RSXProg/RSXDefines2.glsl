@@ -20,8 +20,8 @@ struct vertex_context_t
 	float z_near;
 	float z_far;
 	float vr_keep_depth; // VR fork: 1 = keep the input's depth (z/w) through scale_offset_mat (fixed HUD box)
-	float reserved0;
-	float reserved1;
+	float vr_depth_scale;  // VR fork: the viewport's z scale and offset (window depth = scale * z / w + offset), for vr_keep_depth
+	float vr_depth_offset;
 };
 
 struct draw_parameters_t

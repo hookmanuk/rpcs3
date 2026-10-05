@@ -629,7 +629,8 @@ void main()
 	vec4 pos = dest[0] * scale_offset_mat;
 #ifdef VR_KEEP_DEPTH
 	// VR: the fixed-in-front HUD box changes w with the head pose; keep the game's depth (z/w).
-	if (VR_KEEP_DEPTH != 0. && dest[0].w != 0.) pos.z *= pos.w / dest[0].w;
+	// The game's window depth (the viewport's z row on the game's own z / w) at the box's w.
+	if (VR_KEEP_DEPTH != 0. && dest[0].w != 0.) pos.z = (VR_DEPTH_SCALE * dest[0].z / dest[0].w + VR_DEPTH_OFFSET) * pos.w;
 #endif
 
 #ifdef Z_NEGATIVE_ONE_TO_ONE

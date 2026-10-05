@@ -3057,7 +3057,10 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 	*(reinterpret_cast<f32*>(buf + 76)) = ctx->clip_min();
 	*(reinterpret_cast<f32*>(buf + 80)) = ctx->clip_max();
 	*(reinterpret_cast<f32*>(buf + 84)) = vr_keep_depth; // vertex_context_t::vr_keep_depth
-	std::memset(buf + 88, 0, 8);                         // reserved0, reserved1
+	// vertex_context_t::vr_depth_scale, vr_depth_offset: the viewport's z row, from which vr_keep_depth rebuilds the game's
+	// window depth (the box's w enters the HUD-box matrix's z row through the offset).
+	*(reinterpret_cast<f32*>(buf + 88)) = ctx->viewport_scale_z();
+	*(reinterpret_cast<f32*>(buf + 92)) = ctx->viewport_offset_z();
 }
 
 usz VKGSRender::vr_depth_remap_size() const

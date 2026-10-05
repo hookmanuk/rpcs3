@@ -217,7 +217,9 @@ namespace vk
 		"#define point_size get_vertex_context().point_size\n"
 		"#define z_near get_vertex_context().z_near\n"
 		"#define z_far get_vertex_context().z_far\n"
-		"#define VR_KEEP_DEPTH get_vertex_context().vr_keep_depth\n\n";
+		"#define VR_KEEP_DEPTH get_vertex_context().vr_keep_depth\n"
+		"#define VR_DEPTH_SCALE get_vertex_context().vr_depth_scale\n"
+		"#define VR_DEPTH_OFFSET get_vertex_context().vr_depth_offset\n\n";
 
 		// Insert vp stream input
 		builder << "\n"

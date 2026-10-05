@@ -692,6 +692,8 @@ namespace rsx::vr
 			return m_box_mapped;
 		}
 		bool map_box_scissor(f32 host_scale_x, f32 host_scale_y, f32 host_width, f32 host_height, f32 rect[4], f32 (*corners)[2] = nullptr) const;
+		// The current viewport is smaller than the shown part of its target (a sub-viewport: GT5's mirror).
+		bool viewport_inside_shown_region() const;
 		// Profile depth_remap_programs: for the draw just bound (since clear_box_mapped), the matrix taking the eye's
 		// (NDC x, NDC y, window depth, 1) to the game's, homogeneous (row vector times matrix: 4 rows). False when no
 		// camera block of the draw took an eye transform (the identity then applies).

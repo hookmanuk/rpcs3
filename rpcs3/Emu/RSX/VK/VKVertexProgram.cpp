@@ -488,7 +488,7 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	// VR: the fixed-in-front HUD box changes w with the head pose; keep the game's depth (z/w).
 	OS << "	const vec4 vr_pre_xform = gl_Position;\n";
 	OS << "	gl_Position = gl_Position * scale_offset_mat;\n";
-	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z *= gl_Position.w / vr_pre_xform.w;\n";
+	OS << "	if (get_vertex_context().vr_keep_depth != 0. && vr_pre_xform.w != 0.) gl_Position.z = (get_vertex_context().vr_depth_scale * vr_pre_xform.z / vr_pre_xform.w + get_vertex_context().vr_depth_offset) * gl_Position.w;\n";
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
 	vk::vr_insert_exact_depth_vertex_end(OS, m_prog.ctrl); // VR fork: exact depth
 	vk::vr_insert_depth_remap_vertex_end(OS, m_prog.ctrl, properties.has_indexed_constants ? 512 : ::size32(m_constant_ids)); // VR fork: depth remap

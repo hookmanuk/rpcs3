@@ -2367,8 +2367,7 @@ namespace rsx::vr
 		if (profile.screen_space_subviewport_cameras_in_box && profile.screen_space_hud_box_after_shader &&
 			m_vr_view && m_vr_hmd_fov && m_vr_proj_valid && output_eye.height &&
 			profile.is_view_target(surface_w, surface_h, static_cast<f32>(output_eye.width) / output_eye.height) &&
-			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f < rsx::method_registers.surface_clip_width() * 0.9f &&
-			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f < rsx::method_registers.surface_clip_height() * 0.9f)
+			viewport_inside_shown_region())
 		{
 			block.release();
 			m_hud_env_request = true;
@@ -3238,6 +3237,20 @@ namespace rsx::vr
 		}
 	}
 
+	bool camera_probe::viewport_inside_shown_region() const
+	{
+		// The shown part of the target: Gran Turismo 5 draws its menus and HUD through a 1280x720 viewport into
+		// 2048x1080 buffers, so against the whole buffer that viewport looked like a sub-viewport too: the menus'
+		// full-screen colour and depth clears went into the HUD box like the mirror's. Turned with the head, the boxed
+		// depth clear no longer covered the menu cards, and each card failed its depth test against its own depth of
+		// the frame before: the cards were cut along a line (Matt, headset, 2026-10-03).
+		const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+		const f32 shown_w = out.width ? std::min<f32>(rsx::method_registers.surface_clip_width(), static_cast<f32>(out.width)) : rsx::method_registers.surface_clip_width();
+		const f32 shown_h = out.height ? std::min<f32>(rsx::method_registers.surface_clip_height(), static_cast<f32>(out.height)) : rsx::method_registers.surface_clip_height();
+		return std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f < shown_w * 0.9f &&
+		       std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f < shown_h * 0.9f;
+	}
+
 	bool camera_probe::map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4], f32 (*quads)[4][2]) const
 	{
 		const title_profile* p = profile();
@@ -3245,8 +3258,7 @@ namespace rsx::vr
 		if (!p || !p->screen_space_subviewport_cameras_in_box || !p->screen_space_hud_box_after_shader ||
 			!m_vr_view || !m_vr_hmd_fov || !m_vr_proj_valid || !shown.height ||
 			!p->is_view_target(surface_w, surface_h, static_cast<f32>(shown.width) / shown.height) ||
-			std::fabs(rsx::method_registers.viewport_scale_x()) * 2.f >= rsx::method_registers.surface_clip_width() * 0.9f ||
-			std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f >= rsx::method_registers.surface_clip_height() * 0.9f)
+			!viewport_inside_shown_region())
 		{
 			return false;
 		}
