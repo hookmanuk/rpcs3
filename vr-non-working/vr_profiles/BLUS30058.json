@@ -29,6 +29,7 @@
 
   "screen_space": {
     "orthographic_block": 256,
-    "preprojected_programs": ["fb86d28e9d78d604"]
+    "preprojected_programs": ["fb86d28e9d78d604"],
+    "screen_frame_draws": [{ "program": "2f663733efd6add1", "texture": "2048x2048" }, { "program": "f76b21b4f832b4c", "texture": "128x128" }]
   }
 }
