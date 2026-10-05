@@ -8,6 +8,9 @@
     "scale": 200
   },
   "skip_readback_sections": ["0xc9db5a80"],
+  "late_readback_sections": ["0xc57f8000"],
+  "late_readback_lengths": [512],
+  "min_scalable_dimension": 512,
   "max_fps": 0,
   "default_fps": 0,
   "game_frame_time_f32": ["0x184680c", "0x184acc0"],
