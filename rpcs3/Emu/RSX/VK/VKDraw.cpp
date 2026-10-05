@@ -1314,6 +1314,7 @@ void VKGSRender::end()
 
 	analyse_current_rsx_pipeline();
 	vr_on_draw_begin(); // VR fork: dev GPU profiler
+	if (vr_skip_far_cars()) return; // VR fork: profile car_draw_limit
 
 	m_frame_stats.setup_time += m_profiler.duration();
 

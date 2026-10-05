@@ -34,6 +34,7 @@
 #include "Emu/system_config.h"
 
 #include <vulkan/vulkan_core.h>
+#include <unordered_set>
 
 // Guards for what the fork adds to layouts upstream owns (see plans/8-upstream-merge-audit.md, section 2).
 static_assert(rsx::texture_control_bits::VR_REPROJECT_BIT < 32, "VR_REPROJECT_BIT must fit the 32-bit texture control word");
@@ -2655,6 +2656,223 @@ void VKGSRender::vr_restore_texture(u32 i, const vr_texture_redirect& redirect)
 			sync(section.src);
 		}
 	}
+}
+
+// end(), right after the pipeline is analysed (before textures, program, vertices and the VR setup, so a skipped draw
+// costs little): profile car_draw_limit draws the cars by distance tier by tier: full detail, only their first n draws,
+// without their small draws (min_vertices), or not at all (Gran Turismo 5; RPCS3_VR_CAR_LIMIT=0 turns it off).
+// Draws are grouped by transform (c[0..3]) on the 1280x720 scene target; a group's depth is the w row's translation
+// (c[3].w). A car is a group of 60+ draws with 10+ draws of the car body programs; the previous frame's cars, sorted
+// by depth, give each car its rank. Car-part programs (wheels, driver, glass: their own transforms) are learned: seen
+// 30+ times within 3 m of a car and almost never elsewhere. Only body and car-part draws are ever skipped; a cap counts
+// each transform group's own draws in its first pass, so small part groups stay under it, and a car's later pass
+// (glass and other see-through parts, drawn after all the cars' bodies) is kept.
+bool VKGSRender::vr_skip_far_cars()
+{
+	const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
+	// RPCS3_VR_CAR_LIMIT=0: off; -1: observe only (the car log, nothing skipped).
+	static const s32 s_env = []
+	{
+		const char* v = std::getenv("RPCS3_VR_CAR_LIMIT");
+		return v ? std::atoi(v) : 1;
+	}();
+	const bool s_off = s_env == 0;
+	if (s_off || !profile || profile->car_draw_tiers.empty() || profile->car_body_programs.empty() ||
+		m_framebuffer_layout.width != 1280 || m_framebuffer_layout.height != 720)
+	{
+		return false;
+	}
+
+	constexpr f32 near_car = 3.f;
+	const auto is_body = [&](u64 program)
+	{
+		return std::find(profile->car_body_programs.begin(), profile->car_body_programs.end(), program) != profile->car_body_programs.end();
+	};
+
+	struct group
+	{
+		u32 draws = 0, body_draws = 0;
+		u32 last_draw = 0, pass = 0, pass_draws = 0; // a car's later pass (glass, see-through parts) comes after the other cars
+		f32 depth = 0.f;
+		std::vector<u64> programs;
+		std::vector<u32> body_vertices; // first-pass draws' vertex counts (for keep_percent)
+	};
+	struct car
+	{
+		f32 depth = 0.f;
+		std::vector<u32> cutoffs; // per tier: keep_percent's smallest kept vertex count (0: none)
+	};
+	struct program_stats
+	{
+		u32 near_count = 0, far_count = 0;
+	};
+	static std::unordered_map<u64, group> s_groups;
+	static std::unordered_map<u64, program_stats> s_programs;
+	static std::vector<f32> s_cars; // previous frame: car depths, nearest first
+	static std::vector<car> s_car_info; // previous frame: per car, nearest first
+	static u64 s_frame = umax, s_skipped = 0, s_frames = 0;
+	static u32 s_draw = 0;
+
+	if (s_frame != int_flip_index)
+	{
+		s_draw = 0;
+		std::vector<f32> cars;
+		std::vector<car> car_info;
+		for (auto& [key, g] : s_groups)
+		{
+			if (g.draws >= 60 && g.body_draws >= 10 && g.depth > 0.f)
+			{
+				cars.push_back(g.depth);
+				car& info = car_info.emplace_back();
+				info.depth = g.depth;
+				std::sort(g.body_vertices.begin(), g.body_vertices.end(), std::greater<>());
+				u64 total = 0;
+				for (const u32 v : g.body_vertices)
+				{
+					total += v;
+				}
+				for (const auto& t : profile->car_draw_tiers)
+				{
+					u32 cutoff = 0;
+					if (t.keep_percent && t.keep_percent < 100)
+					{
+						u64 kept = 0;
+						for (const u32 v : g.body_vertices)
+						{
+							kept += v;
+							cutoff = v;
+							if (kept * 100 >= total * t.keep_percent)
+							{
+								break;
+							}
+						}
+					}
+					info.cutoffs.push_back(cutoff);
+				}
+			}
+		}
+		std::sort(cars.begin(), cars.end());
+		std::sort(car_info.begin(), car_info.end(), [](const car& a, const car& b) { return a.depth < b.depth; });
+		s_car_info = std::move(car_info);
+		for (const auto& [key, g] : s_groups)
+		{
+			const bool close = std::any_of(cars.begin(), cars.end(), [&](f32 d) { return std::abs(d - g.depth) < near_car; });
+			for (const u64 program : g.programs)
+			{
+				auto& st = s_programs[program];
+				(close ? st.near_count : st.far_count) += 1;
+			}
+		}
+		s_cars = std::move(cars);
+		s_groups.clear();
+		s_frame = int_flip_index;
+		if (++s_frames % (s_env < 0 ? 15 : 300) == 0)
+		{
+			u32 parts = 0;
+			for (const auto& [prog, st] : s_programs)
+			{
+				parts += st.near_count >= 30 && st.far_count * 20 <= st.near_count;
+			}
+			std::string depths;
+			for (const f32 d : s_cars)
+			{
+				fmt::append(depths, " %.0f", d);
+			}
+			rsx_log.notice("VR car tiers: cars at%s m, %u car-part programs, %llu draws skipped over 300 frames", depths, parts, s_skipped);
+			s_skipped = 0;
+		}
+	}
+
+	const auto& c = rsx::method_registers.transform_constants;
+	u64 key = 0xcbf29ce484222325ull;
+	for (u32 r = 0; r < 4; r++)
+	{
+		for (u32 i = 0; i < 4; i++)
+		{
+			key = (key ^ c[r][i]) * 0x100000001b3ull;
+		}
+	}
+	const f32 depth = std::bit_cast<f32>(c[3][3]);
+	const u64 program = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+	auto& g = s_groups[key];
+	if (g.draws && s_draw - g.last_draw > 20)
+	{
+		g.pass++;
+		g.pass_draws = 0;
+	}
+	g.last_draw = s_draw++;
+	g.pass_draws++;
+	g.draws++;
+	const u32 elements = rsx::method_registers.current_draw_clause.vr_total_elements(); // 0: unknown (inline array)
+	if (!g.pass && elements)
+	{
+		g.body_vertices.push_back(elements);
+	}
+	g.depth = depth;
+	g.body_draws += is_body(program);
+	if (g.programs.size() < 64 && std::find(g.programs.begin(), g.programs.end(), program) == g.programs.end())
+	{
+		g.programs.push_back(program);
+	}
+
+	if (depth <= 0.f || s_cars.empty() || s_env < 0)
+	{
+		return false;
+	}
+	bool car_draw = is_body(program);
+	if (!car_draw)
+	{
+		const auto st = s_programs.find(program);
+		car_draw = st != s_programs.end() && st->second.near_count >= 30 && st->second.far_count * 20 <= st->second.near_count &&
+			std::any_of(s_cars.begin(), s_cars.end(), [&](f32 d) { return std::abs(d - depth) < near_car; });
+	}
+	if (!car_draw)
+	{
+		return false;
+	}
+
+	// The car's rank: the previous frame's cars nearer than this one (half a car length of slack).
+	const u32 rank = static_cast<u32>(std::count_if(s_cars.begin(), s_cars.end(), [&](f32 d) { return d < depth - near_car / 2.f; }));
+	const auto* tier = &profile->car_draw_tiers.back();
+	u32 first = 0;
+	for (const auto& t : profile->car_draw_tiers)
+	{
+		if (!t.cars || rank < first + t.cars)
+		{
+			tier = &t;
+			break;
+		}
+		first += t.cars;
+	}
+	u32 cutoff = 0;
+	if (tier->keep_percent)
+	{
+		const usz tier_index = static_cast<usz>(tier - profile->car_draw_tiers.data());
+		const car* nearest = nullptr;
+		for (const car& info : s_car_info)
+		{
+			if (std::abs(info.depth - depth) < near_car && (!nearest || std::abs(info.depth - depth) < std::abs(nearest->depth - depth)))
+			{
+				nearest = &info;
+			}
+		}
+		cutoff = nearest && tier_index < nearest->cutoffs.size() ? nearest->cutoffs[tier_index] : 0u;
+	}
+	// The tier limits the car's first (body) pass only: its later pass holds the glass and other see-through parts.
+	if (g.pass > 0)
+	{
+		return false;
+	}
+	const bool too_many = tier->draws == 0 || (tier->draws > 0 && g.pass_draws > static_cast<u32>(tier->draws));
+	const bool too_small = elements && (elements < tier->min_vertices || elements < cutoff);
+	if (!too_many && !too_small)
+	{
+		return false;
+	}
+	s_skipped++;
+	execute_nop_draw();
+	rsx::thread::end();
+	return true;
 }
 
 // end(): draws left out. Profile hidden_draws (effects switched off while VR is enabled: vertex

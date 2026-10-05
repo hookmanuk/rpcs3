@@ -149,6 +149,7 @@ namespace rsx
 			append_draw_command({ 0, first, count });
 		}
 
+		u32 vr_total_elements() const { u32 n = 0; for (const auto& r : draw_command_ranges) n += r.count; return n; } // VR fork: all ranges, valid before the draw starts (0 for inline arrays)
 		/**
 		 * Returns how many vertex or index will be consumed by the draw clause.
 		 */

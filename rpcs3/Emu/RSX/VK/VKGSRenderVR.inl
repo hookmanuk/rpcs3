@@ -345,6 +345,7 @@
 
 	// end()
 	void vr_on_draw_begin();     // GPU profiler draw marks
+	bool vr_skip_far_cars();     // dev RPCS3_VR_CAR_LIMIT=<n>: only the n nearest cars are drawn (GT5 test)
 	bool vr_skip_draw();         // profile hidden_draws, probe hide=, RPCS3_VR_RTDUMP prog= (does the nop draw itself)
 	void vr_before_draw_setup(); // realign blend targets, stereo inspector draw ordinal
 

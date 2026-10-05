@@ -493,6 +493,22 @@ namespace rsx::vr
 		// the scale multiplies like the view (16x the pixels at 400%) for no visible gain: Gran Turismo 5's 256x511
 		// reflection maps and 512-wide exposure and glare passes (~2 ms a frame at 400% in stereo).
 		u16 min_scalable_dimension = 0;
+		// car_draw_limit: { "tiers": [{ "cars": n, "draws": d, "min_vertices": v }, ...], "body_programs": [...] }
+		// (VKGSRenderVR.cpp vr_skip_far_cars): the cars by distance, tier by tier (cars 0: all the rest); draws -1 all
+		// (the default), 0 none, n only the first n of the car's body pass; min_vertices: body-pass draws with fewer
+		// vertices are left out (small parts: badges, lights, trim); keep_percent: only the car's largest body-pass
+		// draws making up that share of its body-pass vertices are drawn (the cut-off adapts to each car model: one
+		// built from many mid-size pieces keeps more of them). The later pass (glass) is always drawn. Gran Turismo 5
+		// draws each car as 110-165 draws at any distance, and the RSX thread is the limit with many cars.
+		struct car_draw_tier
+		{
+			u32 cars = 0;
+			s32 draws = -1;
+			u32 min_vertices = 0;
+			u32 keep_percent = 0;
+		};
+		std::vector<car_draw_tier> car_draw_tiers;
+		std::vector<u64> car_body_programs;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
