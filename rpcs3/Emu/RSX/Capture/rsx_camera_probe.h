@@ -942,4 +942,6 @@ namespace vk
 	bool vr_late_readback(const event* fence, u32 start, u32 length);
 	// Writes the queued late readbacks whose copies have landed (RSX thread, each flip).
 	void vr_complete_late_readbacks();
+	// VR fork, vk::texture_cache::on_frame_end: the temporary image pool's memory limit (upstream: 256 MB).
+	u64 vr_cached_image_pool_limit(u64 upstream_limit);
 }

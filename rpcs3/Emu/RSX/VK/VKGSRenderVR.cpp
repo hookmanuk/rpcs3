@@ -94,6 +94,38 @@ namespace vk
 		return true;
 	}
 
+	u64 vr_cached_image_pool_limit(u64 upstream_limit)
+	{
+		// Upstream trims the pool by half whenever it holds more than 256 MB. A temporary copy of a 1280x720
+		// target is 15 MB at 200% and 118 MB at 400% in stereo (two layers), so in VR the pool was trimmed every
+		// frame and the images allocated again (GT5: ~3.5% of the RSX thread in vkFreeMemory/vkDestroyImage).
+		// While stereo renders the limit grows with the scale's pixel count and the eye count, at most an eighth
+		// of the GPU's own memory. Dev: RPCS3_VR_IMAGE_POOL_MB sets it.
+		static const u64 s_env = []() -> u64
+		{
+			const char* v = std::getenv("RPCS3_VR_IMAGE_POOL_MB");
+			return v ? std::strtoull(v, nullptr, 10) * 0x100000 : 0;
+		}();
+		if (s_env)
+		{
+			return s_env;
+		}
+		if (!rsx::vr::camera_probe::get().render_enabled())
+		{
+			return upstream_limit;
+		}
+		const u64 scale = std::max<u64>(100, g_cfg.video.resolution_scale_percent);
+		const u64 wanted = upstream_limit * scale * scale / 10000 * 2;
+		const u64 vram = g_render_device ? g_render_device->get_memory_mapping().device_local_total_bytes : 0;
+		const u64 limit = std::max(upstream_limit, vram ? std::min(wanted, vram / 8) : upstream_limit);
+		if (static u64 s_logged = 0; s_logged != limit)
+		{
+			s_logged = limit;
+			rsx_log.notice("VR: temporary image pool limit %u MB (GPU memory %u MB).", limit >> 20, vram >> 20);
+		}
+		return limit;
+	}
+
 	void vr_complete_late_readbacks()
 	{
 		std::lock_guard lock(g_vr_late_mutex);
@@ -3059,7 +3091,8 @@ bool VKGSRender::vr_before_prepare_rtts()
 	const bool vr_early_readback = rsx::vr::camera_probe::get().render_enabled();
 	bool vr_copied_before_right_eye = false;
 	const u32 vr_dev = rsx::vr::camera_probe::get().dev_flags();
-	const bool s_no_rsx_early = (vr_dev & 2) || std::getenv("RPCS3_VR_NO_RSX_EARLY") != nullptr;
+	static const bool s_no_rsx_early_env = std::getenv("RPCS3_VR_NO_RSX_EARLY") != nullptr; // once: a getenv per target change was ~1% of the RSX thread (GT5)
+	const bool s_no_rsx_early = (vr_dev & 2) || s_no_rsx_early_env;
 	const bool s_copy_after_right = (vr_dev & 1) != 0;
 	m_texture_cache.vr_record_flushes = vr_early_readback && !s_no_rsx_early;
 	if (vr_early_readback)
