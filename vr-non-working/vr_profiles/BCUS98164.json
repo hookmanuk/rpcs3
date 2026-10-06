@@ -24,6 +24,7 @@
   },
 
   "screen_space": {
-    "orthographic_block": 12
+    "orthographic_block": 12,
+    "frames_without_3d_as_screen": true
   }
 }
