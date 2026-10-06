@@ -1737,6 +1737,14 @@ namespace rsx::vr
 		s_last_us = now_us;
 	}
 
+	// RPCS3_VR_FRAMESTATS: the frame's first game camera (apply_render_eye), | 1 so a camera draw never reads as none.
+	static atomic_t<u64> g_frame_camera_hash = 0;
+
+	u64 take_frame_camera_hash()
+	{
+		return g_frame_camera_hash.exchange(0);
+	}
+
 	void update_game_refresh_rate()
 	{
 		const title_profile* profile = camera_probe::get().profile();
@@ -2440,6 +2448,15 @@ namespace rsx::vr
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
+		}
+
+		if (static const bool s_frame_stats = std::getenv("RPCS3_VR_FRAMESTATS") != nullptr; s_frame_stats && !g_frame_camera_hash)
+		{
+			u64 h = 0xcbf29ce484222325ull;
+			for (u32 i = 0; i < 4; ++i)
+				for (u32 j = 0; j < 4; ++j)
+					h = (h ^ std::bit_cast<u32>(rows[i][j])) * 0x100000001b3ull;
+			g_frame_camera_hash = h | 1;
 		}
 
 		// Profile game_camera_aspects: a view rendered for a texture keeps the game's camera.

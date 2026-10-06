@@ -647,6 +647,14 @@ namespace rsx::vr
 				return 0;
 			};
 			static u64 s_cpu_start = 0;
+			// New frames: flips whose first game camera differs from the last one seen (a replayed or held frame repeats it).
+			static u64 s_last_camera = 0;
+			static u32 s_new_frames = 0;
+			if (const u64 camera = rsx::vr::take_frame_camera_hash(); camera && camera != s_last_camera)
+			{
+				s_new_frames++;
+				s_last_camera = camera;
+			}
 			const u64 now = get_system_time();
 			if (s_last)
 			{
@@ -671,9 +679,10 @@ namespace rsx::vr
 				const f32 median = sorted[sorted.size() / 2];
 				const usz late = static_cast<usz>(sorted.end() - std::upper_bound(sorted.begin(), sorted.end(), median * 1.5f));
 				const u64 cpu = rsx_cpu_us();
-				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%, RSX thread %.2f ms/frame",
+				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%, RSX thread %.2f ms/frame, new frames %.1f/s",
 					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size(),
-					(cpu - s_cpu_start) / 1000. / sorted.size());
+					(cpu - s_cpu_start) / 1000. / sorted.size(), s_new_frames * 1e6 / std::max<u64>(now - s_start, 1));
+				s_new_frames = 0;
 				s_times.clear();
 				s_start = now;
 				s_cpu_start = cpu;

@@ -585,6 +585,9 @@ namespace rsx::vr
 	void update_game_refresh_rate();
 	// Each game flip (rsx::thread::handle_emu_flip): measures the real frame rate update_game_refresh_rate falls back to.
 	void note_game_flip();
+	// RPCS3_VR_FRAMESTATS: a hash of the frame's first game camera (0: no camera draw since the last call), so the stats
+	// count new frames apart from flips that repeat one (Sonic's renderer replays its last frame between game steps).
+	u64 take_frame_camera_hash();
 
 	// True while one of the profile's screen_frames_when words holds one of its values (the frame goes on the fixed
 	// screen). Reads guest memory: call once per frame.

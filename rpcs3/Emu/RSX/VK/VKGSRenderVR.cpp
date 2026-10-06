@@ -257,6 +257,12 @@ void VKGSRender::vr_mark_3d_targets(bool camera)
 			surface->vr_has_3d = true;
 		}
 	}
+	// The depth buffer too: a pass that reads it (SEGA Rally's half-width depth for its soft dust particles) makes a
+	// per-eye image, which vr_eye_invariant_target must not hand the left eye's copy of.
+	if (auto* depth = std::get<1>(m_rtts.m_bound_depth_stencil))
+	{
+		depth->vr_has_3d = true;
+	}
 }
 
 void VKGSRender::vr_stamp_targets(u32 pose, bool camera)
@@ -3175,6 +3181,10 @@ void VKGSRender::vr_after_clear(bool cleared, bool full_frame, bool update_color
 				surface->vr_has_3d = false;
 			}
 		}
+	}
+	if (auto* depth = std::get<1>(m_rtts.m_bound_depth_stencil); depth && full_frame && update_z)
+	{
+		depth->vr_has_3d = false;
 	}
 
 	if (cleared && full_frame && update_color)
