@@ -577,6 +577,8 @@ namespace rsx::vr
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.
 	void update_game_refresh_rate();
+	// Each game flip (rsx::thread::handle_emu_flip): measures the real frame rate update_game_refresh_rate falls back to.
+	void note_game_flip();
 
 	// True while one of the profile's screen_frames_when words holds one of its values (the frame goes on the fixed
 	// screen). Reads guest memory: call once per frame.

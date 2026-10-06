@@ -620,6 +620,7 @@ namespace rsx::vr
 
 	void on_flip()
 	{
+		rsx::vr::note_game_flip();
 		// VR fork dev hook: RPCS3_VR_FRAMESTATS=<seconds> logs the game's frame times over each window of that
 		// length: frames, average FPS, 1% low and 0.1% low (the FPS of the 99th / 99.9th percentile frame time).
 		// Only runs when the variable is set.

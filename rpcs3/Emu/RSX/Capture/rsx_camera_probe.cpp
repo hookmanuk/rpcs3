@@ -1715,6 +1715,21 @@ namespace rsx::vr
 		return false;
 	}
 
+	// Smoothed host time between the game's flips (seconds; 0 = not measured yet), for update_game_refresh_rate.
+	static atomic_t<f64> g_game_flip_interval = 0.0;
+
+	void note_game_flip()
+	{
+		static u64 s_last_us = 0;
+		const u64 now_us = get_system_time();
+		if (const f64 dt = s_last_us ? (now_us - s_last_us) / 1e6 : 0.0; dt > 0.001 && dt < 0.2)
+		{
+			const f64 old = g_game_flip_interval.load();
+			g_game_flip_interval = old > 0.0 ? old * 0.9 + dt * 0.1 : dt;
+		}
+		s_last_us = now_us;
+	}
+
 	void update_game_refresh_rate()
 	{
 		const title_profile* profile = camera_probe::get().profile();
@@ -1745,7 +1760,36 @@ namespace rsx::vr
 			return vm::check_addr(address, vm::page_writable, 4) ? address : 0;
 		};
 
-		const f32 rate = static_cast<f32>(effective_vblank_rate());
+		// The rate the game really runs at. A PC that cannot keep the VR rate shows each frame twice (the runtime's
+		// ASW / motion smoothing halves it), and a frame-locked game told the nominal rate then runs in slow motion
+		// (Tales of Xillia at half speed on slower PCs). The time between game flips, smoothed, replaces the nominal
+		// rate when it is more than 3% slower. Long gaps (loading) are ignored. Dev: RPCS3_VR_NOMINAL_RATE=1 keeps the
+		// nominal rate.
+		const f32 nominal_rate = static_cast<f32>(effective_vblank_rate());
+		const f32 frames_per_vblank = 1.f / static_cast<f32>(std::max<u32>(profile->vblanks_per_frame, 1));
+		static const bool s_nominal_only = std::getenv("RPCS3_VR_NOMINAL_RATE") != nullptr;
+		const f64 frame_interval = g_game_flip_interval.load();
+		f32 rate = nominal_rate;
+		if (!s_nominal_only && frame_interval > 0.0 && nominal_rate > 0.f)
+		{
+			const f32 measured_fps = static_cast<f32>(1.0 / frame_interval);
+			const bool slow = measured_fps < nominal_rate * frames_per_vblank * 0.97f;
+			if (slow)
+			{
+				rate = measured_fps / frames_per_vblank;
+			}
+			static bool s_slow = false;
+			static u32 s_switches = 0;
+			if (slow != s_slow)
+			{
+				s_slow = slow;
+				if (s_switches++ < 20)
+				{
+					vr_probe_log.notice("Game frame rate: %s (%.1f FPS measured, VR rate %.1f FPS)", slow ? "below the VR rate, game timing follows the measured rate" : "back at the VR rate",
+						measured_fps, nominal_rate * frames_per_vblank);
+				}
+			}
+		}
 		for (const auto& target : profile->game_refresh_rate_f32)
 		{
 			const u32 address = resolve(target);
