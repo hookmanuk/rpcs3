@@ -7,11 +7,35 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
         BCUS98155: [ 01.00 ]
     Author: "VR fork (community 60 FPS + Variable FPS: illusion, ZEROx)"
     Notes: "The community 60 FPS patch (the game no longer switches its flip interval to 2 vblanks) plus Variable FPS (the game clock steps by measured real time instead of a fixed tick). Set Vblank Rate to the headset rate. Known from the community patches: slower movement through water above 60 FPS."
-    Patch Version: 1.0
-    Enabled By Default: false
+    Patch Version: 1.1
+    Enabled By Default: true
+    Apply To Savestates: true
     Patch:
       - [ be32, 0x00435d1c, 0x60000000 ]
       - [ be32, 0x00435f9c, 0x38c00001 ]
+      # VR: the clock steps by the frame time the VR profile writes to 0x145ff00 (1/fps of the headset, or the measured
+      # rate when the PC is slower) instead of the measured time between frames, whose jitter shook the view in the headset.
+      # Unused page tail after the BSS; seeded with 1/60 on first use. Without the VR profile the word stays 1/60: a 60 FPS step.
+      - [ calloc, 0x00436030, 19 ] # was fcfid f13, f3 (the measured step in timebase ticks)
+      - [ be32, 0x0, 0xfda01e9c ]
+      - [ be32, 0x0, 0x3d800146 ]
+      - [ be32, 0x0, 0x812cff00 ]
+      - [ be32, 0x0, 0x7d6802a6 ]
+      - [ be32, 0x0, 0x429f0005 ]
+      - [ be32, 0x0, 0x7d4802a6 ]
+      - [ be32, 0x0, 0x7d6803a6 ]
+      - [ be32, 0x0, 0x2c090000 ]
+      - [ be32, 0x0, 0x40820010 ]
+      - [ be32, 0x0, 0xc16a0034 ]
+      - [ be32, 0x0, 0xd16cff00 ]
+      - [ be32, 0x0, 0x48000014 ]
+      - [ be32, 0x0, 0xc00cff00 ]
+      - [ be32, 0x0, 0xc18a0030 ]
+      - [ be32, 0x0, 0xfda00332 ]
+      - [ be32, 0x0, 0x48000010 ]
+      - [ be32, 0x0, 0x4800000c ]
+      - [ be32, 0x0, 0x49742400 ] # 1000000.0: the clock counts microseconds
+      - [ be32, 0x0, 0x3c888889 ]
   "Disable Dynamic Resolution Scaling (VR)":
     Games:
       "MotorStorm: Pacific Rift":
@@ -19,7 +43,8 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
     Author: "VR fork (community patch: illusion, ZEROx)"
     Notes: "The game lowers its render resolution when a frame takes long; stereo rendering doubles the RSX work, so in VR it dropped the resolution and the picture went soft."
     Patch Version: 1.0
-    Enabled By Default: false
+    Enabled By Default: true
+    Apply To Savestates: true
     Patch:
       - [ be32, 0x00360590, 0x38600000 ]
   "Disable Motion Blur (VR)":
@@ -29,6 +54,7 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
     Author: "VR fork (community patch: illusion, ZEROx)"
     Notes: "Camera motion blur smears the view on head turns in VR."
     Patch Version: 1.0
-    Enabled By Default: false
+    Enabled By Default: true
+    Apply To Savestates: true
     Patch:
       - [ be32, 0x0035fdec, 0x38600000 ]

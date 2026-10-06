@@ -5,6 +5,7 @@
   "name": "MOTORSTORM®: PACIFIC RIFT",
   "max_fps": 0,
   "default_fps": 0,
+  "game_frame_time_f32": ["0x145ff00"],
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [0, 256],
@@ -26,6 +27,7 @@
   },
 
   "screen_space": {
-    "orthographic_block": 256
+    "orthographic_block": 256,
+    "passthrough_hud": true
   }
 }
