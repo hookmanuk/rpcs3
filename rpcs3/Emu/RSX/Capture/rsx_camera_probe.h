@@ -126,6 +126,8 @@ namespace rsx::vr
 		bool xyw_rows = false;
 		// Blocks (camera or HUD) stored in the row_vectors layout whatever matrix_layout says:
 		// Bayonetta's scene is column_vectors c[8..11], its sprites row_vectors c[24..27].
+		// Blocks stored in the other layout than matrix_layout: row_vector_blocks in a column_vectors game, or
+		// column_vector_blocks in a row_vectors game (Dragon Age: Origins' foliage, a DP4 camera at c[258]); one list.
 		std::vector<u32> row_vector_blocks;
 		// Blocks holding another view of the same camera: Bayonetta's motion-vector pass keeps the
 		// previous frame's view-projection in c[36..39] beside the camera c[8..11]. They get the camera
