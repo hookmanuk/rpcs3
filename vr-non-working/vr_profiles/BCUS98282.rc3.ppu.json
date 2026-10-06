@@ -10,6 +10,8 @@
   "game_frame_time_cube_f32": ["0xc1de74"],
 
   "matrix_layout": "column_vectors",
+  "depth_remap_programs": ["1459aa3afca2e172"],
+  "depth_remap_uv": true,
   "camera_blocks": [0],
   "output_aspect_tolerance": 0.02,
 

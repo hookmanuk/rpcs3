@@ -182,6 +182,10 @@ namespace rsx::vr
 		s32 depth_remap_ray_texcoord = -1;
 		// depth_remap_xyw: the clip position texture coordinate is packed (x, y, w) instead of (x, y, z, w).
 		bool depth_remap_xyw = false;
+		// depth_remap_uv: the texture coordinate holds the pass's screen uv (u = (x/w + 1)/2, v = (1 - y/w)/2, as a depth
+		// lookup coordinate) instead of its clip position; a pass that also reads its window position (wpos) gets it
+		// moved by the same remap. Ratchet & Clank's character-shadow projector.
+		bool depth_remap_uv = false;
 		f32 output_aspect_tolerance = 0.f; // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches

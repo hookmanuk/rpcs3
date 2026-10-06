@@ -349,7 +349,7 @@ namespace vk
 		const std::string tc = "tc" + std::to_string(std::countr_zero(tc_mask));
 		const std::string unit = std::to_string(std::countr_zero(depth_mask));
 		const auto* profile = rsx::vr::camera_probe::get().profile();
-		if (profile && profile->depth_remap_ray_texcoord >= 0 && (tc_mask >> profile->depth_remap_ray_texcoord & 1))
+		if (profile && !profile->depth_remap_uv && profile->depth_remap_ray_texcoord >= 0 && (tc_mask >> profile->depth_remap_ray_texcoord & 1))
 		{
 			// Ray variant (profile depth_remap_ray_texcoord): the pass rebuilds a view-space position as its view ray
 			// (a varying built with the game's view, not a camera block) scaled to the depth's view distance, with its
@@ -399,9 +399,29 @@ namespace vk
 		OS << "		const ivec2 vr_px = ivec2(gl_FragCoord.xy);\n";
 		OS << "#endif\n";
 		OS << "		const float vr_w = " << tc << ".w != 0. ? " << tc << ".w : 1.;\n";
-		OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+		if (profile && profile->depth_remap_uv)
+		{
+			// Screen uv (y down) to NDC, remap to the game camera, and back to uv (w = 1: the program divides by it).
+			OS << "		const vec2 vr_uv = " << tc << ".xy / vr_w;\n";
+			OS << "		const vec4 vr_eye = vec4(vr_uv.x * 2. - 1., 1. - vr_uv.y * 2., texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+		}
+		else
+		{
+			OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+		}
 		OS << "		vr_remap_position = vr_eye.x * vr_depth_remap[0] + vr_eye.y * vr_depth_remap[1] + vr_eye.z * vr_depth_remap[2] + vr_depth_remap[3];\n";
 		OS << "		vr_remap_zs = vec2(vr_remap_position.w != 0. ? clamp(vr_remap_position.z / vr_remap_position.w, 0., 1.) : vr_eye.z, float(texelFetch(tex" << unit << "_stencil, vr_px, 0).x));\n";
+		if (profile && profile->depth_remap_uv)
+		{
+			OS << "		const vec2 vr_ndc_g = vr_remap_position.xy / (vr_remap_position.w != 0. ? vr_remap_position.w : 1.);\n";
+			if (in_register_mask & 1) // FragmentProgramDecompiler's in_wpos: move the window position by the NDC change
+			{
+				OS << "		const vec2 vr_dn = vec2(dFdx(vr_eye.x), dFdy(vr_eye.y));\n";
+				OS << "		const vec2 vr_k = vec2(abs(vr_dn.x) > 1e-12 ? dFdx(wpos.x) / vr_dn.x : 0., abs(vr_dn.y) > 1e-12 ? dFdy(wpos.y) / vr_dn.y : 0.);\n";
+				OS << "		wpos.xy += (vr_ndc_g - vr_eye.xy) * vr_k;\n";
+			}
+			OS << "		vr_remap_position = vec4((vr_ndc_g.x + 1.) * 0.5, (1. - vr_ndc_g.y) * 0.5, " << tc << ".z, 1.);\n";
+		}
 		OS << "	}\n";
 		OS << "#define " << tc << " vr_remap_position\n";
 		OS << "#undef TEX2D_Z24X8_RGBA8\n";
