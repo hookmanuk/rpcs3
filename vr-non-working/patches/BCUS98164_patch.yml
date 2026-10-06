@@ -1,0 +1,39 @@
+Version: 1.2
+
+PPU-d89d00dcaa6bacbcbe5f359795c94f3d6020cc81: # EBOOT.BIN (Heavy Rain)
+  "Wider view (VR culling)":
+    Games:
+      "Heavy Rain":
+        BCUS98164: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Widens the game camera's field of view (about 32 degrees high in gameplay) by the chosen scale, up to 149 degrees, in the projection builder (0x898418) that every camera goes through. The game culls the scene to its camera, so in the headset rooms ended in black at the edges of the view and when turning the head. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 2.5
+        Allowed Values:
+          "1.0 (off)": 1.0
+          "1.5": 1.5
+          "2.0": 2.0
+          "2.5 (recommended)": 2.5
+          "3.0": 3.0
+          "3.5": 3.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      # min(half FOV x Scale, 1.3 rad): f27 = f1 (vertical FOV, rad) x 0.5; f0, f13, r11, r12 are free here
+      - [ calloc, 0x0089842c, 13 ] # was fmuls f27, f1, f0
+      - [ be32, 0x0, 0xef610032 ] # fmuls f27, f1, f0
+      - [ be32, 0x0, 0x7d6802a6 ] # mflr r11
+      - [ be32, 0x0, 0x429f0005 ] # bcl 20, 31, +4
+      - [ be32, 0x0, 0x7d8802a6 ] # mflr r12 (this address)
+      - [ be32, 0x0, 0x7d6803a6 ] # mtlr r11
+      - [ be32, 0x0, 0xc00c0020 ] # lfs f0, 0x20(r12)   Scale
+      - [ be32, 0x0, 0xef7b0032 ] # fmuls f27, f27, f0
+      - [ be32, 0x0, 0xc00c0024 ] # lfs f0, 0x24(r12)   maximum half angle
+      - [ be32, 0x0, 0xedbb0028 ] # fsubs f13, f27, f0
+      - [ be32, 0x0, 0xff6dd82e ] # fsel f27, f13, f0, f27
+      - [ be32, 0x0, 0x4800000c ] # b over the two constants
+      - [ bef32, 0x0, "Scale" ]
+      - [ bef32, 0x0, 1.3 ]       # maximum half angle, radians (149 degrees)
