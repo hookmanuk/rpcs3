@@ -37,3 +37,79 @@ PPU-3de6ba9344eb2079d5afda4552e831826af4bd09:
       - [ be32, 0x0, 0x4800000c ] # b over the two constants
       - [ bef32, 0x0, "Scale" ]
       - [ bef32, 0x0, 150.0 ]     # maximum, degrees
+
+PPU-8f729e902ad2c7ae0f7f4cbacbfaa17dcb080be9:
+  "Wider view (VR culling)":
+    Games:
+      "Ratchet & Clank Collection":
+        BCUS98282: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Ratchet & Clank 2: Going Commando. Widens the camera's field of view (52 degrees high) by the chosen scale, up to 150 degrees, where the game passes it to the projection builder (0xb194d8). The game culls the scenery to this view, so in the headset the background drew in late at the edges of the view. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). Every step costs frame rate (the game draws everything in the wider view): measured in Ratchet & Clank 1."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 1.25
+        Allowed Values:
+          "1.0 (off: 52 degrees high)": 1.0
+          "1.25 (65 degrees, recommended: about 3% slower)": 1.25
+          "1.5 (78 degrees: about 20% slower)": 1.5
+          "2.0 (104 degrees: about half the frame rate)": 2.0
+          "2.5 (130 degrees)": 2.5
+          "2.85 (150 degrees, maximum)": 2.85
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      # min(field of view x zoom x Scale, 150 degrees): f1 is the field of view in degrees, f5 the zoom; f0, f13, r11, r12 are free
+      - [ calloc, 0x00b194d8, 13 ] # was fmuls f1, f1, f5
+      - [ be32, 0x0, 0xec210172 ] # fmuls f1, f1, f5
+      - [ be32, 0x0, 0x7d6802a6 ] # mflr r11
+      - [ be32, 0x0, 0x429f0005 ] # bcl 20, 31, +4
+      - [ be32, 0x0, 0x7d8802a6 ] # mflr r12 (this address)
+      - [ be32, 0x0, 0x7d6803a6 ] # mtlr r11
+      - [ be32, 0x0, 0xc00c0020 ] # lfs f0, 0x20(r12)   Scale
+      - [ be32, 0x0, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x0, 0xc00c0024 ] # lfs f0, 0x24(r12)   maximum
+      - [ be32, 0x0, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x0, 0xfc2d082e ] # fsel f1, f13, f0, f1
+      - [ be32, 0x0, 0x4800000c ] # b over the two constants
+      - [ bef32, 0x0, "Scale" ]
+      - [ bef32, 0x0, 150.0 ]     # maximum, degrees
+
+PPU-56a8d02d516d82e5c1d39a4f7b3c9f83e350ab61:
+  "Wider view (VR culling)":
+    Games:
+      "Ratchet & Clank Collection":
+        BCUS98282: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Ratchet & Clank 3: Up Your Arsenal. Widens the camera's field of view (51 degrees high) by the chosen scale, up to 150 degrees, where the game passes it to the projection builder (0x128d24). The game culls the scenery to this view, so in the headset the background drew in late at the edges of the view. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). Every step costs frame rate (the game draws everything in the wider view): measured in Ratchet & Clank 1."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 1.25
+        Allowed Values:
+          "1.0 (off: 51 degrees high)": 1.0
+          "1.25 (65 degrees, recommended: about 3% slower)": 1.25
+          "1.5 (78 degrees: about 20% slower)": 1.5
+          "2.0 (104 degrees: about half the frame rate)": 2.0
+          "2.5 (130 degrees)": 2.5
+          "2.85 (150 degrees, maximum)": 2.85
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      # min(field of view x Scale, 150 degrees): f4 is the field of view in degrees; f0, f13, r11, r12 are free
+      - [ calloc, 0x00128d24, 13 ] # was fmr f1, f4
+      - [ be32, 0x0, 0xfc202090 ] # fmr f1, f4
+      - [ be32, 0x0, 0x7d6802a6 ] # mflr r11
+      - [ be32, 0x0, 0x429f0005 ] # bcl 20, 31, +4
+      - [ be32, 0x0, 0x7d8802a6 ] # mflr r12 (this address)
+      - [ be32, 0x0, 0x7d6803a6 ] # mtlr r11
+      - [ be32, 0x0, 0xc00c0020 ] # lfs f0, 0x20(r12)   Scale
+      - [ be32, 0x0, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x0, 0xc00c0024 ] # lfs f0, 0x24(r12)   maximum
+      - [ be32, 0x0, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x0, 0xfc2d082e ] # fsel f1, f13, f0, f1
+      - [ be32, 0x0, 0x4800000c ] # b over the two constants
+      - [ bef32, 0x0, "Scale" ]
+      - [ bef32, 0x0, 150.0 ]     # maximum, degrees
