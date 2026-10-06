@@ -125,4 +125,6 @@ namespace vk::xr
 	// centred at (x, y, -distance) in LOCAL space, or in VIEW space (following the
 	// head) when !world_locked. Takes effect on the next headset frame.
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance);
+	// The fixed screen shows the left eye's image to both eyes (flat), for frames put on it as menus, pauses or videos.
+	void set_screen_mono(bool mono);
 } // namespace vk::xr

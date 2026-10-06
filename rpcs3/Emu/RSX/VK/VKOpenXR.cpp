@@ -179,6 +179,7 @@ namespace vk::xr
 				XrFovf eye_fov[2]{};
 			};
 			render_pose_t render_poses[8]{};
+			atomic_t<bool> screen_mono{false}; // set_screen_mono: both eyes see the left eye's image on the fixed screen
 			u32 render_pose_count = 0;
 
 // Declares the function pointer of an OpenXR entry point (token pasting: a macro by necessity).
@@ -1264,7 +1265,7 @@ namespace vk::xr
 						auto& quad = quads[i];
 						quad.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
 						quad.eyeVisibility = i == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
-						quad.subImage.swapchain = g_xr.eyes[i].handle;
+						quad.subImage.swapchain = g_xr.eyes[g_xr.screen_mono ? 0 : i].handle;
 						quad.subImage.imageRect = {{0, 0}, {static_cast<s32>(g_xr.swapchain_w), static_cast<s32>(g_xr.swapchain_h)}};
 						quad.subImage.imageArrayIndex = 0;
 						quad.pose.orientation.w = 1.f;
@@ -1673,6 +1674,11 @@ namespace vk::xr
 	f32 ipd()
 	{
 		return g_xr.ipd;
+	}
+
+	void set_screen_mono(bool mono)
+	{
+		g_xr.screen_mono = mono;
 	}
 
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance)

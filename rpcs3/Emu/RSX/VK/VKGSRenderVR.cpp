@@ -1633,6 +1633,10 @@ void VKGSRender::vr_update_view()
 		const f32 auto_scale = reference_width > 0.f && width > reference_width ? reference_width / width : 1.f;
 		probe.set_screen_stereo_scale(auto_scale * g_cfg.video.vr.screen_depth.get() / 100.f);
 
+		// A frame on the fixed screen as a menu, pause or video (not the user's Fixed Screen mode) is flat: both eyes
+		// show the left eye's image. Its 3D parts (R&C 1's map over the frozen level, 3D menu models) otherwise kept
+		// the game's stereo inside the screen, and the boxes did not line up between the eyes.
+		vk::xr::set_screen_mono(no_3d && !g_cfg.video.vr.fixed_screen && vk::xr::projection_mode());
 		vk::xr::set_screen(true, g_cfg.video.vr.hud_fixed.get(),
 			width,
 			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
