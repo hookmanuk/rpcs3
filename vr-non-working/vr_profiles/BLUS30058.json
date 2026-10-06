@@ -7,6 +7,7 @@
   "default_fps": 0,
 
   "game_vblank_frames_f32": ["0x45f880"],
+  "game_camera_programs": ["6ee03b711bca1ae1"],
   "matrix_layout": "row_vectors",
   "camera_blocks": [256, 0],
   "require_camera_aspect": true,
