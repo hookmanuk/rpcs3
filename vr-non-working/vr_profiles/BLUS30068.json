@@ -29,6 +29,7 @@
   "screen_space": {
     "passthrough_hud": true,
     "hud_display_buffers_only": true,
+    "hud_programs": ["5c0d80187ad91a90"],
     "screen_frame_draws": [{ "program": "860c2ce6c6398a2c", "texture": "0x0" }, { "program": "5e4fd5886053bfac", "texture": "0x0" }]
   }
 }
