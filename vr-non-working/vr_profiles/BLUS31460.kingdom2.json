@@ -28,6 +28,7 @@
 
   "screen_space": {
     "passthrough_hud": true,
+    "frames_without_3d_as_screen": true,
     "hud_programs": ["67d8f773436e61a5", "b4c6872a86d66c95"],
     "preprojected_programs": ["a0ae7ea7d5ffb37f"]
   }

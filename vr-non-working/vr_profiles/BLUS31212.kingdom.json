@@ -29,6 +29,7 @@
 
   "screen_space": {
     "passthrough_hud": true,
+    "frames_without_3d_as_screen": true,
     "hud_programs": ["b49181469f73967f", "16ac04cbcbe66dac"],
     "preprojected_programs": ["b7585fdcc1fb5ad9"],
     "screen_frame_draws": [{ "program": "16ac04cbcbe66dac", "texture": "1280x720" }]
