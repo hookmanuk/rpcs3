@@ -18,7 +18,7 @@ PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
       "Sonic & All-Stars Racing Transformed":
         BLUS30839: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Widens the race camera's field of view (50 degrees high on the grid, up to about 80 with boost) by the chosen scale, up to 150 degrees, where the game copies it into the render camera (0xb8024). The game culls the scenery and the sky against this frustum, so the parts of the track and sky the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment (0xbe8f90)."
+    Notes: "Fills the headset view: the game culls scenery, sky and land to its own camera (50 degrees high), so turning or looking up showed them ending. This widens only the culling by the chosen scale (up to 150 degrees): the camera is built twice a frame, at the game's field of view for drawing and shadows, then widened for the culling, and the SPU render jobs' own frustum test is switched off (they still transform with the game's view). Rendering, level of detail and shadows keep the game's view, so flat play looks unchanged. Version 1.0 widened the camera itself, which broke the shadows (they differed between the eyes) and left gaps in the loop. Code in a patch-allocated cave and the code segment's unused tail (0xbe8f88)."
     Configurable Values:
       "Scale":
         Type: double_enum
@@ -29,19 +29,61 @@ PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
           "2.0 (100 degrees)": 2.0
           "2.5 (125 degrees)": 2.5
           "3.0 (150 degrees, maximum, recommended)": 3.0
-    Patch Version: 1.0
+    Patch Version: 2.0
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
-      - [ be32, 0x000b8024, 0x48b30f6d ] # bl 0xbe8f90 (was lfs f1, 0x144(r31): the field of view, radians)
-      # min(field of view x Scale, 150 degrees); r11, f0 and f13 are free between the calls around 0xb8024
-      - [ be32, 0x00be8f90, 0xc03f0144 ] # lfs f1, 0x144(r31)
-      - [ be32, 0x00be8f94, 0x3d6000bf ] # lis r11, 0xbf
-      - [ be32, 0x00be8f98, 0xc00b8fb0 ] # lfs f0, -0x7050(r11)   Scale
-      - [ be32, 0x00be8f9c, 0xec210032 ] # fmuls f1, f1, f0
-      - [ be32, 0x00be8fa0, 0xc00b8fb4 ] # lfs f0, -0x704c(r11)   maximum
-      - [ be32, 0x00be8fa4, 0xeda10028 ] # fsubs f13, f1, f0
-      - [ be32, 0x00be8fa8, 0xfc2d082e ] # fsel f1, f13, f0, f1
-      - [ be32, 0x00be8fac, 0x4e800020 ] # blr
-      - [ bef32, 0x00be8fb0, "Scale" ]
-      - [ bef32, 0x00be8fb4, 2.61799 ]   # 150 degrees (radians)
+      - [ be32, 0x000b8024, 0xc03f0144 ] # lfs f1, 0x144(r31): the render camera keeps the game's field of view (restores version 1.0's hook)
+      # The camera is built twice: at the game's field of view, then widened (scenery culling, the SPU jobs' copy); then the
+      # global render block 0xcf1800 is restored from the first build's copy, so rendering and shadows keep the game's view.
+      - [ calloc, 0x0028a304, 30 ]
+      - [ be32, 0x0, 0x7c0802a6 ]
+      - [ be32, 0x0, 0xf821ff81 ]
+      - [ be32, 0x0, 0xf8010090 ]
+      - [ be32, 0x0, 0x3d80001d ]
+      - [ be32, 0x0, 0x618cd75c ]
+      - [ be32, 0x0, 0x7d8903a6 ]
+      - [ be32, 0x0, 0x60000000 ]
+      - [ be32, 0x0, 0x4e800421 ]
+      - [ be32, 0x0, 0x3d8000cf ]
+      - [ be32, 0x0, 0x816c1884 ]
+      - [ be32, 0x0, 0xf9610070 ]
+      - [ be32, 0x0, 0x807b001c ]
+      - [ be32, 0x0, 0x63c40000 ]
+      - [ be32, 0x0, 0x3d80001d ]
+      - [ be32, 0x0, 0x618cd75c ]
+      - [ be32, 0x0, 0x7d8903a6 ]
+      - [ be32, 0x0, 0x4e800421 ]
+      - [ be32, 0x0, 0xe9610070 ]
+      - [ be32, 0x0, 0x3d8000cf ]
+      - [ be32, 0x0, 0x618c1800 ]
+      - [ be32, 0x0, 0x38000008 ]
+      - [ be32, 0x0, 0x7c0903a6 ]
+      - [ be32, 0x0, 0x39400000 ]
+      - [ be32, 0x0, 0x7c0b50ce ]
+      - [ be32, 0x0, 0x7c0c51ce ]
+      - [ be32, 0x0, 0x394a0010 ]
+      - [ be32, 0x0, 0x4200fff4 ]
+      - [ be32, 0x0, 0xe8010090 ]
+      - [ be32, 0x0, 0x38210080 ]
+      - [ be32, 0x0, 0x7c0803a6 ]
+      - [ be32, 0x001dd778, 0x48a0b845 ] # bl 0xbe8fbc (was lfs f28, 0x38(r3): the field of view; widened on the second build only)
+      - [ be32, 0x00be8fbc, 0xc3830038 ] # lfs f28, 0x38(r3)
+      - [ be32, 0x00be8fc0, 0xe9810100 ] # ld r12, 0x100(r1): the build's return address
+      - [ be32, 0x00be8fc4, 0x71800004 ] # andi. r0, r12, 4
+      - [ be32, 0x00be8fc8, 0x4d820020 ] # beqlr (first build)
+      - [ be32, 0x00be8fcc, 0x3d8000bf ] # lis r12, 0xbf
+      - [ be32, 0x00be8fd0, 0xc00c8f88 ] # lfs f0, -0x7078(r12)   Scale
+      - [ be32, 0x00be8fd4, 0xef9c0032 ] # fmuls f28, f28, f0
+      - [ be32, 0x00be8fd8, 0xc00c8f8c ] # lfs f0, -0x7074(r12)   maximum
+      - [ be32, 0x00be8fdc, 0xedbc0028 ] # fsubs f13, f28, f0
+      - [ be32, 0x00be8fe0, 0xff8de02e ] # fsel f28, f13, f0, f28
+      - [ be32, 0x00be8fe4, 0x4e800020 ] # blr
+      - [ bef32, 0x00be8f88, "Scale" ]
+      - [ bef32, 0x00be8f8c, 2.61799 ]   # 150 degrees (radians)
+      - [ be32, 0x00b599b0, 0x40800009 ] # SPU render job: il r9, 0 (was fcgt 0x5842e009: the frustum test)
+      - [ be32, 0x00b599b8, 0x40800004 ] # SPU render job: il r4, 0 (was fcgt 0x584f0b04: the frustum test)
+      - [ be32, 0x00b599c0, 0x4080000e ] # SPU render job: il r14, 0 (was fcgt 0x584e430e: the frustum test)
+      - [ be32, 0x00b599c8, 0x40800003 ] # SPU render job: il r3, 0 (was fcgt 0x584fc583: the frustum test)
+      - [ be32, 0x00b599d0, 0x40800002 ] # SPU render job: il r2, 0 (was fcgt 0x58459f02: the frustum test)
+      - [ be32, 0x00b599d8, 0x40800007 ] # SPU render job: il r7, 0 (was fcgt 0x58419e87: the frustum test)
