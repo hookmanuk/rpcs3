@@ -423,6 +423,8 @@ namespace rsx::vr
 		{
 			u32 address = 0;
 			bool deref = false;
+			// "[[0xPTR]+0xA]+0xB": the offsets added before each further dereference (here A), outermost last.
+			std::vector<u32> inner_offsets;
 			u32 offset = 0;
 			// game_vblank_frames_f32 only: { "address": "...", "scale": n } writes n x the value (Jak II: 5 x 60 / fps =
 			// its clocks' ticks of 1/300 s per frame).

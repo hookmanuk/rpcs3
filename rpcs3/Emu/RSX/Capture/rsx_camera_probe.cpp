@@ -31,6 +31,25 @@ namespace rsx::vr
 	{
 		using mat4 = std::array<std::array<f32, 4>, 4>;
 
+		// The address a profile target names now, or 0 (a pointer on the way is null or unreadable).
+		u32 resolve_guest_address(const title_profile::guest_address& target)
+		{
+			u32 address = target.address;
+			if (!target.deref)
+			{
+				return address;
+			}
+			for (usz level = 0; level <= target.inner_offsets.size(); level++)
+			{
+				if (!vm::check_addr(address, vm::page_readable, 4) || !(address = vm::_ref<be_t<u32>>(address)))
+				{
+					return 0;
+				}
+				address += level < target.inner_offsets.size() ? target.inner_offsets[level] : target.offset;
+			}
+			return address;
+		}
+
 		mat4 identity()
 		{
 			mat4 m{};
@@ -1081,7 +1100,13 @@ namespace rsx::vr
 		const auto parse_guest_address = [&](const char* key, const std::string& text, title_profile::guest_address& a) -> bool
 		{
 			std::string rest = text;
-			if (rest.starts_with("["))
+			usz depth = 0;
+			while (rest.starts_with("["))
+			{
+				depth++;
+				rest = rest.substr(1);
+			}
+			if (depth)
 			{
 				const usz close = rest.find(']');
 				if (close == umax)
@@ -1090,8 +1115,19 @@ namespace rsx::vr
 					return false;
 				}
 				a.deref = true;
-				a.address = static_cast<u32>(std::strtoul(rest.substr(1, close - 1).c_str(), nullptr, 16));
+				a.address = static_cast<u32>(std::strtoul(rest.substr(0, close).c_str(), nullptr, 16));
 				rest = rest.substr(close + 1);
+				for (usz level = 1; level < depth; level++)
+				{
+					const usz inner_close = rest.find(']');
+					if (!rest.starts_with("+") || inner_close == umax)
+					{
+						fail(std::string(key) + ": '" + text + "' expected +offset] inside the nested brackets");
+						return false;
+					}
+					a.inner_offsets.push_back(static_cast<u32>(std::strtoul(rest.substr(1, inner_close - 1).c_str(), nullptr, 16)));
+					rest = rest.substr(inner_close + 1);
+				}
 				if (rest.starts_with("+"))
 				{
 					a.offset = static_cast<u32>(std::strtoul(rest.c_str() + 1, nullptr, 16));
@@ -1700,16 +1736,8 @@ namespace rsx::vr
 
 		for (const auto& rule : profile->screen_space_screen_frames_when)
 		{
-			u32 address = rule.address.address;
-			if (rule.address.deref)
-			{
-				if (!vm::check_addr(address, vm::page_readable, 4) || !(address = vm::_ref<be_t<u32>>(address)))
-				{
-					continue;
-				}
-				address += rule.address.offset;
-			}
-			if (!vm::check_addr(address, vm::page_readable, 4))
+			const u32 address = resolve_guest_address(rule.address);
+			if (!address || !vm::check_addr(address, vm::page_readable, 4))
 			{
 				continue;
 			}
@@ -1758,28 +1786,17 @@ namespace rsx::vr
 		// The address a target names now, or 0 (pointer not set up yet, or not writable).
 		const auto resolve = [](const title_profile::guest_address& target) -> u32
 		{
-			u32 address = target.address;
-			if (target.deref)
-			{
-				if (!vm::check_addr(address, vm::page_readable, 4))
-				{
-					return 0;
-				}
-				const u32 base = vm::_ref<be_t<u32>>(address);
-				if (!base)
-				{
-					return 0;
-				}
-				address = base + target.offset;
-			}
-			return vm::check_addr(address, vm::page_writable, 4) ? address : 0;
+			const u32 address = resolve_guest_address(target);
+			return address && vm::check_addr(address, vm::page_writable, 4) ? address : 0;
 		};
 
 		// The rate the game really runs at. A PC that cannot keep the VR rate shows each frame twice (the runtime's
 		// ASW / motion smoothing halves it), and a frame-locked game told the nominal rate then runs in slow motion
 		// (Tales of Xillia at half speed on slower PCs). The time between game flips, smoothed, replaces the nominal
-		// rate when it is more than 3% slower. Long gaps (loading) are ignored. Dev: RPCS3_VR_NOMINAL_RATE=1 keeps the
-		// nominal rate.
+		// rate when it is more than 3% slower. Long gaps (loading) are ignored, and so is a rate under 40% of the VR rate
+		// (a stall, not the runtime's halving): Need for Speed: Hot Pursuit's loading measured 7 FPS, and the 0.14 s step
+		// written then lay outside the frame-time window, so it was never replaced and the race ran 12x fast.
+		// Dev: RPCS3_VR_NOMINAL_RATE=1 keeps the nominal rate.
 		const f32 nominal_rate = static_cast<f32>(effective_vblank_rate());
 		const f32 frames_per_vblank = 1.f / static_cast<f32>(std::max<u32>(profile->vblanks_per_frame, 1));
 		static const bool s_nominal_only = std::getenv("RPCS3_VR_NOMINAL_RATE") != nullptr;
@@ -1788,7 +1805,8 @@ namespace rsx::vr
 		if (!s_nominal_only && frame_interval > 0.0 && nominal_rate > 0.f)
 		{
 			const f32 measured_fps = static_cast<f32>(1.0 / frame_interval);
-			const bool slow = measured_fps < nominal_rate * frames_per_vblank * 0.97f;
+			const f32 full_fps = nominal_rate * frames_per_vblank;
+			const bool slow = measured_fps < full_fps * 0.97f && measured_fps >= full_fps * 0.4f;
 			if (slow)
 			{
 				rate = measured_fps / frames_per_vblank;

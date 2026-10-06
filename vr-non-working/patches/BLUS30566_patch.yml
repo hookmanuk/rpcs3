@@ -1,0 +1,18 @@
+Version: 1.2
+
+PPU-edd75fcdb84e1c33c0c4d05a93143832e374b5d1: # EBOOT.BIN (Need for Speed: Hot Pursuit)
+  "Unlocked frame rate (VR)":
+    Games:
+      "Need for Speed: Hot Pursuit":
+        BLUS30566: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Races ran at 30 FPS: a frame limiter (0x4acb34) waits for 2 periods of 1/60 s and the vblank handler releases a flip every 2 vblanks. This makes both 1 and skips the wait, so the game presents every vblank (the headset's rate in VR). The game simulates in whole steps of [[0xd3bcec]+4]+0x48 (1/60 s); the VR profile sets it to 1/fps every frame (game_frame_time_f32), which keeps races real-time (checked at 90). Without the profile (flat at 60) it is unchanged."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x000e9bf4, 0x38800001 ] # li r4, 1 (was lbz r4, 0xff2(r31): frames per update, 2)
+      - [ be32, 0x004acb78, 0x4800005c ] # b 0x4acbd4: skip the busy-wait (was bne cr7: the limiter's off flag)
+      - [ be32, 0x00742c60, 0x38000001 ] # li r0, 1: the vblank handler's countdown reloads with 1, a flip every vblank (was lwz r0, 0x670(r24): 2)
+      - [ be32, 0x00738e78, 0x38000001 ] # li r0, 1: the countdown label set per frame (was lwz r0, 0x670(r31))
+      - [ be32, 0x007410b0, 0x38a00001 ] # li r5, 1: the countdown the RSX command writes (was lwz r5, 0x670(r31))
