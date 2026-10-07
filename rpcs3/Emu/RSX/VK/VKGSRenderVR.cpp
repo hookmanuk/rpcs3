@@ -3320,11 +3320,13 @@ void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye) const
 	if (eye && rsx::vr::camera_probe::get().depth_remap_matrix(reinterpret_cast<f32(&)[4][4]>(m)) &&
 		rsx::vr::camera_probe::get().game_projection_scale(px, py))
 	{
-		// Dev: RPCS3_VR_REMAP_RAY_SIGN=<x sign><y sign> ("+-" etc.) flips the ray's axes (finding a game's view-space convention).
+		// The ray's z is +1 here, but the game's view looks down -z (its pass divides by -z): x and y take the opposite
+		// sign. With "++" Sonic's shadow mask put far objects (the pagoda) in shadow and lost the cars' own shadows,
+		// differently per eye; "--" matches flat (Matt, 2026-10-07). Dev: RPCS3_VR_REMAP_RAY_SIGN=<x sign><y sign>.
 		static const std::string s_signs = []() -> std::string
 		{
 			const char* v = std::getenv("RPCS3_VR_REMAP_RAY_SIGN");
-			return v ? v : "++";
+			return v ? v : "--";
 		}();
 		m[4][0] = (s_signs.size() > 0 && s_signs[0] == '-' ? -1.f : 1.f) / px;
 		m[4][1] = (s_signs.size() > 1 && s_signs[1] == '-' ? -1.f : 1.f) / py;
