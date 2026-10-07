@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "title_id": "NPUB31448",
+  "app_version": "01.00",
+  "name": "FEZ",
+  "max_fps": 0,
+  "default_fps": 0,
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0,
+    "convergence": 1.0
+  },
+
+  "orthographic_stereo": {
+    "angle": 1.5,
+    "convergence_z": 0.507
+  }
+}

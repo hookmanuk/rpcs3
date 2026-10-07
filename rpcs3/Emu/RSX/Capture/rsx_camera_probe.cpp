@@ -1053,6 +1053,14 @@ namespace rsx::vr
 		{
 			profile->zcull_relaxed_sync = relaxed == "true";
 		}
+		const YAML::Node orthographic_stereo = child(root, "orthographic_stereo");
+		read(orthographic_stereo, "angle", profile->orthographic_stereo_angle, false);
+		read(orthographic_stereo, "convergence", profile->orthographic_stereo_convergence, false);
+		read(orthographic_stereo, "convergence_z", profile->orthographic_stereo_convergence_z, false);
+		if (profile->orthographic_stereo_angle < 0.f || profile->orthographic_stereo_angle > 20.f)
+		{
+			fail("orthographic_stereo.angle: expected 0 to 20 degrees");
+		}
 		if (const YAML::Node rect = child(root, "display_rect"); rect && rect.IsSequence())
 		{
 			if (rect.size() != 4)
@@ -1350,7 +1358,8 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo"});
+		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -2453,6 +2462,11 @@ namespace rsx::vr
 			return false;
 		}
 
+		if (profile.orthographic_stereo_angle > 0.f)
+		{
+			return apply_orthographic_eye(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
+		}
+
 		// The position policy has a wider domain than the matrix policy. Locate a
 		// perspective block first so the camera position's offset follows the exact
 		// camera right axis used by this draw (not a global axis or a stale prior draw).
@@ -2851,6 +2865,51 @@ namespace rsx::vr
 		}
 		finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, output_aspect_match, remap_volume, game_block, rows);
 		return true;
+	}
+
+	bool camera_probe::apply_orthographic_eye(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
+		u16 surface_w, u16 surface_h, f32 eye_sign) const
+	{
+		// An orthographic game (Fez) has no eye position to move: each eye's view is turned by the profile's angle about
+		// the convergence depth instead, so clip x moves by tan(angle) x (depth - convergence) in world units. Only
+		// depth-tested draws into view targets (the world): full-screen passes and the HUD stay as drawn and sample
+		// each eye's own targets. The picture goes on the fixed screen (VKGSRender::vr_update_view).
+		const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
+		if (!m_draw_depth_test || !surface_w || !surface_h || !eye.width || !eye.height ||
+			!profile.is_view_target(surface_w, surface_h, static_cast<f32>(eye.width) / eye.height))
+		{
+			return false;
+		}
+		const auto func = rsx::method_registers.depth_func();
+		// Depth grows away from the viewer unless the test passes greater depths.
+		const f32 depth_sign = func == rsx::comparison_function::greater || func == rsx::comparison_function::greater_or_equal ? -1.f : 1.f;
+		const f32 tan_angle = std::tan(profile.orthographic_stereo_angle * 0.017453292f) * m_screen_stereo_scale;
+		for (const u32 base : profile.camera_blocks)
+		{
+			const bool rows_layout = std::find(profile.row_vector_blocks.begin(), profile.row_vector_blocks.end(), base) != profile.row_vector_blocks.end();
+			matrix_block block;
+			if (!block.bind(buffer, reloc, reloc_size, base, profile.column_vectors != rows_layout) || is_perspective(block.rows))
+			{
+				continue;
+			}
+			f32* const* const rows = block.rows;
+			const f32 x_scale = std::sqrt(rows[0][0] * rows[0][0] + rows[1][0] * rows[1][0] + rows[2][0] * rows[2][0]);
+			const f32 z_scale = std::sqrt(rows[0][2] * rows[0][2] + rows[1][2] * rows[1][2] + rows[2][2] * rows[2][2]);
+			if (x_scale < 1e-8f || z_scale < 1e-12f)
+			{
+				continue;
+			}
+			// clip x += k (clip z - z0), z0 the clip z of the convergence depth.
+			const f32 k = eye_sign * depth_sign * tan_angle * x_scale / z_scale;
+			const f32 z0 = profile.orthographic_stereo_convergence_z > 0.f ? profile.orthographic_stereo_convergence_z :
+				rows[3][2] + depth_sign * profile.orthographic_stereo_convergence * z_scale;
+			for (u32 r = 0; r < 4; ++r)
+			{
+				rows[r][0] += k * (rows[r][2] - z0 * rows[r][3]);
+			}
+			return true;
+		}
+		return false;
 	}
 
 	void camera_probe::finish_eye_block(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size, f32 eye_sign,

@@ -398,6 +398,14 @@ namespace rsx::vr
 		bool zcull_approximate = false;
 		// true: while VR renders, the RSX thread does not wait for occlusion query results (as Relaxed ZCULL Sync). SEGA Rally Revo.
 		bool zcull_relaxed_sync = false;
+		// orthographic_stereo: a game drawn with an orthographic camera (Fez) is shown on the fixed screen as a diorama.
+		// Depth-tested view draws through a camera block with no perspective (w = 1) get each eye's view turned by this
+		// angle (degrees) about the convergence depth (world units beyond the block's world origin): clip x moves by
+		// tan(angle) x the depth from there. 0 = off. convergence_z instead: the clip z of the convergence plane (Fez keeps
+		// the front of its playfield near clip z 0.507 in every scene, while the world origin's depth varies).
+		f32 orthographic_stereo_angle = 0.f;
+		f32 orthographic_stereo_convergence = 0.f;
+		f32 orthographic_stereo_convergence_z = 0.f;
 		// The part of the displayed frame that holds the game's 3D view, in output pixels (x, y, width, height;
 		// width 0 = the whole frame). The headset is shown only that part, so the view fills the eye. God of War
 		// renders its scene at 1216x684 and insets it in the 1280x720 display with a black border: the world looked
@@ -824,6 +832,8 @@ namespace rsx::vr
 		void apply_vr_screen_space(const title_profile& profile, void* buffer, const u16* reloc_table_data, usz reloc_table_size,
 			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 		void map_vr_screen_box(f32* const rows[4], f32 eye_sign, f32 aspect) const;
+		bool apply_orthographic_eye(const title_profile& profile, void* buffer, const u16* reloc_table_data, usz reloc_table_size,
+			u16 surface_w, u16 surface_h, f32 eye_sign) const;
 
 		bool m_enabled = false;         // subsystem on (default render path or probe config)
 		atomic_t<bool> m_active{false}; // a perturbation is configured right now

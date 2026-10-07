@@ -1594,7 +1594,10 @@ void VKGSRender::vr_update_view()
 		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
 	}
 	m_vr_video_on_screen = no_3d;
-	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d;
+	// An orthographic game (profile orthographic_stereo: Fez) has no view to turn with the head: it is a diorama on the
+	// fixed screen, in stereo.
+	const bool orthographic = no_3d_profile && no_3d_profile->orthographic_stereo_angle > 0.f;
+	const bool fixed_screen = g_cfg.video.vr.fixed_screen || !vk::xr::projection_mode() || no_3d || orthographic;
 	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
 	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
 	const f32 vr_hud_distance = rsx::vr::effective_hud_depth();

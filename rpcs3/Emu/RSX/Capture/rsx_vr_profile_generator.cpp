@@ -624,9 +624,91 @@ namespace rsx::vr
 				}
 			}
 		}
-		if (candidates.empty())
+		// An orthographic game (Fez): depth-tested scene draws through an orthographic camera (w = 1, square pixels at
+		// the output aspect, a depth axis). Its profile shows the game on the fixed screen as a diorama
+		// (orthographic_stereo); the convergence plane starts at the median depth of the block's world origin.
+		std::map<std::pair<u32, u32>, std::vector<f64>> ortho;
+		u32 depth_tested = 0;
+		for (const draw_sample* s : views)
 		{
-			fail("no perspective camera matrix in the sampled draws (sample during 3D gameplay, not a menu)");
+			if (s->full_bank || !s->depth_test)
+				continue;
+			depth_tested++;
+			const slot_reader r{s->ids, s->values, false};
+			for (const u16 base : s->ids)
+			{
+				for (const u32 layout : {u32{layout_rows}, u32{layout_columns}})
+				{
+					const auto b = read_block(r, base, layout);
+					if (!b || b->z_missing)
+						continue;
+					const mat4& m = b->m;
+					constexpr f64 eps = 1e-6;
+					const f64 nx = len3(m[0]), ny = len3(m[1]), nz = len3(m[2]);
+					if (std::fabs(m[3][0]) < eps && std::fabs(m[3][1]) < eps && std::fabs(m[3][2]) < eps && std::fabs(m[3][3] - 1.0) < eps &&
+						nx > 1e-6 && ny > 1e-6 && nz > 1e-9 && std::fabs((ny / nx) / output_aspect - 1.0) <= 0.1 &&
+						std::fabs(dot3(m[0], m[1])) <= 0.1 * nx * ny && std::fabs(dot3(m[0], m[2])) <= 0.1 * nx * nz)
+					{
+						ortho[{layout, base}].push_back(m[2][3]);
+					}
+				}
+			}
+		}
+		const auto best = std::max_element(ortho.begin(), ortho.end(), [](const auto& a, const auto& b) { return a.second.size() < b.second.size(); });
+		u32 top_perspective = 0;
+		for (const auto& [key, count] : candidates)
+			top_perspective = std::max(top_perspective, count);
+		// An orthographic camera covering most of the scene wins over a few perspective-looking blocks (Fez's instance data).
+		const bool orthographic = best != ortho.end() && best->second.size() * 2 >= depth_tested && best->second.size() > 2 * top_perspective;
+		if (candidates.empty() || orthographic)
+		{
+			if (best == ortho.end() || best->second.size() * 2 < depth_tested)
+			{
+				fail("no perspective camera matrix in the sampled draws (sample during 3D gameplay, not a menu)");
+				return;
+			}
+			std::vector<f64> z = best->second;
+			std::nth_element(z.begin(), z.begin() + z.size() / 2, z.end());
+			const f64 convergence_z = z[z.size() / 2];
+			std::string json = "{\n  \"schema\": 1,\n";
+			json += fmt::format("  \"title_id\": \"%s\",\n", title);
+			if (!Emu.GetAppVersion().empty())
+				json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
+			if (max_fps)
+				json += fmt::format("  \"max_fps\": %u,\n  \"default_fps\": %u,\n", max_fps, max_fps);
+			json += fmt::format("\n  \"matrix_layout\": \"%s\",\n  \"camera_blocks\": [%u],\n  \"output_aspect_tolerance\": 0.02,\n\n",
+				layout_names[best->first.first], best->first.second);
+			json += "  \"camera_position\": {\n    \"eye_baseline\": 0.064\n  },\n\n";
+			json += "  \"stereo\": {\n    \"formula\": \"clip_x_shear\",\n    \"per_eye_separation\": 0.0,\n    \"convergence\": 1.0\n  },\n\n";
+			json += fmt::format("  \"orthographic_stereo\": {\n    \"angle\": 1.5,\n    \"convergence_z\": %.4f\n  }\n}\n", convergence_z);
+			const std::string dir = fs::get_executable_dir() + "vr_profiles/";
+			std::string path = dir + title + ".json";
+			if (const std::string executable = running_executable_name(); fs::is_file(path) && !executable.empty())
+				path = dir + title + "." + executable + ".json";
+			if (!fs::create_path(dir) || !fs::write_file(path, fs::rewrite, json))
+			{
+				fail(fmt::format("cannot write '%s' (%s)", path, fs::g_tls_error));
+				return;
+			}
+			vr_gen_log.success("No perspective camera, but %s c[%u] is an orthographic camera in %u of %u depth-tested view draws: "
+				"VR profile written to '%s' as a diorama on the fixed screen (orthographic_stereo, convergence_z %.4f = the median "
+				"depth of the world origin: if the scene sits in front of or behind the screen, set it to the clip z of the playfield's front).",
+				layout_names[best->first.first], best->first.second, ::size32(best->second), depth_tested, path, convergence_z);
+			camera_probe::get().reload_profile();
+			if (!camera_probe::get().profile())
+			{
+				fail("the written profile did not load (see the VRPROBE error above)");
+				return;
+			}
+			if (!g_cfg.video.vr.enabled)
+			{
+				g_cfg.video.vr.enabled.set(true);
+				Emu.CallFromMainThread([title]()
+					{
+						Emulator::SaveSettings(g_cfg.to_string(), title);
+					});
+			}
+			rsx::overlays::queue_message(localized_string_id::VR_PROFILE_CREATED, 8'000'000);
 			return;
 		}
 
