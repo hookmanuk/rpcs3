@@ -74,6 +74,8 @@
 	u64 m_vr_hash = 0;
 	bool vr_shift_feedback_textures(rsx::fragment_program_texture_config& params);
 	void vr_redirect_previous_frame_copy(rsx::blit_src_info& src); // profile current_frame_copies
+	void vr_redirect_blit_source(rsx::blit_src_info& src);         // profile texture_redirects, for blits
+	u32 vr_redirect_target(u32 profile_to, u32 pitch);             // the profile's `to`, or "camera": this frame's scene target
 	bool m_vr_frame_boundaries = false;
 	u32 m_vr_flips_since_boundary = 0;
 	void vr_update_view(); // locate the head and rotate the next frame's camera draws by it

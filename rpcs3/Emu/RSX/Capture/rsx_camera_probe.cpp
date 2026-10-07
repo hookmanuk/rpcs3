@@ -993,10 +993,11 @@ namespace rsx::vr
 				read(node, "from", from);
 				read(node, "to", to);
 				const u32 a = static_cast<u32>(std::strtoul(from.c_str(), nullptr, 16));
-				const u32 b = static_cast<u32>(std::strtoul(to.c_str(), nullptr, 16));
-				if (!a || b < 0xc0000000u)
+				// "camera": the render target this frame's camera draws went to (a game alternating two scene targets).
+				const u32 b = to == "camera" ? 0u : static_cast<u32>(std::strtoul(to.c_str(), nullptr, 16));
+				if (!a || (b < 0xc0000000u && to != "camera"))
 				{
-					fail("texture_redirects: expected {\"from\": \"<guest address>\", \"to\": \"<render target address in local memory, 0xc...>\"}");
+					fail("texture_redirects: expected {\"from\": \"<guest address>\", \"to\": \"<render target address in local memory, 0xc...>\" or \"camera\"}");
 					continue;
 				}
 				profile->texture_redirects.emplace_back(a, b);

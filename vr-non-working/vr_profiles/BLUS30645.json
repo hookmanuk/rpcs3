@@ -5,6 +5,7 @@
   "name": "Dragon Age II",
   "max_fps": 0,
   "default_fps": 0,
+  "texture_redirects": [ { "from": "0x33000000", "to": "camera" } ],
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [256, 269, 263, 271],

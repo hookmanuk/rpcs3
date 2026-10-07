@@ -163,7 +163,9 @@ namespace rsx::vr
 		// world the wrong way (yaw is unaffected). Same as RPCS3_OPENXR_FLIP_Y, for this game only.
 		bool view_y_down = false;
 		// Textures read at `from` (a main-memory copy the SPUs process, which has only the left eye) are read
-		// from the render target at `to` instead, per eye (Puppeteer: scene 0xc0750000 -> SPU post -> 0x399c0000).
+		// from the render target at `to` instead, per eye (Puppeteer: scene 0xc0750000 -> SPU post -> 0x399c0000). Blits out
+		// of `from` too. `to` 0 ("camera" in the profile): the newest target of this frame's camera draws with the copy's
+		// pitch (Dragon Age II alternates two scene targets).
 		std::vector<std::pair<u32, u32>> texture_redirects;
 		// Vertex program ucode hashes whose draws keep the game camera in both eyes (no head transform or
 		// stereo). For invisible helper passes that break when moved (The Darkness: scaled unit boxes drawn

@@ -1520,6 +1520,57 @@ bool VKGSRender::vr_reprojects_older_frames() const
 	return profile && profile->reproject_older_frames;
 }
 
+// vr_before_blit(): profile texture_redirects also for blits. A blit out of the main-memory copy the SPUs process
+// (Dragon Age II shows its scene by blitting it back from 0x33000000, copied there from its scene target the frame
+// before) reads the render target instead, so each eye gets its own picture (main memory holds one eye: both eyes
+// showed the same scene, only the sky drawn later differed). Any blit starting inside the copy is moved by the same offset.
+void VKGSRender::vr_redirect_blit_source(rsx::blit_src_info& src)
+{
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->texture_redirects.empty() || !rsx::vr::camera_probe::get().render_enabled())
+	{
+		return;
+	}
+	const u32 address = vm::get_addr(src.pixels);
+	for (const auto& [from, profile_to] : profile->texture_redirects)
+	{
+		if (address < from)
+			continue;
+		const u32 to = vr_redirect_target(profile_to, src.pitch);
+		const auto* target = to ? m_rtts.find_color_surface(to, src.pitch) : nullptr;
+		if (!target || target->base_addr != to || address - from >= src.pitch * target->get_surface_height<rsx::surface_metrics::samples>())
+			continue;
+		const s64 delta = static_cast<s64>(to) - static_cast<s64>(from);
+		static bool s_reported = false;
+		if (!std::exchange(s_reported, true))
+		{
+			rsx_log.success("VR: blits out of 0x%x read the render target 0x%x instead (profile texture_redirects).", from, to);
+		}
+		src.rsx_address = static_cast<u32>(src.rsx_address + delta);
+		src.pixels += delta;
+		return;
+	}
+}
+
+// texture_redirects' `to`: the profile's address, or for "camera" (0) the newest colour target of this frame's camera
+// draws with that pitch (Dragon Age II draws its scene into 0xc03c0000 and 0xc0000000 on alternate frames; the copy it
+// blits back was taken from the other one, which by then holds the finished frame: read, it fed back into itself).
+u32 VKGSRender::vr_redirect_target(u32 profile_to, u32 pitch)
+{
+	if (profile_to)
+	{
+		return profile_to;
+	}
+	for (auto it = m_vr_camera_targets.rbegin(); it != m_vr_camera_targets.rend(); ++it)
+	{
+		if (const auto* surface = m_rtts.find_color_surface(*it, pitch); surface && surface->base_addr == *it && (!pitch || surface->get_rsx_pitch() == pitch))
+		{
+			return *it;
+		}
+	}
+	return 0;
+}
+
 void VKGSRender::vr_redirect_previous_frame_copy(rsx::blit_src_info& src)
 {
 	// A scene target drawn with an earlier pose than the current frame's, while a
@@ -2606,7 +2657,10 @@ VKGSRender::vr_texture_redirect VKGSRender::vr_redirect_texture(u32 i, const rsx
 			auto& regs = rsx::method_registers.registers;
 			redirect.saved[0] = regs[NV4097_SET_TEXTURE_OFFSET + i * 8];
 			redirect.saved[1] = regs[NV4097_SET_TEXTURE_FORMAT + i * 8];
-			regs[NV4097_SET_TEXTURE_OFFSET + i * 8] = to - rsx::constants::local_mem_base;
+			const u32 target = vr_redirect_target(to, 0);
+			if (!target)
+				break;
+			regs[NV4097_SET_TEXTURE_OFFSET + i * 8] = target - rsx::constants::local_mem_base;
 			regs[NV4097_SET_TEXTURE_FORMAT + i * 8] = (redirect.saved[1] & ~3u) | (CELL_GCM_LOCATION_LOCAL + 1);
 			redirect.active = true;
 			m_textures_dirty[i] = true; // re-checked every draw: the cached sampler names the target, not `from`
@@ -3557,6 +3611,7 @@ void VKGSRender::vr_before_blit(rsx::blit_src_info& src, const rsx::blit_dst_inf
 			vr_redirect_previous_frame_copy(src);
 		}
 	}
+	vr_redirect_blit_source(src);
 
 	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
 	{
