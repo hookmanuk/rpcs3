@@ -9,6 +9,8 @@
 //   <keys> <hold_ms> [gap_ms]   press keys (Qt names as in the pad config, "W+X" =
 //                               together), hold, release, then wait gap_ms (default 500)
 //   wait <ms>
+//   motion <x> <y> <z> [g]      set the SIXAXIS sensors (0-1023, 512 level, "-" unchanged)
+//                               from then on (the keyboard pad has no motion: Flower steers by tilt)
 // Lets scripted runs drive a game when the desktop is locked and cannot take input.
 void keyboard_pad_handler::process_key_script()
 {
@@ -55,6 +57,19 @@ void keyboard_pad_handler::process_key_script()
 					m_key_script.push_back({t, {}, false});
 					continue;
 				}
+				if (words[0] == "motion")
+				{
+					scripted_key_event ev{t, {}, false};
+					for (usz i = 0; i < 4; ++i)
+					{
+						if (i + 1 < words.size() && words[i + 1] != "-")
+						{
+							ev.motion[i] = static_cast<s32>(std::clamp<long>(std::strtol(words[i + 1].c_str(), nullptr, 10), 0, 1023));
+						}
+					}
+					m_key_script.push_back(std::move(ev));
+					continue;
+				}
 				std::vector<u32> codes;
 				for (const std::string& name : fmt::split(words[0], {"+"}))
 				{
@@ -87,6 +102,20 @@ void keyboard_pad_handler::process_key_script()
 		for (const u32 c : ev.codes)
 		{
 			Key(c, ev.pressed);
+		}
+		for (usz i = 0; i < 4; ++i)
+		{
+			if (ev.motion[i] < 0)
+			{
+				continue;
+			}
+			for (auto& binding : m_bindings)
+			{
+				if (binding.pad)
+				{
+					binding.pad->m_sensors[i].m_value = static_cast<u16>(ev.motion[i]);
+				}
+			}
 		}
 		done++;
 	}

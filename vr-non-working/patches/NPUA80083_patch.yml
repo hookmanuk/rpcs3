@@ -1,0 +1,14 @@
+Version: 1.2
+
+PPU-af4a1fb672a15f2be335a8b2c47595241eb758d6:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Flower":
+        NPUA80083: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one (30 FPS -> the Vblank Rate). The GCM vblank handler (0x5de110) releases the flip every [[TOC-0x684]] vblanks (2); this makes it 1."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x005de114, 0x39400001 ] # li r10, 1 (was lwz r10, 0(r9): the flip interval, 2)

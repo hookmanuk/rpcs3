@@ -8,6 +8,7 @@
 		steady_clock::time_point at;
 		std::vector<u32> codes;
 		bool pressed = false;
+		s32 motion[4]{-1, -1, -1, -1}; // "motion" line: SIXAXIS sensor values (0-1023), -1 = unchanged
 	};
 	std::vector<scripted_key_event> m_key_script;
 	steady_clock::time_point m_key_script_poll{};

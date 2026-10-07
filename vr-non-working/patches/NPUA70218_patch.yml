@@ -1,0 +1,61 @@
+Version: 1.2
+
+PPU-2f01eb0b8ebbe638ee68b65798911b615168dcb4:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Journey":
+        NPUA70218: [ 02.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one (30 FPS -> the Vblank Rate). The GCM vblank handler (0x2c8358) releases the flip every [0xe986d8] vblanks (2); this makes it 1. Journey as installed from Journey Collector's Edition (BCUS98377)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x002c835c, 0x38600001 ] # li r3, 1 (was lwz r3, -0x7928(r3): the flip interval, 2)
+
+
+  "Wider view (VR culling)":
+    Games:
+      "Journey":
+        NPUA70218: [ 02.00 ]
+    Author: "VR fork"
+    Notes: "Widens the game camera's field of view (about 55 degrees high) by the chosen scale, up to 150 degrees, in the camera's field-of-view setter (0x1ddbc, degrees at +0xf4). Journey draws its sand as a grid over the camera's own view, so turning the head showed the dunes ending at the game's frustum. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x6d1600)."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 2.5
+        Allowed Values:
+          "1.0 (off: about 55 degrees high)": 1.0
+          "1.5 (about 80 degrees)": 1.5
+          "2.0 (about 110 degrees)": 2.0
+          "2.5 (about 135 degrees, recommended)": 2.5
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0001ddcc, 0x486b3835 ] # bl 0x6d1600 (was lfs f2, 0xf4(r3)): the camera's field-of-view setter
+      # f1 (degrees, high) = min(f1 x Scale, 150) before the setter compares and stores it at +0xf4; r12, f0, f13 are free
+      - [ be32, 0x006d1600, 0x3d80006d ] # lis r12, 0x6d
+      - [ be32, 0x006d1604, 0xc00c1640 ] # lfs f0, 0x1640(r12)   Scale
+      - [ be32, 0x006d1608, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x006d160c, 0xc00c1644 ] # lfs f0, 0x1644(r12)   maximum
+      - [ be32, 0x006d1610, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x006d1614, 0xfc2d082e ] # fsel f1, f13, f0, f1  (the smaller)
+      - [ be32, 0x006d1618, 0xc04300f4 ] # lfs f2, 0xf4(r3)
+      - [ be32, 0x006d161c, 0x4e800020 ] # blr
+      - [ bef32, 0x006d1640, "Scale" ]
+      - [ bef32, 0x006d1644, 150.0 ]     # degrees
+
+SPU-9001b44fd7278b5a6fa5385939fe928a0e549394:
+  "Disable SPU MLAA (VR)":
+    Games:
+      "Journey":
+        NPUA70218: [ 02.00 ]
+    Author: "VR fork (community patch by Whatcookie)"
+    Notes: "Skips the SPU morphological anti-aliasing (EDGE MLAA). Same change as the community 'Disable SPU MLAA - Multiple titles (01)', applied to savestates too."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x000031f4, 0x40800003 ] # il r3 0
+      - [ be32, 0x0000349c, 0x40800017 ] # il r23 0

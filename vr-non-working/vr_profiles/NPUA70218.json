@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "title_id": "NPUA70218",
+  "app_version": "02.00",
+  "name": "Journey",
+  "max_fps": 0,
+  "default_fps": 0,
+  "texture_redirects": [ { "from": "0x36d35f80", "to": "0xcda20000" }, { "from": "0x36894f80", "to": "0xcd780000" } ],
+  "late_readback_lengths": [3686400, 921600],
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [256],
+  "require_rigid_camera": true,
+  "require_camera_aspect": true,
+  "camera_slots_read_directly": true,
+  "output_aspect_tolerance": 0.03,
+
+  "camera_position": {
+    "slot": 467,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0136351,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "passthrough_hud": true,
+    "hud_programs": ["052bab32c11814c6"]
+  }
+}

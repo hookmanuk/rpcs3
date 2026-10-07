@@ -3020,7 +3020,10 @@ namespace rsx::vr
 		{
 			const bool block_rows = std::find(profile.row_vector_blocks.begin(), profile.row_vector_blocks.end(), base) != profile.row_vector_blocks.end();
 			matrix_block linked;
-			if (!linked.bind(buffer, reloc, reloc_size, base, profile.column_vectors != block_rows, false))
+			// The bound camera block itself (a program whose camera sits where others keep the previous frame's: Flower's
+			// sky draws through c[260]) already has the eye transform. Row layout: the same slots. Column layout binds a
+			// transposed copy, and the camera block, written back last, wins over this one.
+			if (!linked.bind(buffer, reloc, reloc_size, base, profile.column_vectors != block_rows, false) || linked.rows[0] == rows[0])
 			{
 				continue;
 			}
