@@ -910,6 +910,11 @@ namespace rsx::vr
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;
 		mutable bool m_vr_proj_valid = false;
+		// The projection of the last camera draw into a view target that refreshed it (the scene camera), for the depth
+		// remap's ray scale: m_vr_proj_* follow whichever camera drew last (shadow-map, culling and volume cameras too).
+		mutable f32 m_scene_proj_x = 0.f;
+		mutable f32 m_scene_proj_y = 0.f;
+		mutable bool m_proj_refreshed = false; // apply_vr_rotation refreshed m_vr_proj_* for the current draw
 		// The latest output-aspect camera block per eye, as the game wrote it (B) and as
 		// drawn for that eye (B_eye), for pre-projected draws (see map_vr_preprojected).
 		mutable f32 m_vr_last_block[2][4][4]{};

@@ -2732,9 +2732,20 @@ namespace rsx::vr
 		// The sprite's clip x per view unit: the cached projection's x scale times its w scale (taken before the rotation).
 		const f32 sprite_x_per_unit = sprite_block && m_vr_proj_valid ?
 			m_vr_proj_x * std::sqrt(rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]) : 0.f;
+		// A depth_remap_programs pass draws its own volume (Sonic's shadow cascades: a projection times a non-uniform
+		// view-space scale), whose matrix is no camera projection: it must not replace the cached one, which the pass's
+		// ray remap reads (taken from it, Sonic's rebuilt view rays were off by ~3x away from the view's centre).
+		const bool remap_volume = std::find(profile.depth_remap_programs.begin(), profile.depth_remap_programs.end(), m_draw_program) !=
+		                          profile.depth_remap_programs.end();
+		m_proj_refreshed = false;
 		if (view_draw && m_vr_view)
 		{
-			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units, !sprite_block);
+			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units, !sprite_block && !remap_volume);
+		}
+		if (output_aspect_match && m_proj_refreshed)
+		{
+			m_scene_proj_x = m_vr_proj_x;
+			m_scene_proj_y = m_vr_proj_y;
 		}
 
 		if (output_aspect_match)
@@ -3523,6 +3534,12 @@ namespace rsx::vr
 
 	bool camera_probe::game_projection_scale(f32& x, f32& y) const
 	{
+		if (m_scene_proj_x > 0.f && m_scene_proj_y > 0.f)
+		{
+			x = m_scene_proj_x;
+			y = m_scene_proj_y;
+			return true;
+		}
 		if (!m_vr_proj_valid || m_vr_proj_x <= 0.f || m_vr_proj_y <= 0.f)
 		{
 			return false;
@@ -3727,6 +3744,7 @@ namespace rsx::vr
 			m_vr_proj_x = n0 / n3;
 			m_vr_proj_y = n1 / n3;
 			m_vr_proj_valid = true;
+			m_proj_refreshed = true;
 		}
 
 		if (!m_vr_proj_valid)

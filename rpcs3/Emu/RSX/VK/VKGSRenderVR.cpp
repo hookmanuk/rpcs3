@@ -1858,7 +1858,7 @@ void VKGSRender::vr_setup_draw()
 			}
 		}
 		probe.set_draw_into_display_buffer(display_target);
-		if (const auto* profile = probe.profile(); profile && !profile->screen_space_hud_block_programs.empty())
+		if (const auto* profile = probe.profile(); profile && (!profile->screen_space_hud_block_programs.empty() || !profile->depth_remap_programs.empty()))
 		{
 			probe.set_draw_program(vr_vertex_program_hash());
 		}
