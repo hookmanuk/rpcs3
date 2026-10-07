@@ -318,6 +318,12 @@ namespace rsx::vr
 		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
 		// of a 2D fire background), which the headset view pulls apart. List a draw only the menu makes (its logo).
 		std::vector<unboxed_draw> screen_space_screen_frame_draws;
+		// frame_rate_draws (same match): the frame-rate words (game_refresh_rate_f32, game_frame_time_f32, ...) get the VR
+		// rate only while one of these draws was seen in the last 2 s, the game's own 60 Hz values otherwise. Sonic & All-Stars
+		// Racing Transformed: a step rate other than 60 anywhere in the menus left the next race unable to start (the
+		// countdown never comes); from the race load on it is fine, so the race HUD's draws mark the VR rate.
+		std::vector<unboxed_draw> frame_rate_draws;
+		std::vector<u32> frame_rate_draw_min_counts; // per frame_rate_draws entry: matches a frame needs (Sonic's loading screen draws one HUD icon, the race 10)
 		// reduced_scale_frames: while frames contain one of these draws, the Resolution Scale is lowered to
 		// reduced_scale_percent (Gran Turismo 5's pre-race grid screen renders its 3D view 2x2 supersampled).
 		std::vector<unboxed_draw> reduced_scale_draws;
@@ -598,6 +604,8 @@ namespace rsx::vr
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.
 	void update_game_refresh_rate();
+	// The draw path: a draw matching the profile's frame_rate_draws was made (see title_profile::frame_rate_draws).
+	void note_frame_rate_draw(u32 index);
 	// Each game flip (rsx::thread::handle_emu_flip): measures the real frame rate update_game_refresh_rate falls back to.
 	void note_game_flip();
 	// RPCS3_VR_FRAMESTATS: a hash of the frame's first game camera (0: no camera draw since the last call), so the stats

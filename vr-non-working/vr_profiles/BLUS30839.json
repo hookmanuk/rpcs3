@@ -8,6 +8,7 @@
 
   "game_refresh_rate_f32": ["0xec7ff0"],
   "game_frame_time_f32": ["[[0xc14ee4]+0xdc]+0x8"],
+  "frame_rate_draws": [ { "program": "cca8ac02bde0a575", "texture": "256x256", "min_count": 5 } ],
 
   "matrix_layout": "column_vectors",
   "depth_remap_programs": ["ed46d28a122d7235"],
@@ -15,6 +16,12 @@
   "depth_remap_ray_texcoord": 1,
   "depth_remap_xyw": true,
   "camera_blocks": [138, 4, 0],
+  "fragment_constant_overrides": [
+    { "program": "ad9998b4d5599447", "constant": 5, "value": [0, 0, 0, 0] },
+    { "program": "ad9998b4d5599447", "constant": 7, "value": [0, 0, 0, 0] },
+    { "program": "ad9998b4d5599447", "constant": 10, "value": [0, 0, 0, 0] },
+    { "program": "ad9998b4d5599447", "constant": 12, "value": [0, 0, 0, 0] }
+  ],
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {

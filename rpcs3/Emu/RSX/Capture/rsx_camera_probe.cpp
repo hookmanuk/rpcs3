@@ -851,6 +851,30 @@ namespace rsx::vr
 				}
 			}
 		}
+		if (const YAML::Node draws = child(root, "frame_rate_draws"); draws && draws.IsSequence())
+		{
+			for (const YAML::Node& node : draws)
+			{
+				std::string program, texture;
+				read(node, "program", program);
+				read(node, "texture", texture);
+				char* end = nullptr;
+				title_profile::unboxed_draw draw{};
+				draw.program = std::strtoull(program.c_str(), &end, 16);
+				u32 w = 0, h = 0;
+				if (program.empty() || !end || *end || std::sscanf(texture.c_str(), "%ux%u", &w, &h) != 2)
+				{
+					fail("frame_rate_draws: expected {\"program\": \"<vertex ucode hash>\", \"texture\": \"<width>x<height>\"}");
+					continue;
+				}
+				draw.width = static_cast<u16>(w);
+				draw.height = static_cast<u16>(h);
+				u32 min_count = 1;
+				read(node, "min_count", min_count, false);
+				profile->frame_rate_draws.push_back(draw);
+				profile->frame_rate_draw_min_counts.push_back(std::max(min_count, 1u));
+			}
+		}
 		if (const YAML::Node draws = child(screen_space, "screen_frame_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -1359,7 +1383,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1786,6 +1810,17 @@ namespace rsx::vr
 		return g_frame_camera_hash.exchange(0);
 	}
 
+	static atomic_t<u64> g_frame_rate_draw_time = 0; // get_system_time() of the last frame with enough frame_rate_draws matches
+	static std::array<atomic_t<u32>, 8> g_frame_rate_draw_counts{}; // this frame's matches per frame_rate_draws entry
+
+	void note_frame_rate_draw(u32 index)
+	{
+		if (index < g_frame_rate_draw_counts.size())
+		{
+			g_frame_rate_draw_counts[index]++;
+		}
+	}
+
 	void update_game_refresh_rate()
 	{
 		const title_profile* profile = camera_probe::get().profile();
@@ -1810,12 +1845,32 @@ namespace rsx::vr
 		// (a stall, not the runtime's halving): Need for Speed: Hot Pursuit's loading measured 7 FPS, and the 0.14 s step
 		// written then lay outside the frame-time window, so it was never replaced and the race ran 12x fast.
 		// Dev: RPCS3_VR_NOMINAL_RATE=1 keeps the nominal rate.
-		const f32 nominal_rate = static_cast<f32>(effective_vblank_rate());
 		const f32 frames_per_vblank = 1.f / static_cast<f32>(std::max<u32>(profile->vblanks_per_frame, 1));
+		// Profile frame_rate_draws: the game's own 60 Hz values unless a frame had one of those draws (min_count times) in
+		// the last 2 s.
+		for (usz i = 0; i < g_frame_rate_draw_counts.size(); ++i)
+		{
+			const u32 count = g_frame_rate_draw_counts[i].exchange(0);
+			if (i < profile->frame_rate_draw_min_counts.size() && count >= profile->frame_rate_draw_min_counts[i])
+			{
+				g_frame_rate_draw_time = get_system_time();
+			}
+		}
+		const bool native_only = !profile->frame_rate_draws.empty() && get_system_time() - g_frame_rate_draw_time.load() > 2'000'000;
+		if (static bool s_native = false; native_only != s_native && !profile->frame_rate_draws.empty())
+		{
+			s_native = native_only;
+			static u32 s_switches = 0;
+			if (s_switches++ < 20)
+			{
+				vr_probe_log.notice("Game frame-rate words: %s (profile frame_rate_draws)", native_only ? "the game's own 60 Hz" : "the VR rate");
+			}
+		}
+		const f32 nominal_rate = native_only ? 60.f / frames_per_vblank : static_cast<f32>(effective_vblank_rate());
 		static const bool s_nominal_only = std::getenv("RPCS3_VR_NOMINAL_RATE") != nullptr;
 		const f64 frame_interval = g_game_flip_interval.load();
 		f32 rate = nominal_rate;
-		if (!s_nominal_only && frame_interval > 0.0 && nominal_rate > 0.f)
+		if (!s_nominal_only && !native_only && frame_interval > 0.0 && nominal_rate > 0.f)
 		{
 			const f32 measured_fps = static_cast<f32>(1.0 / frame_interval);
 			const f32 full_fps = nominal_rate * frames_per_vblank;

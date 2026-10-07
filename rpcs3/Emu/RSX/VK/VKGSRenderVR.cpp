@@ -3012,6 +3012,26 @@ bool VKGSRender::vr_skip_draw()
 		}
 	}
 
+	// Profile frame_rate_draws: the frame-rate words follow the VR rate while these draws are made.
+	if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && !profile->frame_rate_draws.empty())
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[0];
+		const u16 width = tex.enabled() ? tex.width() : 0;
+		const u16 height = tex.enabled() ? tex.height() : 0;
+		const auto& list = profile->frame_rate_draws;
+		if (std::any_of(list.begin(), list.end(), [&](const auto& d) { return d.width == width && d.height == height; }))
+		{
+			const u64 h = hash();
+			for (usz i = 0; i < list.size(); ++i)
+			{
+				if (list[i].program == h && list[i].width == width && list[i].height == height)
+				{
+					rsx::vr::note_frame_rate_draw(static_cast<u32>(i));
+				}
+			}
+		}
+	}
+
 	// Profile reduced_scale_frames: a frame with one of these draws renders at the profile's lower Resolution Scale.
 	if (const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
 		profile && !profile->reduced_scale_draws.empty())
