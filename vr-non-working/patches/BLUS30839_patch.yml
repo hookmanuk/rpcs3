@@ -6,12 +6,24 @@ PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
       "Sonic & All-Stars Racing Transformed":
         BLUS30839: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Presents a frame on every vblank instead of every second one: the game runs at the vblank rate (60 on a TV, the headset's refresh rate in VR) instead of 30. The game steps by measured time, so it stays real-time at any rate. The vblank handler (0x21821c) releases the flip label every [0xc2e4d8] vblanks (2); this makes it 1."
-    Patch Version: 1.0
+    Notes: "Presents a frame on every vblank instead of every second one, and simulates at the VR rate: the game's fixed 60 Hz simulation step follows the rate the VR profile writes (0xec7ff0) with the step size at 1/rate, so every flip shows a new frame (version 1.0 flipped at the headset's rate but simulated at 60, repeating frames). Without the VR profile the step stays at 60 Hz, as the game shipped. The vblank handler (0x21821c) releases the flip label every [0xc2e4d8] vblanks (2); this makes it 1."
+    Patch Version: 2.0
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
       - [ be32, 0x00218230, 0x38a00001 ] # li r5, 1 (was lwz r5, -0x1b28(r5): the flip interval, 2)
+      # The simulation steps at a fixed rate: the frame timer (0x40150..) splits measured time into whole steps of
+      # 1/[0x402d4] (60) and a second accumulator (0x1f9698) steps by [[[0xc14ee4]+0xdc]+8] (1/60). At 90 or 120 Hz that
+      # gave 0 or 1 steps a frame: 60 new frames a second. The rate is read from a free word (0xec7ff0, seeded with
+      # 60 here) that the VR profile sets to the VR rate each frame, with the step size at 1/rate: a new frame every flip.
+      - [ calloc, 0x00040810, 7 ] # was lfs f2, 0x14(r28): the step rate
+      - [ be32, 0x0, 0x3d8000ec ] # lis r12, 0xec
+      - [ be32, 0x0, 0xc04c7ff0 ] # lfs f2, 0x7ff0(r12)    rate word 0xec7ff0
+      - [ be32, 0x0, 0x816c7ff0 ] # lwz r11, 0x7ff0(r12)
+      - [ be32, 0x0, 0x2c0b0000 ] # cmpwi r11, 0
+      - [ be32, 0x0, 0x4082000c ] # bne over the seed
+      - [ be32, 0x0, 0xc05c0014 ] # lfs f2, 0x14(r28)       the game's 60
+      - [ be32, 0x0, 0xd04c7ff0 ] # stfs f2, 0x7ff0(r12)    seed the word
 
   "Wider view (VR culling)":
     Games:

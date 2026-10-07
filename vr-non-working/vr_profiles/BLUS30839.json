@@ -6,6 +6,9 @@
   "max_fps": 0,
   "default_fps": 0,
 
+  "game_refresh_rate_f32": ["0xec7ff0"],
+  "game_frame_time_f32": ["[[0xc14ee4]+0xdc]+0x8"],
+
   "matrix_layout": "column_vectors",
   "depth_remap_programs": ["ed46d28a122d7235"],
   "depth_remap_ray_texcoord": 1,
