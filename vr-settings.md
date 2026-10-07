@@ -23,7 +23,9 @@ On the **GPU** tab, drag **Resolution Scale** to the right. 100% is the PS3's ow
 Higher is sharper but slower. Every image is drawn once per eye, so very high scales can run out of video
 memory and the game slows to a crawl. If the frame rate drops, lower it again.
 
-Leave **Default Resolution** at 720p.
+VR games always run at the PS3's 720p output, whatever **Default Resolution** says: the VR profiles are made
+at 720p, and some games change how they draw at 1080p (God of War stays on a flat screen). Use **Resolution
+Scale** for a sharper image.
 
 ## 3. Adjust the VR settings
 

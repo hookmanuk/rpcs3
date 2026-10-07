@@ -887,6 +887,20 @@ namespace rsx::vr
 		}
 	}
 
+	void force_vr_resolution(std::string_view title_id)
+	{
+		// The profiles hold guest pixel sizes and the output aspect their camera views share. At 1080p God of War
+		// Collection renders a 960x1080 frame stretched to 16:9: every camera view failed the output-aspect check and
+		// the game never left the fixed screen.
+		if (!g_cfg.video.vr.enabled || g_cfg.video.resolution == video_resolution::_720p || !title_has_profile(title_id))
+		{
+			return;
+		}
+		sys_log.warning("VR: Resolution %s replaced by %s (VR profiles are made at 720p; Resolution Scale sets the image size).",
+			g_cfg.video.resolution.get(), video_resolution::_720p);
+		g_cfg.video.resolution.set(video_resolution::_720p);
+	}
+
 	static atomic_t<u32> s_reduced_scale_frames = 0; // game frames left at the reduced scale
 
 	void note_reduced_scale_frame(bool listed_draw_seen)

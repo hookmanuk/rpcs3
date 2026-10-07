@@ -77,6 +77,10 @@ namespace rsx::vr
 	// two as a state made from that ISO stores them and returns true (load the state as an ISO archive).
 	bool savestate_disc_folder_as_iso(const std::string& library_path, std::string& disc_info, std::string& argv0);
 
+	// Emulator::Load, after the game's configuration is applied: with VR on, a game with a VR profile runs at 1280x720
+	// output whatever the Resolution setting says. The profiles are made at 720p; Resolution Scale sets the image size.
+	void force_vr_resolution(std::string_view title_id);
+
 	namespace dev
 	{
 		// sys_timer_usleep: RPCS3_PPU_TRACE, RPCS3_PPU_WATCH, RPCS3_PPU_RWATCH, RPCS3_CALLSTACK_AT, RPCS3_PPU_SAMPLE, RPCS3_USLEEP_STATS.

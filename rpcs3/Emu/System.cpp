@@ -1855,6 +1855,7 @@ game_boot_result Emulator::Load(const std::string& title_id, bool is_disc_patch,
 
 			// Disable incompatible settings
 			fixup_settings(&_psf);
+			rsx::vr::force_vr_resolution(m_title_id); // VR fork: VR profiles are made at 720p
 
 			// Force audio provider
 			if (m_path.ends_with("vsh.self"sv))
