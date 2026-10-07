@@ -11,6 +11,7 @@
 
   "matrix_layout": "column_vectors",
   "depth_remap_programs": ["ed46d28a122d7235"],
+  "depth_remap_volume_programs": ["2fe8ebfb47d877be"],
   "depth_remap_ray_texcoord": 1,
   "depth_remap_xyw": true,
   "camera_blocks": [138, 4, 0],

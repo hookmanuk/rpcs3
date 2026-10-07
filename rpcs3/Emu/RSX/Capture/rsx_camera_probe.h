@@ -177,6 +177,9 @@ namespace rsx::vr
 		// Asura's Wrath: the characters' shadows are a screen-space mask (07d7202eb4af1d79) projecting the scene depth
 		// into each character's shadow map; in the headset the shadows slid across the characters as the head turned.
 		std::vector<u64> depth_remap_programs;
+		// depth_remap_volume_programs: other programs drawing the remap passes' volumes (Sonic's stencil pre-pass
+		// 2fe8ebfb47d877be): they take the scene camera's eye transform as the remap passes do.
+		std::vector<u64> depth_remap_volume_programs;
 		// depth_remap_ray_texcoord: the texture coordinate holding the pass's view-space ray (built with the game's view);
 		// the remap replaces it with the game camera's ray to the point the eye sees (Sonic's shadow cascades). -1 = none.
 		s32 depth_remap_ray_texcoord = -1;
@@ -920,11 +923,19 @@ namespace rsx::vr
 		mutable f32 m_vr_last_block[2][4][4]{};
 		mutable f32 m_vr_last_eye_block[2][4][4]{};
 		mutable bool m_vr_last_block_valid[2]{};
+		// The last scene camera draw's game and eye matrices per eye (a view target, not a depth_remap_programs volume):
+		// the depth remap of a remap pass drawn through its own volume matrix is built from these.
+		mutable f32 m_scene_game_block[2][4][4]{};
+		mutable f32 m_scene_eye_block[2][4][4]{};
+		mutable bool m_scene_block_valid[2]{};
+		mutable s32 m_remap_scene_eye = -1; // the eye whose scene matrices the current draw's depth remap uses (-1: its own)
 		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
 		// The draw's depth remap matrix (see depth_remap_matrix), from its camera block as the game wrote it and as drawn for the eye.
 		mutable f32 m_depth_remap[4][4]{};
 		mutable bool m_depth_remap_valid = false;
 		void store_depth_remap(const f32 (&game)[4][4], f32* const rows[4]) const;
+		void finish_eye_block(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size, f32 eye_sign,
+			bool output_aspect_match, bool remap_volume, const f32 (&game)[4][4], f32* const rows[4]) const;
 		void apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
 			const f32 (&game)[4][4], f32* const rows[4]) const;
 

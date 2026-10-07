@@ -1014,16 +1014,19 @@ namespace rsx::vr
 				profile->game_camera_programs.push_back(hash);
 			}
 		}
-		if (const YAML::Node programs = child(root, "depth_remap_programs"); programs && programs.IsSequence())
+		for (const char* key : {"depth_remap_programs", "depth_remap_volume_programs"})
 		{
-			for (const auto& program : programs)
+			if (const YAML::Node programs = child(root, key); programs && programs.IsSequence())
 			{
-				const std::string text = program.as<std::string>();
-				char* end = nullptr;
-				const u64 hash = std::strtoull(text.c_str(), &end, 16);
-				if (text.empty() || !end || *end)
-					fail("depth_remap_programs: '" + text + "' is not a hex program hash");
-				profile->depth_remap_programs.push_back(hash);
+				for (const auto& program : programs)
+				{
+					const std::string text = program.as<std::string>();
+					char* end = nullptr;
+					const u64 hash = std::strtoull(text.c_str(), &end, 16);
+					if (text.empty() || !end || *end)
+						fail(std::string(key) + ": '" + text + "' is not a hex program hash");
+					(std::string_view(key) == "depth_remap_programs" ? profile->depth_remap_programs : profile->depth_remap_volume_programs).push_back(hash);
+				}
 			}
 		}
 		if (std::string ray; read(root, "depth_remap_ray_texcoord", ray, false))
@@ -1347,7 +1350,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
 		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
@@ -2736,7 +2739,9 @@ namespace rsx::vr
 		// view-space scale), whose matrix is no camera projection: it must not replace the cached one, which the pass's
 		// ray remap reads (taken from it, Sonic's rebuilt view rays were off by ~3x away from the view's centre).
 		const bool remap_volume = std::find(profile.depth_remap_programs.begin(), profile.depth_remap_programs.end(), m_draw_program) !=
-		                          profile.depth_remap_programs.end();
+		                              profile.depth_remap_programs.end() ||
+		                          std::find(profile.depth_remap_volume_programs.begin(), profile.depth_remap_volume_programs.end(), m_draw_program) !=
+		                              profile.depth_remap_volume_programs.end();
 		m_proj_refreshed = false;
 		if (view_draw && m_vr_view)
 		{
@@ -2831,11 +2836,7 @@ namespace rsx::vr
 					rows[r][1] *= zoom;
 				}
 			}
-			if (output_aspect_match)
-			{
-				store_eye_block(eye_sign, game_block, rows);
-			}
-			apply_linked_camera_blocks(profile, buffer, reloc, reloc_size, game_block, rows);
+			finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, output_aspect_match, remap_volume, game_block, rows);
 			return true;
 		}
 
@@ -2848,8 +2849,96 @@ namespace rsx::vr
 		{
 			store_eye_block(eye_sign, game_block, rows);
 		}
-		apply_linked_camera_blocks(profile, buffer, reloc, reloc_size, game_block, rows);
+		finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, output_aspect_match, remap_volume, game_block, rows);
 		return true;
+	}
+
+	void camera_probe::finish_eye_block(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size, f32 eye_sign,
+		bool output_aspect_match, bool remap_volume, const f32 (&game)[4][4], f32* const rows[4]) const
+	{
+		const u32 eye = eye_sign < 0.f ? 0 : 1;
+		if (output_aspect_match)
+		{
+			store_eye_block(eye_sign, game, rows);
+		}
+		// The scene camera's matrices per eye, for the depth remap of a depth_remap_programs pass drawn through its own
+		// volume matrix (Sonic's shadow cascades: a projection times a non-uniform scale). Its eye offset is sized by its
+		// own clip x per unit, which that scale distorts: built from it, the remap shifted the rebuilt positions
+		// sideways, a different way in each eye (shadows on the green lumps at each eye's outer side, Matt 2026-10-07).
+		if (output_aspect_match && !remap_volume)
+		{
+			for (u32 r = 0; r < 4; ++r)
+			{
+				for (u32 c = 0; c < 4; ++c)
+				{
+					m_scene_game_block[eye][r][c] = game[r][c];
+					m_scene_eye_block[eye][r][c] = rows[r][c];
+				}
+			}
+			m_scene_block_valid[eye] = true;
+		}
+		m_remap_scene_eye = remap_volume && m_scene_block_valid[eye] ? static_cast<s32>(eye) : -1;
+		if (m_remap_scene_eye >= 0)
+		{
+			// The volume gets the scene's eye transform as a clip-space map X = scene game^-1 * scene eye (row vectors):
+			// its rows = its game matrix * X, so it covers the same pixels as the scene points it shades.
+			f64 a[4][8];
+			for (u32 r = 0; r < 4; ++r)
+			{
+				for (u32 k = 0; k < 4; ++k)
+				{
+					a[r][k] = m_scene_game_block[eye][r][k];
+					a[r][k + 4] = r == k ? 1.0 : 0.0;
+				}
+			}
+			bool ok = true;
+			for (u32 k = 0; k < 4 && ok; ++k)
+			{
+				u32 pivot = k;
+				for (u32 r = k + 1; r < 4; ++r)
+				{
+					if (std::fabs(a[r][k]) > std::fabs(a[pivot][k]))
+						pivot = r;
+				}
+				if (std::fabs(a[pivot][k]) < 1e-12)
+				{
+					ok = false;
+					break;
+				}
+				for (u32 j = 0; j < 8; ++j)
+					std::swap(a[k][j], a[pivot][j]);
+				const f64 inv = 1.0 / a[k][k];
+				for (u32 j = 0; j < 8; ++j)
+					a[k][j] *= inv;
+				for (u32 r = 0; r < 4; ++r)
+				{
+					if (r == k)
+						continue;
+					const f64 f = a[r][k];
+					for (u32 j = 0; j < 8; ++j)
+						a[r][j] -= f * a[k][j];
+				}
+			}
+			if (ok)
+			{
+				f64 x[4][4]{};
+				for (u32 r = 0; r < 4; ++r)
+					for (u32 k = 0; k < 4; ++k)
+						for (u32 j = 0; j < 4; ++j)
+							x[r][k] += a[r][j + 4] * m_scene_eye_block[eye][j][k];
+				for (u32 r = 0; r < 4; ++r)
+				{
+					f64 out[4]{};
+					for (u32 k = 0; k < 4; ++k)
+						for (u32 j = 0; j < 4; ++j)
+							out[k] += static_cast<f64>(game[r][j]) * x[j][k];
+					for (u32 k = 0; k < 4; ++k)
+						rows[r][k] = static_cast<f32>(out[k]);
+				}
+			}
+		}
+		apply_linked_camera_blocks(profile, buffer, reloc, reloc_size, game, rows);
+		m_remap_scene_eye = -1;
 	}
 
 	void camera_probe::apply_linked_camera_blocks(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size,
@@ -2857,7 +2946,19 @@ namespace rsx::vr
 	{
 		if (rsx::vr::depth_remap_active())
 		{
-			store_depth_remap(game, rows);
+			if (m_remap_scene_eye >= 0)
+			{
+				f32* scene_rows[4];
+				for (u32 r = 0; r < 4; ++r)
+				{
+					scene_rows[r] = m_scene_eye_block[m_remap_scene_eye][r];
+				}
+				store_depth_remap(m_scene_game_block[m_remap_scene_eye], scene_rows);
+			}
+			else
+			{
+				store_depth_remap(game, rows);
+			}
 		}
 		if (profile.linked_camera_blocks.empty() && !profile.camera_palette_last)
 		{
