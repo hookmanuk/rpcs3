@@ -28,7 +28,7 @@
   },
 
   "screen_space": {
-    "screen_frame_draws": [ { "program": "f780fac85cd9eba2", "texture": "1280x720" } ],
+    "screen_frame_draws": [ { "program": "f780fac85cd9eba2", "texture": "1280x720" }, { "program": "007f5efab1d12ef7", "texture": "1176x720" } ],
     "orthographic_block": 4,
     "passthrough_hud": true,
     "hud_programs": ["007f5efab1d12ef7"]
