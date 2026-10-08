@@ -4,7 +4,7 @@
   "app_version": "01.00",
   "name": "SEGA Rally Revo™",
   "max_fps": 0,
-  "default_fps": 0,
+  "default_fps": 72,
 
   "zcull_relaxed_sync": true,
 
