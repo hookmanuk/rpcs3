@@ -552,6 +552,15 @@ bool VKGSRender::vr_is_passthrough_hud()
 		// Unless the profile lists this program as HUD (drawn into the scene's final image).
 		return false;
 	}
+	// Profile hud_display_buffers_only: the HUD is only what goes into a display buffer. The frame-width test below
+	// compares with the latest camera target, which can be a small view (SEGA Rally Revo's 512x512 rear-view mirror,
+	// its 384- and 768-wide trackside screens): its 912x912 shadow map passes then went into the head-fixed box, and the
+	// shadows slid across the ground as the head turned.
+	if (target && !listed && profile && profile->screen_space_hud_display_buffers_only &&
+		!vr_display_buffer(*this, target, m_framebuffer_layout.width, m_framebuffer_layout.height))
+	{
+		return false;
+	}
 	// Full frame or larger: smaller buffers are intermediate passes (ICO's shadow mask).
 	// The frame is the scene or the output, whichever is narrower: Ridge Racer 7 renders
 	// its scene 1408 wide and draws the HUD at the 1280 output size.
