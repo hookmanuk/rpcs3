@@ -16,24 +16,32 @@ PPU-750889872c0ff8cc186c61cf94e64dff190b619f:
           "1.5 (90 degrees)": 1.5
           "2.0 (120 degrees, recommended)": 2.0
           "2.5 (150 degrees, maximum: fire effects can stretch)": 2.5
-    Patch Version: 1.1
+    Patch Version: 1.2
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
       - [ be32, 0x0071b85c, 0x48d34125 ] # bl 0x144f980 (was lfs f3, 0x130(r31): the field of view, radians)
-      # min(max(field of view x Scale, 60 degrees x Scale), 150 degrees); f1 and f2 are live (aspect), so only r12, f0 and f13 are used
+      # Cameras narrower than 1.5:1 (aspect [r31+0x134] x f1: the party portraits are square) keep their field of view.
+      # Others: min(max(field of view x Scale, 60 degrees x Scale), 150 degrees). f1 and f2 are live (aspect), so only
+      # r12, f0, f13 and cr7 are used.
       - [ be32, 0x0144f980, 0xc07f0130 ] # lfs f3, 0x130(r31)
       - [ be32, 0x0144f984, 0x3d800145 ] # lis r12, 0x145
-      - [ be32, 0x0144f988, 0xc00cf9c0 ] # lfs f0, -0x640(r12)   Scale
-      - [ be32, 0x0144f98c, 0xec630032 ] # fmuls f3, f3, f0
-      - [ be32, 0x0144f990, 0xc1acf9c8 ] # lfs f13, -0x638(r12)  60 degrees
-      - [ be32, 0x0144f994, 0xedad0032 ] # fmuls f13, f13, f0
-      - [ be32, 0x0144f998, 0xec036828 ] # fsubs f0, f3, f13
-      - [ be32, 0x0144f99c, 0xfc6068ee ] # fsel f3, f0, f3, f13  (the larger)
-      - [ be32, 0x0144f9a0, 0xc00cf9c4 ] # lfs f0, -0x63c(r12)   maximum
-      - [ be32, 0x0144f9a4, 0xeda30028 ] # fsubs f13, f3, f0
-      - [ be32, 0x0144f9a8, 0xfc6d182e ] # fsel f3, f13, f0, f3
-      - [ be32, 0x0144f9ac, 0x4e800020 ] # blr
-      - [ bef32, 0x0144f9c0, "Scale" ]
-      - [ bef32, 0x0144f9c4, 2.61799 ]   # 150 degrees (radians)
-      - [ bef32, 0x0144f9c8, 1.0472 ]    # 60 degrees (radians): the gameplay camera's field of view
+      - [ be32, 0x0144f988, 0xc1bf0134 ] # lfs f13, 0x134(r31)
+      - [ be32, 0x0144f98c, 0xedad0072 ] # fmuls f13, f13, f1   aspect
+      - [ be32, 0x0144f990, 0xc00cf9ec ] # lfs f0, -0x614(r12)   1.5
+      - [ be32, 0x0144f994, 0xff8d0000 ] # fcmpu cr7, f13, f0
+      - [ be32, 0x0144f998, 0x4d9c0020 ] # bltlr cr7             (narrower: as the game set it)
+      - [ be32, 0x0144f99c, 0xc00cf9e0 ] # lfs f0, -0x620(r12)   Scale
+      - [ be32, 0x0144f9a0, 0xec630032 ] # fmuls f3, f3, f0
+      - [ be32, 0x0144f9a4, 0xc1acf9e8 ] # lfs f13, -0x618(r12)  60 degrees
+      - [ be32, 0x0144f9a8, 0xedad0032 ] # fmuls f13, f13, f0
+      - [ be32, 0x0144f9ac, 0xec036828 ] # fsubs f0, f3, f13
+      - [ be32, 0x0144f9b0, 0xfc6068ee ] # fsel f3, f0, f3, f13  (the larger)
+      - [ be32, 0x0144f9b4, 0xc00cf9e4 ] # lfs f0, -0x61c(r12)   maximum
+      - [ be32, 0x0144f9b8, 0xeda30028 ] # fsubs f13, f3, f0
+      - [ be32, 0x0144f9bc, 0xfc6d182e ] # fsel f3, f13, f0, f3
+      - [ be32, 0x0144f9c0, 0x4e800020 ] # blr
+      - [ bef32, 0x0144f9e0, "Scale" ]
+      - [ bef32, 0x0144f9e4, 2.61799 ]   # 150 degrees (radians)
+      - [ bef32, 0x0144f9e8, 1.0472 ]    # 60 degrees (radians): the gameplay camera's field of view
+      - [ bef32, 0x0144f9ec, 1.5 ]       # aspect below which a camera is left alone (portraits)
