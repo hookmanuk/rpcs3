@@ -7,8 +7,13 @@
   "default_fps": 0,
 
   "matrix_layout": "row_vectors",
-  "camera_blocks": [256, 258],
-  "column_vector_blocks": [258],
+  "camera_blocks": [256, 258, 265],
+  "column_vector_blocks": [258, 265],
+  "either_layout_blocks": [256],
+
+  "hidden_draws": [
+    { "name": "Sun shafts: CPU-projected quads added after tone mapping (head-locked; world-fixed they show their edges at head turns)", "program": "1c7935c330cbbbd8", "texture": "256x512", "hidden": true }
+  ],
   "require_rigid_camera": true,
   "require_camera_aspect": true,
   "camera_slots_read_directly": true,

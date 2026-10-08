@@ -379,19 +379,26 @@ namespace rsx::vr
 		// Bind the first perspective (and, if required, rigid and output-aspect) block of the candidates.
 		bool bind_camera_block(matrix_block& block, void* buffer, const u16* reloc, usz reloc_size,
 			std::span<const u32> candidates, bool column_vectors, bool require_rigid, bool xyw = false, f32 require_aspect = 0.f,
-			std::span<const std::array<u32, 4>> explicit_slots = {}, std::span<const u32> nonrigid = {}, std::span<const u32> row_blocks = {})
+			std::span<const std::array<u32, 4>> explicit_slots = {}, std::span<const u32> nonrigid = {}, std::span<const u32> row_blocks = {},
+			std::span<const u32> either_layout = {})
 		{
 			for (usz i = 0; i < candidates.size(); ++i)
 			{
 				const u32 candidate = candidates[i];
 				const std::array<u32, 4>* slots = i < explicit_slots.size() ? &explicit_slots[i] : nullptr;
 				const bool rows = std::find(row_blocks.begin(), row_blocks.end(), candidate) != row_blocks.end();
-				if (block.bind(buffer, reloc, reloc_size, candidate, column_vectors != rows, xyw && !rows, slots) && is_perspective(block.rows) &&
-					w_from_position(block.rows) &&
-					(!require_rigid || std::find(nonrigid.begin(), nonrigid.end(), candidate) != nonrigid.end() || is_rigid(block.rows)) &&
-					(require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
+				const bool either = std::find(either_layout.begin(), either_layout.end(), candidate) != either_layout.end();
+				for (u32 pass = 0; pass < (either ? 2u : 1u); ++pass)
 				{
-					return true;
+					// Profile either_layout_blocks: the second pass binds the block in the other layout.
+					const bool columns = (column_vectors != rows) != (pass != 0);
+					if (block.bind(buffer, reloc, reloc_size, candidate, columns, xyw && !rows && pass == 0, slots) && is_perspective(block.rows) &&
+						w_from_position(block.rows) &&
+						(!require_rigid || std::find(nonrigid.begin(), nonrigid.end(), candidate) != nonrigid.end() || is_rigid(block.rows)) &&
+						(require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
+					{
+						return true;
+					}
 				}
 			}
 			block.release();
@@ -993,6 +1000,16 @@ namespace rsx::vr
 				}
 			}
 		}
+		if (const YAML::Node blocks = child(root, "either_layout_blocks"); blocks && blocks.IsSequence())
+		{
+			for (const auto& node : blocks)
+			{
+				std::string node_error;
+				profile->either_layout_blocks.push_back(get_yaml_node_value<u32>(node, node_error));
+				if (!node_error.empty())
+					fail("either_layout_blocks: " + node_error);
+			}
+		}
 		if (std::string rigid; read(root, "require_rigid_camera", rigid, false))
 		{
 			profile->require_rigid_camera = rigid == "true";
@@ -1383,7 +1400,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -2535,7 +2552,8 @@ namespace rsx::vr
 		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera, profile.xyw_rows, camera_aspect,
 				m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots),
 				m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.nonrigid_camera_blocks),
-				m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.row_vector_blocks)))
+				m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.row_vector_blocks),
+				m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.either_layout_blocks)))
 		{
 			apply_vr_screen_space(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
 			return false;
@@ -4081,7 +4099,8 @@ namespace rsx::vr
 				profile && profile->require_camera_aspect ? static_cast<f32>(g_fxo->get<rsx::avconf>().video_frame_size().width) / g_fxo->get<rsx::avconf>().video_frame_size().height : 0.f,
 				m_base == umax && profile ? std::span<const std::array<u32, 4>>(profile->camera_block_slots) : std::span<const std::array<u32, 4>>(),
 				m_base == umax && profile ? std::span<const u32>(profile->nonrigid_camera_blocks) : std::span<const u32>(),
-				m_base == umax && profile ? std::span<const u32>(profile->row_vector_blocks) : std::span<const u32>()))
+				m_base == umax && profile ? std::span<const u32>(profile->row_vector_blocks) : std::span<const u32>(),
+				m_base == umax && profile ? std::span<const u32>(profile->either_layout_blocks) : std::span<const u32>()))
 		{
 			if (find_slot(buffer, reloc, reloc_size, camera_blocks[0]))
 			{

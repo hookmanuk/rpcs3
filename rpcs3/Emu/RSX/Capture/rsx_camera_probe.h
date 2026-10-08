@@ -129,6 +129,9 @@ namespace rsx::vr
 		// Blocks stored in the other layout than matrix_layout: row_vector_blocks in a column_vectors game, or
 		// column_vector_blocks in a row_vectors game (Dragon Age: Origins' foliage, a DP4 camera at c[258]); one list.
 		std::vector<u32> row_vector_blocks;
+		// Camera blocks some programs read in the other layout: tried in their own layout first, then transposed. Dragon
+		// Age: Origins' cloud layer reads the view-projection at c[256] as DP4 columns (no z), every other program as rows.
+		std::vector<u32> either_layout_blocks;
 		// Blocks holding another view of the same camera: Bayonetta's motion-vector pass keeps the
 		// previous frame's view-projection in c[36..39] beside the camera c[8..11]. They get the camera
 		// block's clip-space eye transform (X = M^-1 * M_eye), so velocities stay the game's instead of
