@@ -479,6 +479,16 @@ namespace rsx::vr
 			std::vector<u32> values;
 		};
 		std::vector<screen_frames_when_rule> screen_space_screen_frames_when;
+		// native_rate_when: while a guest u32 holds one of the values, the vblank runs at most `rate` Hz (default 60),
+		// with or without VR: for scenes the game steps per frame instead of by time (Ratchet & Clank 2 and 3's
+		// in-engine cutscenes ran 1.5x fast at 90 Hz, out of sync with their audio).
+		struct native_rate_rule
+		{
+			guest_address address;
+			std::vector<u32> values;
+			u32 rate = 60;
+		};
+		std::vector<native_rate_rule> native_rate_when;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
 		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
 		// times this factor (through a patch that reads it), so it stays real-time at the headset's rate.

@@ -1228,6 +1228,36 @@ namespace rsx::vr
 				}
 			}
 		};
+		if (const YAML::Node rules = child(root, "native_rate_when"); rules && rules.IsSequence())
+		{
+			// [{ "address": "0xf17060", "values": [1], "rate": 60 }]
+			for (const YAML::Node& node : rules)
+			{
+				std::string address;
+				u32 rate = 60;
+				read(node, "address", address);
+				read(node, "rate", rate, false);
+				title_profile::native_rate_rule rule;
+				rule.rate = rate;
+				if (!parse_guest_address("native_rate_when", address, rule.address))
+				{
+					continue;
+				}
+				if (const YAML::Node values = child(node, "values"); values && values.IsSequence())
+				{
+					for (const auto& v : values)
+					{
+						rule.values.push_back(static_cast<u32>(std::strtoul(v.as<std::string>().c_str(), nullptr, 0)));
+					}
+				}
+				if (rule.values.empty() || rule.rate < 20)
+				{
+					fail("native_rate_when: expected {\"address\": \"0x...\", \"values\": [n, ...], \"rate\": 60}");
+					continue;
+				}
+				profile->native_rate_when.push_back(std::move(rule));
+			}
+		}
 		if (const YAML::Node rules = child(screen_space, "screen_frames_when"); rules && rules.IsSequence())
 		{
 			// [{ "address": "0x332b7ec0", "values": [8] }]
@@ -1400,7 +1430,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1635,6 +1665,29 @@ namespace rsx::vr
 			if (video)
 			{
 				return profile->video_vblank_rate;
+			}
+		}
+		// Profile native_rate_when: scenes the game steps per frame run at their own rate.
+		if (const title_profile* profile = camera_probe::get().profile(); profile && !profile->native_rate_when.empty())
+		{
+			u32 cap = 0;
+			for (const auto& rule : profile->native_rate_when)
+			{
+				const u32 address = resolve_guest_address(rule.address);
+				if (address && vm::check_addr(address, vm::page_readable, 4) &&
+					std::find(rule.values.begin(), rule.values.end(), static_cast<u32>(vm::_ref<be_t<u32>>(address))) != rule.values.end())
+				{
+					cap = cap ? std::min(cap, rule.rate) : rule.rate;
+				}
+			}
+			static atomic_t<u32> s_native_cap = 0;
+			if (s_native_cap.exchange(cap) != cap)
+			{
+				vr_probe_log.notice("VR: native_rate_when %s: vblank %u Hz", cap ? "on" : "off", cap && rate > cap ? cap : static_cast<u32>(rate));
+			}
+			if (cap && rate > cap)
+			{
+				return cap;
 			}
 		}
 		return rate;

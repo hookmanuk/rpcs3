@@ -8,6 +8,7 @@
   "game_frame_time_f32": ["0x1329040", "0x1329050"],
   "game_frame_time_sq_f32": ["0x1329044"],
   "game_frame_time_cube_f32": ["0x1329048"],
+  "native_rate_when": [ { "address": "0x146c804", "values": [1], "rate": 60 } ],
 
   "matrix_layout": "column_vectors",
   "depth_remap_programs": ["1459aa3afca2e172"],
