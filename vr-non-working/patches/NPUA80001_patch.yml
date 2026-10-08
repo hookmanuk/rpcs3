@@ -1,0 +1,14 @@
+Version: 1.2
+
+PPU-c98a57283c22791786a49ffe8a58944b15b91c5e:
+  "Frame rate follows VR (real-time step)":
+    Games:
+      "flOw":
+        NPUA80001: [ 02.10 ]
+    Author: "VR fork"
+    Notes: "flOw already presents every vblank, but its frame step is the measured time clamped to at least 1/60 s (0xb97f94), so above 60 FPS it runs fast (2x at 120 Hz). This drops the lower clamp (the 0.1 s upper clamp stays): the measured time is used at any frame rate. At 60 FPS play is unchanged."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00242794, 0x4800031c ] # b 0x242ab0 (was bge cr7: dt below 1/60 was raised to 1/60)

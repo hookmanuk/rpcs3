@@ -3,8 +3,8 @@
   "title_id": "NPUA80001",
   "app_version": "02.10",
   "name": "flOw",
-  "max_fps": 60,
-  "default_fps": 60,
+  "max_fps": 0,
+  "default_fps": 0,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [256],
