@@ -1640,6 +1640,12 @@ namespace rsx::vr
 					"512 keeps them at their own size (Gran Turismo 5: about 2 ms a frame at 400%%); compare pictures, a pass shown directly "
 					"gets blurry.", small, draws, listed);
 			}
+			if (draws >= 2000)
+			{
+				vr_gen_log.notice("%u draws in the captured frame. If the RSX thread cannot keep the VR rate, \"camera_block_cache\": true "
+					"reuses each eye's camera transform while the camera block repeats (SEGA Rally: ~95%% of its draws); if a culling-widening "
+					"patch adds the draws, culling_scale_f32 widens it only as far as the head is turned.", draws);
+			}
 		}
 		json += "\n";
 		json += fmt::format("  \"matrix_layout\": \"%s\",\n", layout_names[columns]);
