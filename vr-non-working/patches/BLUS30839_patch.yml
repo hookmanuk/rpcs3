@@ -25,6 +25,61 @@ PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
       - [ be32, 0x0, 0xc05c0014 ] # lfs f2, 0x14(r28)       the game's 60
       - [ be32, 0x0, 0xd04c7ff0 ] # stfs f2, 0x7ff0(r12)    seed the word
 
+  "Disable mesh trimming (VR)":
+    Games:
+      "Sonic & All-Stars Racing Transformed":
+        BLUS30839: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The game's EDGE geometry jobs (SPU) drop triangles that cover no pixel centre of the PS3's own 1280x720 grid. At higher resolution scales, and in VR where the far track is thin slivers, those triangles would have covered pixels: gaps in the road where the sky shows through (the flat incline joints, roof edges, the far track bend). The viewport the jobs cull against (0xcf1800, set by 0x1e4018: scissor, scales, offsets) is enlarged 16x about its origin before it is copied to the jobs, so the frustum and scissor tests are unchanged and the no-pixel test runs on a 16x finer grid."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ calloc, 0x001e4150, 30 ] # was li r3, 0x80, before the viewport block is copied to the job buffer
+      - [ be32, 0x0, 0x38600010 ] # li r3, 16
+      - [ be32, 0x0, 0xf8610070 ] # std r3, 0x70(r1)
+      - [ be32, 0x0, 0xc8010070 ] # lfd f0, 0x70(r1)
+      - [ be32, 0x0, 0xfc00069c ] # fcfid f0, f0
+      - [ be32, 0x0, 0xfc000018 ] # frsp f0, f0         K = 16.0
+      - [ be32, 0x0, 0xc03f0050 ] # lfs f1, 0x50(r31)   viewport scale x
+      - [ be32, 0x0, 0xec210032 ] # fmuls f1, f1, f0
+      - [ be32, 0x0, 0xd03f0050 ] # stfs f1, 0x50(r31)
+      - [ be32, 0x0, 0xc03f0054 ] # lfs f1, 0x54(r31)   scale y
+      - [ be32, 0x0, 0xec210032 ]
+      - [ be32, 0x0, 0xd03f0054 ]
+      - [ be32, 0x0, 0xc03f0060 ] # lfs f1, 0x60(r31)   offset x
+      - [ be32, 0x0, 0xec210032 ]
+      - [ be32, 0x0, 0xd03f0060 ]
+      - [ be32, 0x0, 0xc03f0064 ] # lfs f1, 0x64(r31)   offset y
+      - [ be32, 0x0, 0xec210032 ]
+      - [ be32, 0x0, 0xd03f0064 ]
+      - [ be32, 0x0, 0xa07f0000 ] # lhz r3, 0(r31)      scissor x, y, w, h (u16)
+      - [ be32, 0x0, 0x54632036 ] # slwi r3, r3, 4
+      - [ be32, 0x0, 0xb07f0000 ] # sth r3, 0(r31)
+      - [ be32, 0x0, 0xa07f0002 ]
+      - [ be32, 0x0, 0x54632036 ]
+      - [ be32, 0x0, 0xb07f0002 ]
+      - [ be32, 0x0, 0xa07f0004 ]
+      - [ be32, 0x0, 0x54632036 ]
+      - [ be32, 0x0, 0xb07f0004 ]
+      - [ be32, 0x0, 0xa07f0006 ]
+      - [ be32, 0x0, 0x54632036 ]
+      - [ be32, 0x0, 0xb07f0006 ]
+      - [ be32, 0x0, 0x38600080 ] # li r3, 0x80         (the replaced instruction)
+
+  "Disable camera shake (VR)":
+    Games:
+      "Sonic & All-Stars Racing Transformed":
+        BLUS30839: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Turns off the race camera's shake, which is uncomfortable in VR: the speed and boost shake (Perlin-noise rotation, 0x86a680) and the impact shake (collisions, 0x86a0c8). Both take their own reset path every frame (as on a camera cut): the shake state stays zero and the camera keeps the view the game computed. Camera moves such as the boost dip are kept."
+    Patch Version: 1.0
+    Enabled By Default: false
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0086a718, 0x60000000 ] # nop (was beq): speed/boost shake always takes its reset path
+      - [ be32, 0x0086a0f4, 0x60000000 ] # nop (was beq): impact shake always takes its reset path
+
   "Wider view (VR culling)":
     Games:
       "Sonic & All-Stars Racing Transformed":
