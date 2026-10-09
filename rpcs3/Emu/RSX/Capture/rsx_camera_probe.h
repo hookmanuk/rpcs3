@@ -161,6 +161,10 @@ namespace rsx::vr
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots
 		// directly (the program's constant_ids), as the profile generator samples them.
 		bool camera_slots_read_directly = false;
+		// Reuse each eye's camera block result while the game's block and everything else the eye transform reads
+		// are unchanged from that eye's previous plain scene-camera draw (SEGA Rally: ~95% of its 2-4k draws a frame).
+		// Dev: RPCS3_VR_BLOCK_CACHE=0/1 forces it off/on.
+		bool camera_block_cache = false;
 		// The game's clip space has NDC +Y pointing down the screen (its viewport's y scale is positive: Kingdom
 		// Hearts 1.5). The head pose is turned into that basis with y flipped, else head pitch and roll turn the
 		// world the wrong way (yaw is unaffected). Same as RPCS3_OPENXR_FLIP_Y, for this game only.
@@ -489,6 +493,21 @@ namespace rsx::vr
 			u32 rate = 60;
 		};
 		std::vector<native_rate_rule> native_rate_when;
+		// culling_scale_f32: { "address": "0x...", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }.
+		// A culling-widening patch's scale word (the game culls against fov_deg x scale high, at its aspect), written
+		// each frame in the headset view with the smallest scale whose frustum holds the headset's at the current head
+		// pose plus margin_deg: wide culling only while the head is turned away from the game camera. SEGA Rally's
+		// Wider view at 2.0 made 2-4k draws a frame and missed 90 Hz; looking ahead needs ~1.5.
+		struct culling_scale_rule
+		{
+			guest_address address;
+			f32 fov_deg = 60.f;
+			f32 aspect = 16.f / 9.f;
+			f32 margin_deg = 6.f;
+			f32 min = 1.f;
+			f32 max = 2.5f;
+		};
+		std::vector<culling_scale_rule> culling_scale_f32;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
 		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
 		// times this factor (through a patch that reads it), so it stays real-time at the headset's rate.
@@ -617,6 +636,8 @@ namespace rsx::vr
 	// Writes the effective vblank rate to the profile's game_refresh_rate_f32 targets.
 	// Called once per frame by the RSX thread.
 	void update_game_refresh_rate();
+	// Writes the profile's culling_scale_f32 words from the head pose. Called once per frame by the RSX thread.
+	void update_culling_scale();
 	// The draw path: a draw matching the profile's frame_rate_draws was made (see title_profile::frame_rate_draws).
 	void note_frame_rate_draw(u32 index);
 	// Each game flip (rsx::thread::handle_emu_flip): measures the real frame rate update_game_refresh_rate falls back to.
@@ -818,6 +839,9 @@ namespace rsx::vr
 		void set_vr_view(const f32 quat_xyzw[4], const f32 position_xyz[3], f32 eye_scale,
 			f32 fov_scale, bool flip_y, f32 ipd, f32 camera_depth);
 		void clear_vr_view();
+		// The headset view's head rotation in the game camera's clip basis (see m_vr_rot) and the largest rendered
+		// tangents of both eyes (x, y). False without a headset view.
+		bool vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const;
 
 		// Native (non-headset-view) stereo: scale the game's eye separation, for
 		// showing its stereo on a screen larger than the one it was tuned for.
@@ -962,6 +986,20 @@ namespace rsx::vr
 		mutable f32 m_scene_eye_block[2][4][4]{};
 		mutable bool m_scene_block_valid[2]{};
 		mutable s32 m_remap_scene_eye = -1; // the eye whose scene matrices the current draw's depth remap uses (-1: its own)
+		// Profile camera_block_cache: per eye, the inputs (key) and outputs of the last plain scene-camera draw.
+		struct eye_block_cache
+		{
+			bool valid = false;
+			std::array<u32, 56> key{};
+			f32 rows[4][4]{};
+			f32 cam[3]{};
+			f32 proj_x = 0.f;
+			f32 proj_y = 0.f;
+			bool proj_refreshed = false;
+			std::array<f32, 3> camera_right{};
+			bool camera_right_valid = false;
+		};
+		mutable eye_block_cache m_eye_block_cache[2];
 		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
 		// The draw's depth remap matrix (see depth_remap_matrix), from its camera block as the game wrote it and as drawn for the eye.
 		mutable f32 m_depth_remap[4][4]{};

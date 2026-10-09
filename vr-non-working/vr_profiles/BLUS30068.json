@@ -4,9 +4,12 @@
   "app_version": "01.00",
   "name": "SEGA Rally Revo™",
   "max_fps": 0,
-  "default_fps": 72,
+  "default_fps": 0,
 
   "zcull_relaxed_sync": true,
+  "camera_block_cache": true,
+  "min_scalable_dimension": 912,
+  "culling_scale_f32": [{ "address": "0x4d7180", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 2, "min": 1.0, "max": 2.5 }],
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [8, 0, 4],

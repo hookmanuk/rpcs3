@@ -407,6 +407,7 @@ namespace rsx::vr
 		rsx::vr::stereo_inspector::get().on_frame_end();
 		rsx::vr::camera_probe::get().poll();
 		rsx::vr::update_game_refresh_rate();
+		rsx::vr::update_culling_scale();
 		rsx::vr::profile_generator::get().on_frame_end();
 
 #ifdef _WIN32

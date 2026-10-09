@@ -18,7 +18,7 @@ PPU-cf7bf795662e7da4af16f0131ac7c3bef86776ce:
       "SEGA Rally Revo":
         BLUS30068: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Widens the cameras' field of view (60 degrees high in the race) by the chosen scale (2.0 by default: 72 Hz in VR at 300%; 2.5 drops to 68), up to 150 degrees, where the game builds the projection from the camera record (0x174640, all camera modes). The game culls the scenery against this frustum, so the ground and scenery the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x4d7140)."
+    Notes: "Widens the cameras' field of view (60 degrees high in the race) by the chosen scale (2.0 by default: 72 Hz in VR at 300%; 2.5 drops to 68), up to 150 degrees, where the game builds the projection from the camera record (0x174640, all camera modes). The game culls the scenery against this frustum, so the ground and scenery the headset shows beyond the game's own view are no longer missing. The VR renderer remaps from the game's projection, so the headset image keeps its scale; flat play shows a wide-angle view (choose 1.0 to play flat). The code is in the unused tail of the code segment's last page (0x4d7140). In VR the profile (culling_scale_f32) rewrites Scale each frame from the head pose: about 1.5 looking ahead, up to 2.5 with the head turned, so the wide culling costs frames only while it is needed."
     Configurable Values:
       "Scale":
         Type: double_enum

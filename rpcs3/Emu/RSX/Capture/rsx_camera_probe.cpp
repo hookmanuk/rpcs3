@@ -1022,6 +1022,10 @@ namespace rsx::vr
 		{
 			profile->camera_slots_read_directly = direct == "true";
 		}
+		if (std::string cache; read(root, "camera_block_cache", cache, false))
+		{
+			profile->camera_block_cache = cache == "true";
+		}
 		if (std::string y_down; read(root, "view_y_down", y_down, false))
 		{
 			profile->view_y_down = y_down == "true";
@@ -1258,6 +1262,31 @@ namespace rsx::vr
 				profile->native_rate_when.push_back(std::move(rule));
 			}
 		}
+		if (const YAML::Node rules = child(root, "culling_scale_f32"); rules && rules.IsSequence())
+		{
+			// [{ "address": "0x4d7180", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }]
+			for (const YAML::Node& node : rules)
+			{
+				std::string address;
+				read(node, "address", address);
+				title_profile::culling_scale_rule rule;
+				read(node, "fov_deg", rule.fov_deg, false);
+				read(node, "aspect", rule.aspect, false);
+				read(node, "margin_deg", rule.margin_deg, false);
+				read(node, "min", rule.min, false);
+				read(node, "max", rule.max, false);
+				if (!parse_guest_address("culling_scale_f32", address, rule.address))
+				{
+					continue;
+				}
+				if (rule.fov_deg <= 0.f || rule.fov_deg >= 180.f || rule.aspect <= 0.f || rule.min <= 0.f || rule.max < rule.min)
+				{
+					fail("culling_scale_f32: expected {\"address\": \"0x...\", \"fov_deg\": 60, \"aspect\": 1.7778, \"margin_deg\": 6, \"min\": 1, \"max\": 2.5}");
+					continue;
+				}
+				profile->culling_scale_f32.push_back(std::move(rule));
+			}
+		}
 		if (const YAML::Node rules = child(screen_space, "screen_frames_when"); rules && rules.IsSequence())
 		{
 			// [{ "address": "0x332b7ec0", "values": [8] }]
@@ -1430,7 +1459,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1888,6 +1917,89 @@ namespace rsx::vr
 		if (index < g_frame_rate_draw_counts.size())
 		{
 			g_frame_rate_draw_counts[index]++;
+		}
+	}
+
+	bool camera_probe::vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const
+	{
+		if (!m_vr_view || !m_vr_hmd_fov)
+		{
+			return false;
+		}
+		rotation = m_vr_rot;
+		tan_x = tan_y = 0.f;
+		for (const auto& t : m_vr_eye_fov)
+		{
+			tan_x = std::max({tan_x, std::fabs(t[0]), std::fabs(t[1])});
+			tan_y = std::max({tan_y, std::fabs(t[2]), std::fabs(t[3])});
+		}
+		return tan_x > 0.f && tan_y > 0.f;
+	}
+
+	void update_culling_scale()
+	{
+		const title_profile* profile = camera_probe::get().profile();
+		if (!profile || profile->culling_scale_f32.empty())
+		{
+			return;
+		}
+		std::array<f32, 9> R{};
+		f32 tx = 0.f, ty = 0.f;
+		if (!camera_probe::get().vr_view_rotation(R, tx, ty))
+		{
+			return;
+		}
+		for (const auto& rule : profile->culling_scale_f32)
+		{
+			const u32 address = resolve_guest_address(rule.address);
+			if (!address || !vm::check_addr(address, vm::page_readable, 4))
+			{
+				continue;
+			}
+			// The headset frustum's corners turned by the head: the game's frustum (half-height h, half-width
+			// h x aspect, in tangents) must hold each, so h >= max(|y / z|, |x / z| / aspect). A corner at or behind the
+			// camera's plane takes the maximum. Both rotation directions are tested (the basis holds the transpose).
+			f32 h = 0.f;
+			bool behind = false;
+			for (u32 transpose = 0; transpose < 2; ++transpose)
+			{
+				const auto m = [&](u32 r, u32 c)
+				{
+					return transpose ? R[c * 3 + r] : R[r * 3 + c];
+				};
+				for (const f32 sx : {-tx, tx})
+				{
+					for (const f32 sy : {-ty, ty})
+					{
+						const f32 x = m(0, 0) * sx + m(0, 1) * sy + m(0, 2);
+						const f32 y = m(1, 0) * sx + m(1, 1) * sy + m(1, 2);
+						const f32 z = m(2, 0) * sx + m(2, 1) * sy + m(2, 2);
+						if (z <= 0.05f)
+						{
+							behind = true;
+							continue;
+						}
+						h = std::max({h, std::fabs(y / z), std::fabs(x / z) / rule.aspect});
+					}
+				}
+			}
+			const f32 half_deg = behind ? 90.f : std::atan(h) * 57.29578f + rule.margin_deg;
+			const f32 wanted = std::clamp(2.f * half_deg / rule.fov_deg, rule.min, rule.max);
+			// Up at once (newly visible scenery must not be missing); down slowly, so a glance back and forth does not
+			// make the scenery at the edges pop in and out.
+			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+			const f32 current = value;
+			const f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : std::max(wanted, current - 0.01f);
+			if (next != current)
+			{
+				value = next;
+			}
+			static u32 s_logged = 0;
+			if (s_logged < 3 && std::fabs(next - current) > 0.2f)
+			{
+				s_logged++;
+				vr_probe_log.notice("Culling scale at 0x%x: %.2f -> %.2f (headset frustum %.1f degrees off the game's axis)", address, current, next, half_deg);
+			}
 		}
 	}
 
@@ -2684,6 +2796,86 @@ namespace rsx::vr
 			}
 		}
 
+		// Profile camera_block_cache: a draw whose camera block and everything else the eye transform below reads
+		// equal this eye's previous plain scene-camera draw gets that draw's results copied instead of rebuilt.
+		static const int s_block_cache_env = []
+		{
+			const char* v = std::getenv("RPCS3_VR_BLOCK_CACHE");
+			return v ? (v[0] == '1' ? 1 : 0) : -1;
+		}();
+		const bool block_cache = s_block_cache_env < 0 ? profile.camera_block_cache : s_block_cache_env == 1;
+		const u32 cache_eye = eye_sign < 0.f ? 0 : 1;
+		std::array<u32, 56> cache_key{};
+		f32* cache_cam = nullptr;
+		if (block_cache)
+		{
+			const u32 cache_cam_slot = m_cam_slot != umax ? m_cam_slot : profile.camera_position_slot;
+			cache_cam = cache_cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cache_cam_slot) : nullptr;
+			usz k = 0;
+			const auto put = [&](f32 v)
+			{
+				cache_key[k++] = std::bit_cast<u32>(v);
+			};
+			const u64 profile_id = reinterpret_cast<u64>(&profile);
+			cache_key[k++] = static_cast<u32>(profile_id);
+			cache_key[k++] = static_cast<u32>(profile_id >> 32);
+			cache_key[k++] = block.base();
+			cache_key[k++] = surface_w | (u32{surface_h} << 16);
+			cache_key[k++] = output_eye.width | (output_eye.height << 16);
+			cache_key[k++] = (m_vr_view ? 1u : 0u) | (m_vr_hmd_fov ? 2u : 0u) | (m_vr_proj_valid ? 4u : 0u) | (m_vr_flip_y ? 8u : 0u) |
+			                 (block.far_plane() ? 16u : 0u) | (m_render_camera_right_valid ? 32u : 0u) | (m_draw_into_display_buffer ? 64u : 0u) |
+			                 (m_draw_samples_colour_target ? 128u : 0u) | (m_draw_samples_any_colour_target ? 256u : 0u) |
+			                 (m_draw_depth_test ? 512u : 0u) | (rsx::method_registers.depth_test_enabled() ? 1024u : 0u) | (cache_cam ? 2048u : 0u);
+			cache_key[k++] = static_cast<u32>(m_draw_program);
+			cache_key[k++] = static_cast<u32>(m_draw_program >> 32);
+			put(m_draw_hud_scale);
+			put(rsx::method_registers.viewport_scale_x());
+			put(rsx::method_registers.viewport_scale_y());
+			put(rsx::method_registers.viewport_offset_x());
+			put(rsx::method_registers.viewport_offset_y());
+			cache_key[k++] = u32{rsx::method_registers.surface_clip_width()} | (u32{rsx::method_registers.surface_clip_height()} << 16);
+			for (u32 r = 0; r < 4; ++r)
+				for (u32 c = 0; c < 4; ++c)
+					put(game_block[r][c]);
+			for (const f32 v : m_vr_rot)
+				put(v);
+			for (const f32 v : m_vr_head_units)
+				put(v);
+			for (const f32 v : m_vr_eye_fov[cache_eye])
+				put(v);
+			put(m_vr_proj_x);
+			put(m_vr_proj_y);
+			put(m_vr_eye_scale);
+			put(m_vr_fov_scale);
+			put(m_screen_stereo_scale);
+			for (u32 i = 0; i < 3; ++i)
+				put(cache_cam ? cache_cam[i] : 0.f);
+
+			if (const auto& entry = m_eye_block_cache[cache_eye]; entry.valid && entry.key == cache_key && !rsx::vr::depth_remap_active())
+			{
+				for (u32 r = 0; r < 4; ++r)
+					for (u32 c = 0; c < 4; ++c)
+						rows[r][c] = entry.rows[r][c];
+				if (cache_cam)
+				{
+					std::copy(std::begin(entry.cam), std::end(entry.cam), cache_cam);
+				}
+				m_vr_proj_x = entry.proj_x;
+				m_vr_proj_y = entry.proj_y;
+				m_vr_proj_valid = true;
+				m_proj_refreshed = entry.proj_refreshed;
+				if (entry.proj_refreshed)
+				{
+					m_scene_proj_x = entry.proj_x;
+					m_scene_proj_y = entry.proj_y;
+				}
+				m_render_camera_right = entry.camera_right;
+				m_render_camera_right_valid = entry.camera_right_valid;
+				finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, true, false, game_block, rows);
+				return true;
+			}
+		}
+
 		// A full-screen pass building view rays from a translation-free camera block
 		// (see screen_space_rotation_only_passthrough): it follows head rotation, but
 		// takes no eye offset, head translation or stereo shear.
@@ -2978,6 +3170,26 @@ namespace rsx::vr
 				}
 			}
 			finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, output_aspect_match, remap_volume, game_block, rows);
+			// A plain scene-camera draw: its results serve the next draws with the same inputs (camera_block_cache).
+			if (block_cache && output_aspect_match && !screen_sampled_view && !remap_volume && !sprite_block && m_vr_proj_valid &&
+				m_audit_yaw_deg == 0.f && !rsx::vr::depth_remap_active() && profile.linked_camera_blocks.empty() && !profile.camera_palette_last)
+			{
+				auto& entry = m_eye_block_cache[cache_eye];
+				entry.key = cache_key;
+				for (u32 r = 0; r < 4; ++r)
+					for (u32 c = 0; c < 4; ++c)
+						entry.rows[r][c] = rows[r][c];
+				if (cache_cam)
+				{
+					std::copy(cache_cam, cache_cam + 3, entry.cam);
+				}
+				entry.proj_x = m_vr_proj_x;
+				entry.proj_y = m_vr_proj_y;
+				entry.proj_refreshed = m_proj_refreshed;
+				entry.camera_right = m_render_camera_right;
+				entry.camera_right_valid = m_render_camera_right_valid;
+				entry.valid = true;
+			}
 			return true;
 		}
 
