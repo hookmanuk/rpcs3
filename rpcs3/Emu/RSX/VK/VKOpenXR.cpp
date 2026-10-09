@@ -180,6 +180,7 @@ namespace vk::xr
 			};
 			render_pose_t render_poses[8]{};
 			atomic_t<bool> screen_mono{false}; // set_screen_mono: both eyes see the left eye's image on the fixed screen
+			atomic_t<f32> screen_content_aspect{0.f}; // set_screen_content_aspect: the picture's width / height (0: the image's)
 			u32 render_pose_count = 0;
 
 // Declares the function pointer of an OpenXR entry point (token pasting: a macro by necessity).
@@ -1259,7 +1260,10 @@ namespace vk::xr
 				}
 				else if (ok)
 				{
-					const f32 height = screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
+					// The game's picture keeps its shape: headset-shaped eye images (rsx_vr_eye_shape.h) are not 16:9, and their
+					// own shape stretched SEGA Rally's intro videos tall on the fixed screen.
+					const f32 content_aspect = g_xr.screen_content_aspect.load();
+					const f32 height = content_aspect > 0.f ? screen_width / content_aspect : screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
 					for (u32 i = 0; i < 2; ++i)
 					{
 						auto& quad = quads[i];
@@ -1679,6 +1683,11 @@ namespace vk::xr
 	void set_screen_mono(bool mono)
 	{
 		g_xr.screen_mono = mono;
+	}
+
+	void set_screen_content_aspect(f32 aspect)
+	{
+		g_xr.screen_content_aspect = aspect;
 	}
 
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance)

@@ -127,4 +127,7 @@ namespace vk::xr
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance);
 	// The fixed screen shows the left eye's image to both eyes (flat), for frames put on it as menus, pauses or videos.
 	void set_screen_mono(bool mono);
+	// The shape (width / height) of the game's picture in the eye images: the guest display buffer's. The fixed screen
+	// takes it; the images need not have it (headset-shaped eyes scale x and y apart). 0: the images' own shape.
+	void set_screen_content_aspect(f32 aspect);
 } // namespace vk::xr

@@ -74,9 +74,10 @@ namespace rsx::vr
 		{
 			return percent;
 		}
-		// Same pixel count: x / sqrt(ratio), y * sqrt(ratio). Never exactly 100 while y differs: RPCS3 takes a 100%
-		// horizontal scale for an unscaled surface in places.
-		const f32 x = percent / std::sqrt(ratio);
+		// The axis with fewer pixels per degree keeps the configured scale, the other drops to the same density: a
+		// taller headset view keeps y and renders fewer columns (fewer pixels, the same detail). Never exactly 100
+		// while y differs: RPCS3 takes a 100% horizontal scale for an unscaled surface in places.
+		const f32 x = ratio > 1.f ? percent / ratio : percent;
 		const u16 snapped = snap(x, 800);
 		return snapped == 100 && eye_shape_percent_y(percent) != 100 ? (x < 100.f ? 75 : 125) : snapped;
 	}
@@ -88,7 +89,7 @@ namespace rsx::vr
 		{
 			return percent;
 		}
-		return snap(percent * std::sqrt(ratio), 1600);
+		return snap(ratio > 1.f ? percent : percent * ratio, 800);
 	}
 
 	void encode_wpos_x(f32& wpos_bias_x, const rsx::surface_scaling_config_t& config, u32 window_height)

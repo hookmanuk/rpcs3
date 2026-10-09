@@ -13,7 +13,8 @@ namespace rsx
 // taller: about 100 x 89 degrees, 2.1x the game's height in tangents but 1.45x its width. With one Resolution Scale for
 // both axes the eye got ~1.45x the pixels per degree across that it got up and down, and thin far geometry seen edge-on
 // (Sonic & All-Stars Racing Transformed's track bend, roofs) fell between the rows: stair-stepped edges and lines. The
-// scale is split per axis so both get the same pixels per degree, at the pixel count of the configured scale.
+// scale is split per axis so both get the same pixels per degree: the axis that had fewer keeps the configured scale
+// and the other drops to match (fewer pixels for the same detail: 300% -> 150% x 300% on a 0.925:1 view).
 // RPCS3's surfaces then carry a vertical scale (surface_scaling_config_t::scale_percent_y) next to the horizontal one.
 namespace rsx::vr
 {

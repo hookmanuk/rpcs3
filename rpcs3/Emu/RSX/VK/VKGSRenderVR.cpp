@@ -3721,6 +3721,9 @@ bool VKGSRender::vr_present_right_eye(const vk::present_surface_info& present_in
 {
 	m_vr_eye_width = present_info.width;
 	m_vr_eye_height = present_info.height;
+	// The picture's shape for the fixed screen: the guest buffer's, which the eye image no longer has once its axes are
+	// scaled apart (headset-shaped eyes).
+	vk::xr::set_screen_content_aspect(buffer_height ? static_cast<f32>(buffer_width) / buffer_height : 0.f);
 
 	{
 		static bool s_reported_present = false;
