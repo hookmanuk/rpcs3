@@ -21,6 +21,8 @@ namespace rsx::vr
 	// The headset's rendered eye extents in tangents (right - left, up - down) and the game's output aspect, each frame
 	// in the headset view: sets the vertical / horizontal scale ratio (1 when the eyes render the game's own FOV).
 	void set_eye_shape(f32 tan_width, f32 tan_height, f32 output_aspect);
+	// The rendered eye's shape (width / height in tangents) from the last set_eye_shape; 0 before the headset view.
+	f32 eye_view_aspect();
 
 	// The scale percents for x and y from the configured one: both the same until set_eye_shape has a ratio, or with
 	// Video > VR > Headset Eye Shape off (dev: RPCS3_VR_EYE_SHAPE=0/1 forces it).

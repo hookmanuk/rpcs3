@@ -660,6 +660,7 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 	{
 		aspect_ratio = { 0, 0, s32(m_swapchain_dims.width), s32(m_swapchain_dims.height) };
 	}
+	vr_mirror_region(aspect_ratio, generated_stereo); // VR fork: both eyes side by side at the shape the headset shows
 
 	// Blit contents to screen..
 	VkImage target_image = m_swapchain->get_image(m_current_frame->present_image);

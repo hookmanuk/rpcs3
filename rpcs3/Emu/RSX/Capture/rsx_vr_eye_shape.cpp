@@ -15,6 +15,8 @@ namespace rsx::vr
 	{
 		// Vertical / horizontal scale ratio for equal pixels per degree; 0 until the headset view has been seen.
 		atomic_t<f32> g_eye_shape_ratio{0.f};
+		// The rendered eye's width / height in tangents (eye_view_aspect).
+		atomic_t<f32> g_eye_view_aspect{0.f};
 
 		// Percents in steps of 25, as RPCS3's own Resolution Scale: scaled sizes of guest surfaces (multiples of 4) stay
 		// whole. At 251% x 358% a 320x180 target was 803 wide and its 160x90 half 401: the blit engine's halving asked
@@ -48,6 +50,7 @@ namespace rsx::vr
 		{
 			return;
 		}
+		g_eye_view_aspect = tan_width / tan_height;
 		// Pixels per tangent across: width_px / tan_width; down: height_px / tan_height, with height_px / width_px the
 		// output's 1 / aspect at equal scales. Equal density needs scale_y / scale_x = aspect * tan_height / tan_width.
 		f32 ratio = std::clamp(output_aspect * tan_height / tan_width, 0.25f, 4.f);
@@ -65,6 +68,11 @@ namespace rsx::vr
 		g_eye_shape_ratio = ratio;
 		vr_eye_log.notice("Headset eye shape: %.3f x %.3f tangents at output aspect %.3f: vertical / horizontal scale %.3f%s", tan_width,
 			tan_height, output_aspect, ratio, eye_shape_enabled() ? "" : " (Headset Eye Shape off: not applied)");
+	}
+
+	f32 eye_view_aspect()
+	{
+		return g_eye_view_aspect.load();
 	}
 
 	u16 eye_shape_percent_x(u16 percent)

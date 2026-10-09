@@ -1638,6 +1638,10 @@ void VKGSRender::vr_update_view()
 	// videos, 2D menus): show it as the fixed screen, which respects the HUD settings,
 	// instead of stretched over the whole view. Back to the headset view on the first
 	// frame with a camera draw (that frame is still shown as the screen).
+	// A frame with no camera draws that shows earlier 3D content (a paused game re-showing its last frame under its
+	// menu) keeps that content's pose: drawn and declared with it, the compositor holds it world-fixed. With the
+	// newest pose it followed the head (Kingdom Hearts' pause), and on the fixed screen it was squeezed to 16:9.
+	const u32 vr_frozen_pose = !m_vr_camera_draws && m_vr_flip_has_3d ? m_vr_flip_pose : 0;
 	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
 	m_vr_frames_2d = m_vr_camera_draws || m_vr_flip_has_3d ? 0 : m_vr_frames_2d + 1;
 	m_vr_camera_draws = 0;
@@ -1665,8 +1669,11 @@ void VKGSRender::vr_update_view()
 	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
 	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
 	const f32 vr_hud_distance = rsx::vr::effective_hud_depth();
-	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
-		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
+	u32 pose = vr_frozen_pose ? vk::xr::recall_render_pose(vr_frozen_pose, head, head_position, eye_fov, render_fov) : 0;
+	if (!pose)
+	{
+		pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov, static_cast<f32>(rsx::vr::effective_reprojection_margin()));
+	}
 	const bool located = pose != 0;
 	m_vr_applied_pose = 0;
 
@@ -4003,6 +4010,8 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 		// Whether the frame just shown holds 3D content (vr_has_3d). A buffer the CPU wrote has no surface.
 		const auto* shown = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
 		m_vr_flip_has_3d = shown && shown->vr_has_3d;
+		m_vr_flip_pose = shown ? shown->vr_pose : 0;
+		vk::xr::keep_render_pose(m_vr_flip_pose);
 	}
 	else if (vr_video_refresh)
 	{
@@ -4052,6 +4061,32 @@ bool VKGSRender::vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::vie
 // flip(): generated stereo from a display buffer larger than the region the game shows (Gran Turismo 5:
 // 2048x1080 surfaces, 1280x720 shown) would put each whole surface into its half of the window, the shown
 // part small in a corner. Copy the shown region of each eye into an image of that size first.
+// flip(): the desktop mirror of generated stereo shows both eyes side by side in the region fitted to the eye image's
+// pixel size. With headset-shaped eyes (rsx_vr_eye_shape.h) that image is narrow (1920x2160 for a 93 x 98 degree view)
+// and each eye came out twice as tall as wide. Each eye now gets the shape it is shown with: the headset eye's view
+// (width / height in tangents), or the game's picture when the frame is on the fixed screen (menus, videos).
+void VKGSRender::vr_mirror_region(areai& region, bool generated_stereo) const
+{
+	if (!generated_stereo || g_cfg.video.stretch_to_display_area || !m_swapchain_dims.width || !m_swapchain_dims.height)
+	{
+		return;
+	}
+	std::array<f32, 9> rotation{};
+	f32 tan_x = 0.f, tan_y = 0.f;
+	const bool headset_view = rsx::vr::camera_probe::get().vr_view_rotation(rotation, tan_x, tan_y);
+	const f32 eye_aspect = headset_view ? rsx::vr::eye_view_aspect() : vk::xr::screen_content_aspect();
+	if (!(eye_aspect > 0.f))
+	{
+		return;
+	}
+	const f32 aspect = 2.f * eye_aspect;
+	const f32 window_w = static_cast<f32>(m_swapchain_dims.width), window_h = static_cast<f32>(m_swapchain_dims.height);
+	const f32 w = std::min(window_w, window_h * aspect);
+	const f32 h = w / aspect;
+	const s32 x = static_cast<s32>((window_w - w) * 0.5f), y = static_cast<s32>((window_h - h) * 0.5f);
+	region = {x, y, x + static_cast<s32>(w), y + static_cast<s32>(h)};
+}
+
 void VKGSRender::vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>& calibration_src, u32 buffer_width, u32 buffer_height)
 {
 	if (!buffer_width || !buffer_height)
