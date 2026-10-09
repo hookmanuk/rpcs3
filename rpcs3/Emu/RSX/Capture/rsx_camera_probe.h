@@ -1012,6 +1012,21 @@ namespace rsx::vr
 			bool camera_right_valid = false;
 		};
 		mutable eye_block_cache m_eye_block_cache[2];
+		// camera_block_cache fast path: where the previous stored draw's block and camera position were in the
+		// constants of this program, so the next draw's key is built from the raw words without binding the block.
+		struct eye_fast_entry
+		{
+			bool valid = false;
+			const u16* reloc = nullptr;
+			usz reloc_size = 0;
+			const void* direct_ids = nullptr;
+			u32 base = 0;
+			u32 row_off[4]{};
+			u32 cam_off = umax;
+			bool transposed = false;
+		};
+		mutable eye_fast_entry m_eye_fast[2];
+		mutable u32 m_eye_fast_hits = 0, m_eye_fast_misses = 0;
 		void store_eye_block(f32 eye_sign, const f32 (&game)[4][4], f32* const rows[4]) const;
 		// The draw's depth remap matrix (see depth_remap_matrix), from its camera block as the game wrote it and as drawn for the eye.
 		mutable f32 m_depth_remap[4][4]{};

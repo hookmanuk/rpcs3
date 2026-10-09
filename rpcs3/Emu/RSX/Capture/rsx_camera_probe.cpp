@@ -261,6 +261,16 @@ namespace rsx::vr
 				return m_base;
 			}
 
+			// The bound slot k in the buffer (null when the program lacks it), and the layout.
+			const f32* slot(u32 k) const
+			{
+				return m_slots[k];
+			}
+			bool transposed() const
+			{
+				return m_transposed;
+			}
+
 			// Drop the binding without writing back (the block was not modified).
 			void release()
 			{
@@ -2733,6 +2743,123 @@ namespace rsx::vr
 		f32* const* const rows = block.rows;
 		const size2u output_eye = g_fxo->get<rsx::avconf>().video_frame_size();
 		const f32 camera_aspect = profile.require_camera_aspect && output_eye.height ? static_cast<f32>(output_eye.width) / output_eye.height : 0.f;
+
+		// Profile camera_block_cache: a draw whose camera block and everything else the eye transform below reads
+		// equal this eye's previous plain scene-camera draw gets that draw's results copied instead of rebuilt.
+		static const int s_block_cache_env = []
+		{
+			const char* v = std::getenv("RPCS3_VR_BLOCK_CACHE");
+			return v ? (v[0] == '1' ? 1 : 0) : -1;
+		}();
+		const bool block_cache = s_block_cache_env < 0 ? profile.camera_block_cache : s_block_cache_env == 1;
+		const u32 cache_eye = eye_sign < 0.f ? 0 : 1;
+		const auto build_key = [&](u32 base, bool far_plane, const f32* cam, const f32 (&game)[4][4])
+		{
+			std::array<u32, 56> cache_key{};
+			usz k = 0;
+			const auto put = [&](f32 v)
+			{
+				cache_key[k++] = std::bit_cast<u32>(v);
+			};
+			const u64 profile_id = reinterpret_cast<u64>(&profile);
+			cache_key[k++] = static_cast<u32>(profile_id);
+			cache_key[k++] = static_cast<u32>(profile_id >> 32);
+			cache_key[k++] = base;
+			cache_key[k++] = surface_w | (u32{surface_h} << 16);
+			cache_key[k++] = output_eye.width | (output_eye.height << 16);
+			cache_key[k++] = (m_vr_view ? 1u : 0u) | (m_vr_hmd_fov ? 2u : 0u) | (m_vr_proj_valid ? 4u : 0u) | (m_vr_flip_y ? 8u : 0u) |
+			                 (far_plane ? 16u : 0u) | (m_render_camera_right_valid ? 32u : 0u) | (m_draw_into_display_buffer ? 64u : 0u) |
+			                 (m_draw_samples_colour_target ? 128u : 0u) | (m_draw_samples_any_colour_target ? 256u : 0u) |
+			                 (m_draw_depth_test ? 512u : 0u) | (rsx::method_registers.depth_test_enabled() ? 1024u : 0u) | (cam ? 2048u : 0u);
+			cache_key[k++] = static_cast<u32>(m_draw_program);
+			cache_key[k++] = static_cast<u32>(m_draw_program >> 32);
+			put(m_draw_hud_scale);
+			put(rsx::method_registers.viewport_scale_x());
+			put(rsx::method_registers.viewport_scale_y());
+			put(rsx::method_registers.viewport_offset_x());
+			put(rsx::method_registers.viewport_offset_y());
+			cache_key[k++] = u32{rsx::method_registers.surface_clip_width()} | (u32{rsx::method_registers.surface_clip_height()} << 16);
+			for (u32 r = 0; r < 4; ++r)
+				for (u32 c = 0; c < 4; ++c)
+					put(game[r][c]);
+			for (const f32 v : m_vr_rot)
+				put(v);
+			for (const f32 v : m_vr_head_units)
+				put(v);
+			for (const f32 v : m_vr_eye_fov[cache_eye])
+				put(v);
+			put(m_vr_proj_x);
+			put(m_vr_proj_y);
+			put(m_vr_eye_scale);
+			put(m_vr_fov_scale);
+			put(m_screen_stereo_scale);
+			for (u32 i = 0; i < 3; ++i)
+				put(cam ? cam[i] : 0.f);
+			return cache_key;
+		};
+
+		// Fast path: the previous stored draw of this eye told where its block and camera position sit in this
+		// program's constants. The key is built from those words as they are now; a match writes the stored
+		// result straight back without binding the block (~0.3 ms a frame in Gran Turismo 5 at 2,600 draws).
+		if (block_cache && m_base == umax && camera_blocks.size() == 1 && !rsx::vr::depth_remap_active())
+		{
+			const auto& fast = m_eye_fast[cache_eye];
+			const auto& entry = m_eye_block_cache[cache_eye];
+			if (fast.valid && entry.valid && fast.reloc == reloc && fast.reloc_size == reloc_size && fast.direct_ids == t_direct_slots.ids)
+			{
+				char* base_ptr = static_cast<char*>(buffer);
+				f32 game[4][4];
+				for (u32 k = 0; k < 4; ++k)
+				{
+					const f32* slot = reinterpret_cast<const f32*>(base_ptr + fast.row_off[k]);
+					for (u32 i = 0; i < 4; ++i)
+					{
+						// Row-vector convention: a transposed layout stores column j of M in slot j.
+						if (fast.transposed)
+							game[i][k] = slot[i];
+						else
+							game[k][i] = slot[i];
+					}
+				}
+				f32* const cam = fast.cam_off != umax ? reinterpret_cast<f32*>(base_ptr + fast.cam_off) : nullptr;
+				if (build_key(fast.base, false, cam, game) == entry.key)
+				{
+					for (u32 k = 0; k < 4; ++k)
+					{
+						f32* slot = reinterpret_cast<f32*>(base_ptr + fast.row_off[k]);
+						for (u32 i = 0; i < 4; ++i)
+						{
+							slot[i] = fast.transposed ? entry.rows[i][k] : entry.rows[k][i];
+						}
+					}
+					if (cam)
+					{
+						std::copy(std::begin(entry.cam), std::end(entry.cam), cam);
+					}
+					m_vr_proj_x = entry.proj_x;
+					m_vr_proj_y = entry.proj_y;
+					m_vr_proj_valid = true;
+					m_proj_refreshed = entry.proj_refreshed;
+					if (entry.proj_refreshed)
+					{
+						m_scene_proj_x = entry.proj_x;
+						m_scene_proj_y = entry.proj_y;
+					}
+					m_render_camera_right = entry.camera_right;
+					m_render_camera_right_valid = entry.camera_right_valid;
+					f32 out_rows[4][4];
+					f32* out_ptrs[4] = {out_rows[0], out_rows[1], out_rows[2], out_rows[3]};
+					for (u32 r = 0; r < 4; ++r)
+						for (u32 c = 0; c < 4; ++c)
+							out_rows[r][c] = entry.rows[r][c];
+					finish_eye_block(profile, buffer, reloc, reloc_size, eye_sign, true, false, game, out_ptrs);
+					m_eye_fast_hits++;
+					return true;
+				}
+			}
+			m_eye_fast_misses++;
+		}
+
 		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, profile.column_vectors, profile.require_rigid_camera, profile.xyw_rows, camera_aspect,
 				m_base != umax ? std::span<const std::array<u32, 4>>() : std::span<const std::array<u32, 4>>(profile.camera_block_slots),
 				m_base != umax ? std::span<const u32>() : std::span<const u32>(profile.nonrigid_camera_blocks),
@@ -2815,60 +2942,13 @@ namespace rsx::vr
 			}
 		}
 
-		// Profile camera_block_cache: a draw whose camera block and everything else the eye transform below reads
-		// equal this eye's previous plain scene-camera draw gets that draw's results copied instead of rebuilt.
-		static const int s_block_cache_env = []
-		{
-			const char* v = std::getenv("RPCS3_VR_BLOCK_CACHE");
-			return v ? (v[0] == '1' ? 1 : 0) : -1;
-		}();
-		const bool block_cache = s_block_cache_env < 0 ? profile.camera_block_cache : s_block_cache_env == 1;
-		const u32 cache_eye = eye_sign < 0.f ? 0 : 1;
 		std::array<u32, 56> cache_key{};
 		f32* cache_cam = nullptr;
 		if (block_cache)
 		{
 			const u32 cache_cam_slot = m_cam_slot != umax ? m_cam_slot : profile.camera_position_slot;
 			cache_cam = cache_cam_slot != umax ? find_slot(buffer, reloc, reloc_size, cache_cam_slot) : nullptr;
-			usz k = 0;
-			const auto put = [&](f32 v)
-			{
-				cache_key[k++] = std::bit_cast<u32>(v);
-			};
-			const u64 profile_id = reinterpret_cast<u64>(&profile);
-			cache_key[k++] = static_cast<u32>(profile_id);
-			cache_key[k++] = static_cast<u32>(profile_id >> 32);
-			cache_key[k++] = block.base();
-			cache_key[k++] = surface_w | (u32{surface_h} << 16);
-			cache_key[k++] = output_eye.width | (output_eye.height << 16);
-			cache_key[k++] = (m_vr_view ? 1u : 0u) | (m_vr_hmd_fov ? 2u : 0u) | (m_vr_proj_valid ? 4u : 0u) | (m_vr_flip_y ? 8u : 0u) |
-			                 (block.far_plane() ? 16u : 0u) | (m_render_camera_right_valid ? 32u : 0u) | (m_draw_into_display_buffer ? 64u : 0u) |
-			                 (m_draw_samples_colour_target ? 128u : 0u) | (m_draw_samples_any_colour_target ? 256u : 0u) |
-			                 (m_draw_depth_test ? 512u : 0u) | (rsx::method_registers.depth_test_enabled() ? 1024u : 0u) | (cache_cam ? 2048u : 0u);
-			cache_key[k++] = static_cast<u32>(m_draw_program);
-			cache_key[k++] = static_cast<u32>(m_draw_program >> 32);
-			put(m_draw_hud_scale);
-			put(rsx::method_registers.viewport_scale_x());
-			put(rsx::method_registers.viewport_scale_y());
-			put(rsx::method_registers.viewport_offset_x());
-			put(rsx::method_registers.viewport_offset_y());
-			cache_key[k++] = u32{rsx::method_registers.surface_clip_width()} | (u32{rsx::method_registers.surface_clip_height()} << 16);
-			for (u32 r = 0; r < 4; ++r)
-				for (u32 c = 0; c < 4; ++c)
-					put(game_block[r][c]);
-			for (const f32 v : m_vr_rot)
-				put(v);
-			for (const f32 v : m_vr_head_units)
-				put(v);
-			for (const f32 v : m_vr_eye_fov[cache_eye])
-				put(v);
-			put(m_vr_proj_x);
-			put(m_vr_proj_y);
-			put(m_vr_eye_scale);
-			put(m_vr_fov_scale);
-			put(m_screen_stereo_scale);
-			for (u32 i = 0; i < 3; ++i)
-				put(cache_cam ? cache_cam[i] : 0.f);
+			cache_key = build_key(block.base(), block.far_plane(), cache_cam, game_block);
 
 			if (const auto& entry = m_eye_block_cache[cache_eye]; entry.valid && entry.key == cache_key && !rsx::vr::depth_remap_active())
 			{
@@ -3208,6 +3288,21 @@ namespace rsx::vr
 				entry.camera_right = m_render_camera_right;
 				entry.camera_right_valid = m_render_camera_right_valid;
 				entry.valid = true;
+				// The fast path above: the block's slots in this program's constants (all four present, not a sky).
+				auto& fast = m_eye_fast[cache_eye];
+				fast.valid = !block.far_plane() && block.slot(0) && block.slot(1) && block.slot(2) && block.slot(3) && m_base == umax && camera_blocks.size() == 1;
+				if (fast.valid)
+				{
+					const char* base_ptr = static_cast<const char*>(buffer);
+					fast.reloc = reloc;
+					fast.reloc_size = reloc_size;
+					fast.direct_ids = t_direct_slots.ids;
+					fast.base = block.base();
+					fast.transposed = block.transposed();
+					for (u32 k = 0; k < 4; ++k)
+						fast.row_off[k] = static_cast<u32>(reinterpret_cast<const char*>(block.slot(k)) - base_ptr);
+					fast.cam_off = cache_cam ? static_cast<u32>(reinterpret_cast<const char*>(cache_cam) - base_ptr) : umax;
+				}
 			}
 			return true;
 		}
