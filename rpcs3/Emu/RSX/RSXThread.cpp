@@ -1149,8 +1149,9 @@ namespace rsx
 
 		resolution_scaling_config =
 		{
-			.scale_percent = static_cast<u16>(g_cfg.video.resolution_scale_percent),
-			.min_scalable_dimension = static_cast<u16>(g_cfg.video.min_scalable_dimension),
+			.scale_percent = rsx::vr::eye_shape_percent_x(static_cast<u16>(g_cfg.video.resolution_scale_percent)), // VR fork: headset-shaped eyes
+			.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)), // VR fork: as flip() sets it
+			.scale_percent_y = rsx::vr::eye_shape_percent_y(static_cast<u16>(g_cfg.video.resolution_scale_percent)), // VR fork: headset-shaped eyes
 		};
 
 		last_guest_flip_timestamp = get_system_time() - 1000000;

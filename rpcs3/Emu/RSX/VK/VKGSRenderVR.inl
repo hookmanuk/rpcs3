@@ -248,6 +248,7 @@
 	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
 	u32 m_vr_reduced_scale_draws = 0;  // profile reduced_scale_frames draws in this game frame
 	u16 vr_resolution_scale(u16 configured_percent) const; // flip(): the Resolution Scale to render at (reduced_scale_frames)
+	void vr_apply_eye_shape_early(); // headset-shaped eyes: the per-axis scale at once while no surface exists yet
 
 	// ---- Multiview stereo (plans/7-multiview-plan.md): both eyes in one draw --------------------
 	// Render targets have two layers (layer 0 the guest's picture, layer 1 the right eye), every draw

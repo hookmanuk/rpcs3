@@ -1680,6 +1680,7 @@ void VKGSRender::vr_update_view()
 	{
 		// Headset-shaped eyes: the rendered eye extents set the vertical / horizontal resolution scale (rsx_vr_eye_shape.h).
 		rsx::vr::set_eye_shape(render_fov[0][1] - render_fov[0][0], render_fov[0][2] - render_fov[0][3], aspect);
+		vr_apply_eye_shape_early();
 	}
 	f32 box_y = 0.f;
 	f32 width = 0.f;
@@ -3113,6 +3114,30 @@ void VKGSRender::vr_before_draw_setup()
 }
 
 // flip(): the Resolution Scale to render at: the configured one, or the profile's reduced_scale_frames scale.
+// vr_update_view(), once the headset's eye shape is known: while the surface caches are still empty (before the game's
+// first frame) the per-axis scale applies at once. Applied by flip() at the end of the first frame instead, every surface
+// of that frame was rebuilt at the new size, and ICO / Shadow of the Colossus's GPU stalled there in about one boot in four
+// (its SPUs read back blits of the scene at that moment): a hung game. Later changes still go through flip().
+void VKGSRender::vr_apply_eye_shape_early()
+{
+	if (m_rtts.m_active_memory_used || m_vr_right_rtts.m_active_memory_used)
+	{
+		return;
+	}
+	const u16 percent = vr_resolution_scale(static_cast<u16>(g_cfg.video.resolution_scale_percent));
+	const rsx::surface_scaling_config_t config =
+	{
+		.scale_percent = rsx::vr::eye_shape_percent_x(percent),
+		.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)),
+		.scale_percent_y = rsx::vr::eye_shape_percent_y(percent),
+	};
+	if (config != resolution_scaling_config)
+	{
+		rsx_log.notice("VR: headset eye shape applied before the first frame: %u%% x %u%%", config.scale_percent, config.percent_y());
+		resolution_scaling_config = config;
+	}
+}
+
 u16 VKGSRender::vr_resolution_scale(u16 configured_percent) const
 {
 	return rsx::vr::effective_resolution_scale(configured_percent);
