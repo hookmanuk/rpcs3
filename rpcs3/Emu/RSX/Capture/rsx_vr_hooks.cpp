@@ -831,7 +831,7 @@ namespace rsx::vr
 										for (const auto& s : sorted)
 											total += s.second;
 										text += fmt::format("\n %s (%u samples):", name, total);
-										for (usz i = 0; i < std::min<usz>(sorted.size(), 6); ++i)
+										for (usz i = 0; i < std::min<usz>(sorted.size(), 80); ++i)
 										{
 											text += fmt::format(" 0x%x<-0x%x %u%%;", sorted[i].first.first, sorted[i].first.second, sorted[i].second * 100 / std::max(total, 1u));
 										}
@@ -844,7 +844,7 @@ namespace rsx::vr
 												return a.second > b.second;
 											});
 										text += fmt::format("\n stacks of '%s':", s_stack_thread);
-										for (usz i = 0; i < std::min<usz>(sorted.size(), 5); ++i)
+										for (usz i = 0; i < std::min<usz>(sorted.size(), 40); ++i)
 										{
 											text += fmt::format("\n   %u: %s", sorted[i].second, sorted[i].first);
 										}

@@ -492,6 +492,7 @@ target_sources(rpcs3_emu PRIVATE
     RSX/Capture/rsx_stereo_inspector.cpp
     RSX/Capture/rsx_vr_profile_generator.cpp
     RSX/Capture/rsx_vr_hooks.cpp
+    RSX/Capture/rsx_vr_eye_shape.cpp
     RSX/Common/BufferUtils.cpp
     RSX/Common/surface_store.cpp
     RSX/Common/TextureUtils.cpp

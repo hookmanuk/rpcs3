@@ -104,6 +104,10 @@ namespace vk::xr
 	// position_xyz receives the head position in LOCAL space (metres), zero when
 	// the runtime cannot track it or RPCS3_OPENXR_POSITION=0.
 	u32 locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg);
+	// Keeps a copy of render pose id (while it is still in the history) so it can be reused after it leaves it.
+	void keep_render_pose(u32 id);
+	// The outputs of locate_render_pose for an earlier pose id (from the history or the kept copy); 0 if gone.
+	u32 recall_render_pose(u32 id, f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4]);
 
 	// Where the centre of a frame rendered with pose to_id appears in a frame rendered
 	// with pose from_id, as a texture-coordinate offset (u right, v down; fractions of
@@ -127,4 +131,8 @@ namespace vk::xr
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance);
 	// The fixed screen shows the left eye's image to both eyes (flat), for frames put on it as menus, pauses or videos.
 	void set_screen_mono(bool mono);
+	// The shape (width / height) of the game's picture in the eye images: the guest display buffer's. The fixed screen
+	// takes it; the images need not have it (headset-shaped eyes scale x and y apart). 0: the images' own shape.
+	void set_screen_content_aspect(f32 aspect);
+	f32 screen_content_aspect();
 } // namespace vk::xr

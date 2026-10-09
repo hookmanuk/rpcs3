@@ -26,6 +26,7 @@
 	void vr_stamp_targets(u32 pose, bool camera);
 	void vr_mark_3d_targets(bool camera); // camera draws, and draws sampling 3D content, mark their targets vr_has_3d
 	bool m_vr_flip_has_3d = true;         // the last displayed buffer held 3D content (vr_has_3d)
+	u32 m_vr_flip_pose = 0;               // the pose the last displayed buffer's content was drawn with (0: unknown)
 	u32 m_vr_frames_2d = 3;               // consecutive frames with no camera draws whose displayed buffer held no 3D (3: a new renderer starts on the fixed screen)
 	u32 m_vr_screen_frame_draws = 0;      // draws this frame matching the profile's screen_frame_draws
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
@@ -248,6 +249,8 @@
 	bool m_vr_video_on_screen = false; // frames without camera draws are on the fixed screen
 	u32 m_vr_reduced_scale_draws = 0;  // profile reduced_scale_frames draws in this game frame
 	u16 vr_resolution_scale(u16 configured_percent) const; // flip(): the Resolution Scale to render at (reduced_scale_frames)
+	void vr_apply_eye_shape_early(); // headset-shaped eyes: the per-axis scale at once while no surface exists yet
+	void vr_mirror_region(areai& region, bool generated_stereo) const; // flip(): the desktop mirror's area for both eyes, each at its shown shape
 
 	// ---- Multiview stereo (plans/7-multiview-plan.md): both eyes in one draw --------------------
 	// Render targets have two layers (layer 0 the guest's picture, layer 1 the right eye), every draw

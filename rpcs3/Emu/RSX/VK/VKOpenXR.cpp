@@ -177,9 +177,16 @@ namespace vk::xr
 				XrQuaternionf orientation{0.f, 0.f, 0.f, 1.f};
 				XrVector3f eye_position[2]{};
 				XrFovf eye_fov[2]{};
+				// locate_render_pose's outputs, for recall_render_pose.
+				f32 quat[4]{0.f, 0.f, 0.f, 1.f};
+				f32 position[3]{};
+				f32 eye_tan[2][4]{};
+				f32 render_tan[2][4]{};
 			};
 			render_pose_t render_poses[8]{};
+			render_pose_t kept_pose{}; // keep_render_pose: survives the history (a paused game's frozen frame)
 			atomic_t<bool> screen_mono{false}; // set_screen_mono: both eyes see the left eye's image on the fixed screen
+			atomic_t<f32> screen_content_aspect{0.f}; // set_screen_content_aspect: the picture's width / height (0: the image's)
 			u32 render_pose_count = 0;
 
 // Declares the function pointer of an OpenXR entry point (token pasting: a macro by necessity).
@@ -1259,7 +1266,10 @@ namespace vk::xr
 				}
 				else if (ok)
 				{
-					const f32 height = screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
+					// The game's picture keeps its shape: headset-shaped eye images (rsx_vr_eye_shape.h) are not 16:9, and their
+					// own shape stretched SEGA Rally's intro videos tall on the fixed screen.
+					const f32 content_aspect = g_xr.screen_content_aspect.load();
+					const f32 height = content_aspect > 0.f ? screen_width / content_aspect : screen_width * g_xr.swapchain_h / g_xr.swapchain_w;
 					for (u32 i = 0; i < 2; ++i)
 					{
 						auto& quad = quads[i];
@@ -1511,7 +1521,8 @@ namespace vk::xr
 		// The pose this frame's draws were rotated by. Too old to be in the history
 		// (or never located): not declared as a projection.
 		auto& slot = g_xr.slots[g_xr.writing];
-		if (!pose_id || g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id)
+		const bool kept = pose_id && g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id && g_xr.kept_pose.id == pose_id;
+		if (!kept && (!pose_id || g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id))
 		{
 			// The traced pose has left the history (a game that crosses many frame
 			// boundaries per flip, e.g. Pure's pause menu drawing into the display buffer):
@@ -1523,7 +1534,7 @@ namespace vk::xr
 			}
 			pose_id = newest;
 		}
-		const auto& pose = g_xr.render_poses[pose_id % std::size(g_xr.render_poses)];
+		const auto& pose = kept ? g_xr.kept_pose : g_xr.render_poses[pose_id % std::size(g_xr.render_poses)];
 		slot.pose_valid = pose_id && pose.id == pose_id;
 		slot.orientation = pose.orientation;
 		slot.eye_position[0] = pose.eye_position[0];
@@ -1681,6 +1692,16 @@ namespace vk::xr
 		g_xr.screen_mono = mono;
 	}
 
+	void set_screen_content_aspect(f32 aspect)
+	{
+		g_xr.screen_content_aspect = aspect;
+	}
+
+	f32 screen_content_aspect()
+	{
+		return g_xr.screen_content_aspect.load();
+	}
+
 	void set_screen(bool enabled, bool world_locked, f32 width, f32 x, f32 y, f32 distance)
 	{
 		std::lock_guard lock(g_xr.slot_mutex);
@@ -1825,6 +1846,14 @@ namespace vk::xr
 		return std::atan2(2.f * (q.w * q.y + q.x * q.z), 1.f - 2.f * (q.y * q.y + q.x * q.x)) * 57.29578f;
 	}
 
+	static void record_render_pose_outputs(decltype(g_xr.kept_pose)& pose, const f32 quat_xyzw[4], const f32 position_xyz[3], const f32 eye_fov[2][4], const f32 render_fov[2][4])
+	{
+		std::memcpy(pose.quat, quat_xyzw, sizeof(pose.quat));
+		std::memcpy(pose.position, position_xyz, sizeof(pose.position));
+		std::memcpy(pose.eye_tan, eye_fov, sizeof(pose.eye_tan));
+		std::memcpy(pose.render_tan, render_fov, sizeof(pose.render_tan));
+	}
+
 	u32 locate_render_pose(f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4], f32 margin_deg)
 	{
 		const XrTime last_display = g_xr.last_display_time.load();
@@ -1866,6 +1895,7 @@ namespace vk::xr
 			position_xyz[0] = position_xyz[1] = position_xyz[2] = 0.f;
 			quat_xyzw[0] = quat_xyzw[1] = quat_xyzw[2] = 0.f;
 			quat_xyzw[3] = 1.f;
+			record_render_pose_outputs(pose, quat_xyzw, position_xyz, eye_fov, render_fov);
 			return id;
 		}
 
@@ -1942,6 +1972,30 @@ namespace vk::xr
 		quat_xyzw[1] = head.pose.orientation.y;
 		quat_xyzw[2] = head.pose.orientation.z;
 		quat_xyzw[3] = head.pose.orientation.w;
+		record_render_pose_outputs(pose, quat_xyzw, position_xyz, eye_fov, render_fov);
+		return id;
+	}
+
+	void keep_render_pose(u32 id)
+	{
+		if (id && id != g_xr.kept_pose.id && g_xr.render_poses[id % std::size(g_xr.render_poses)].id == id)
+		{
+			g_xr.kept_pose = g_xr.render_poses[id % std::size(g_xr.render_poses)];
+		}
+	}
+
+	u32 recall_render_pose(u32 id, f32 quat_xyzw[4], f32 position_xyz[3], f32 eye_fov[2][4], f32 render_fov[2][4])
+	{
+		const auto& ring = g_xr.render_poses[id % std::size(g_xr.render_poses)];
+		const auto* pose = !id ? nullptr : ring.id == id ? &ring : g_xr.kept_pose.id == id ? &g_xr.kept_pose : nullptr;
+		if (!pose)
+		{
+			return 0;
+		}
+		std::memcpy(quat_xyzw, pose->quat, sizeof(pose->quat));
+		std::memcpy(position_xyz, pose->position, sizeof(pose->position));
+		std::memcpy(eye_fov, pose->eye_tan, sizeof(pose->eye_tan));
+		std::memcpy(render_fov, pose->render_tan, sizeof(pose->render_tan));
 		return id;
 	}
 } // namespace vk::xr

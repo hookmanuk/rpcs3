@@ -20,6 +20,7 @@
 #include "../Capture/rsx_stereo_inspector.h"
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_profile_generator.h"
+#include "../Capture/rsx_vr_eye_shape.h"
 #include "../Common/BufferUtils.h"
 #include "../Program/GLSLCommon.h"
 #include "../rsx_methods.h"
@@ -1052,7 +1053,8 @@ const std::vector<const rsx::vr::fragment_constant_override*>* VKGSRender::find_
 void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> constant_ids)
 {
 	const auto* profile = rsx::vr::camera_probe::get().profile();
-	if (!profile || profile->resolution_scaled_constants.empty() || !m_vertex_prog || resolution_scaling_config.scale_percent == 100)
+	if (!profile || profile->resolution_scaled_constants.empty() || !m_vertex_prog ||
+		(resolution_scaling_config.scale_percent == 100 && resolution_scaling_config.percent_y() == 100))
 	{
 		return;
 	}
@@ -1080,7 +1082,9 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 	}
 
 	// Written from the guest registers, never read back from the (write-combined) buffer.
-	const f32 k = 100.f / resolution_scaling_config.scale_percent;
+	// Taps are (x, y) pairs: x and z take the horizontal scale, y and w the vertical one (headset-shaped eyes scale them apart).
+	const f32 k[4] = {100.f / resolution_scaling_config.scale_percent, 100.f / resolution_scaling_config.percent_y(),
+		100.f / resolution_scaling_config.scale_percent, 100.f / resolution_scaling_config.percent_y()};
 	for (const u16 slot : *m_scaled_constants_slots)
 	{
 		usz index = slot;
@@ -1097,7 +1101,7 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 		f32 value[4];
 		for (u32 c = 0; c < 4; ++c)
 		{
-			value[c] = std::bit_cast<f32>(reg[c]) * k;
+			value[c] = std::bit_cast<f32>(reg[c]) * k[c];
 		}
 		std::memcpy(static_cast<u8*>(buffer) + index * 16, value, sizeof(value));
 	}
@@ -1634,6 +1638,10 @@ void VKGSRender::vr_update_view()
 	// videos, 2D menus): show it as the fixed screen, which respects the HUD settings,
 	// instead of stretched over the whole view. Back to the headset view on the first
 	// frame with a camera draw (that frame is still shown as the screen).
+	// A frame with no camera draws that shows earlier 3D content (a paused game re-showing its last frame under its
+	// menu) keeps that content's pose: drawn and declared with it, the compositor holds it world-fixed. With the
+	// newest pose it followed the head (Kingdom Hearts' pause), and on the fixed screen it was squeezed to 16:9.
+	const u32 vr_frozen_pose = !m_vr_camera_draws && m_vr_flip_has_3d ? m_vr_flip_pose : 0;
 	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
 	m_vr_frames_2d = m_vr_camera_draws || m_vr_flip_has_3d ? 0 : m_vr_frames_2d + 1;
 	m_vr_camera_draws = 0;
@@ -1661,8 +1669,11 @@ void VKGSRender::vr_update_view()
 	// HUD stereo distance, and the fixed screen's distance (metres): the HUD Depth setting. The box keeps its
 	// angular size (HUD Scale), so a larger depth moves it away without shrinking it.
 	const f32 vr_hud_distance = rsx::vr::effective_hud_depth();
-	const u32 pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov,
-		static_cast<f32>(rsx::vr::effective_reprojection_margin()));
+	u32 pose = vr_frozen_pose ? vk::xr::recall_render_pose(vr_frozen_pose, head, head_position, eye_fov, render_fov) : 0;
+	if (!pose)
+	{
+		pose = vk::xr::locate_render_pose(head, head_position, eye_fov, render_fov, static_cast<f32>(rsx::vr::effective_reprojection_margin()));
+	}
 	const bool located = pose != 0;
 	m_vr_applied_pose = 0;
 
@@ -1672,6 +1683,12 @@ void VKGSRender::vr_update_view()
 	const size2u output_size = g_fxo->get<rsx::avconf>().video_frame_size();
 	const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
 	const f32 depth = vr_hud_distance;
+	if (located)
+	{
+		// Headset-shaped eyes: the rendered eye extents set the vertical / horizontal resolution scale (rsx_vr_eye_shape.h).
+		rsx::vr::set_eye_shape(render_fov[0][1] - render_fov[0][0], render_fov[0][2] - render_fov[0][3], aspect);
+		vr_apply_eye_shape_early();
+	}
 	f32 box_y = 0.f;
 	f32 width = 0.f;
 	if (located)
@@ -2132,9 +2149,9 @@ void VKGSRender::vr_setup_draw()
 void VKGSRender::vr_clear_shown_region()
 {
 	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
-	const f32 scale = resolution_scaling_config.scale_factor();
 	VkClearRect rect{};
-	rect.rect.extent = {std::min<u32>(static_cast<u32>(out.width * scale), m_draw_fbo->width()), std::min<u32>(static_cast<u32>(out.height * scale), m_draw_fbo->height())};
+	rect.rect.extent = {std::min<u32>(static_cast<u32>(out.width * resolution_scaling_config.scale_factor()), m_draw_fbo->width()),
+		std::min<u32>(static_cast<u32>(out.height * resolution_scaling_config.scale_factor_y()), m_draw_fbo->height())};
 	rect.layerCount = 1;
 	VkClearAttachment attachment{};
 	attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -3104,6 +3121,30 @@ void VKGSRender::vr_before_draw_setup()
 }
 
 // flip(): the Resolution Scale to render at: the configured one, or the profile's reduced_scale_frames scale.
+// vr_update_view(), once the headset's eye shape is known: while the surface caches are still empty (before the game's
+// first frame) the per-axis scale applies at once. Applied by flip() at the end of the first frame instead, every surface
+// of that frame was rebuilt at the new size, and ICO / Shadow of the Colossus's GPU stalled there in about one boot in four
+// (its SPUs read back blits of the scene at that moment): a hung game. Later changes still go through flip().
+void VKGSRender::vr_apply_eye_shape_early()
+{
+	if (m_rtts.m_active_memory_used || m_vr_right_rtts.m_active_memory_used)
+	{
+		return;
+	}
+	const u16 percent = vr_resolution_scale(static_cast<u16>(g_cfg.video.resolution_scale_percent));
+	const rsx::surface_scaling_config_t config =
+	{
+		.scale_percent = rsx::vr::eye_shape_percent_x(percent),
+		.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)),
+		.scale_percent_y = rsx::vr::eye_shape_percent_y(percent),
+	};
+	if (config != resolution_scaling_config)
+	{
+		rsx_log.notice("VR: headset eye shape applied before the first frame: %u%% x %u%%", config.scale_percent, config.percent_y());
+		resolution_scaling_config = config;
+	}
+}
+
 u16 VKGSRender::vr_resolution_scale(u16 configured_percent) const
 {
 	return rsx::vr::effective_resolution_scale(configured_percent);
@@ -3237,7 +3278,8 @@ std::optional<areai> VKGSRender::vr_map_clear_rect(u16 fb_width, u16 fb_height, 
 		f32 rect[4] = {static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h)};
 		f32 right[4];
 		m_vr_clear_quads_valid = false;
-		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
+		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), resolution_scaling_config.scale_factor_y(),
+				m_framebuffer_layout.width, m_framebuffer_layout.height,
 				fb_width, fb_height, rect, right, m_vr_clear_quads))
 		{
 			m_vr_clear_quads_valid = true;
@@ -3711,6 +3753,9 @@ bool VKGSRender::vr_present_right_eye(const vk::present_surface_info& present_in
 {
 	m_vr_eye_width = present_info.width;
 	m_vr_eye_height = present_info.height;
+	// The picture's shape for the fixed screen: the guest buffer's, which the eye image no longer has once its axes are
+	// scaled apart (headset-shaped eyes).
+	vk::xr::set_screen_content_aspect(buffer_height ? static_cast<f32>(buffer_width) / buffer_height : 0.f);
 
 	{
 		static bool s_reported_present = false;
@@ -3965,6 +4010,8 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 		// Whether the frame just shown holds 3D content (vr_has_3d). A buffer the CPU wrote has no surface.
 		const auto* shown = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
 		m_vr_flip_has_3d = shown && shown->vr_has_3d;
+		m_vr_flip_pose = shown ? shown->vr_pose : 0;
+		vk::xr::keep_render_pose(m_vr_flip_pose);
 	}
 	else if (vr_video_refresh)
 	{
@@ -4014,6 +4061,32 @@ bool VKGSRender::vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::vie
 // flip(): generated stereo from a display buffer larger than the region the game shows (Gran Turismo 5:
 // 2048x1080 surfaces, 1280x720 shown) would put each whole surface into its half of the window, the shown
 // part small in a corner. Copy the shown region of each eye into an image of that size first.
+// flip(): the desktop mirror of generated stereo shows both eyes side by side in the region fitted to the eye image's
+// pixel size. With headset-shaped eyes (rsx_vr_eye_shape.h) that image is narrow (1920x2160 for a 93 x 98 degree view)
+// and each eye came out twice as tall as wide. Each eye now gets the shape it is shown with: the headset eye's view
+// (width / height in tangents), or the game's picture when the frame is on the fixed screen (menus, videos).
+void VKGSRender::vr_mirror_region(areai& region, bool generated_stereo) const
+{
+	if (!generated_stereo || g_cfg.video.stretch_to_display_area || !m_swapchain_dims.width || !m_swapchain_dims.height)
+	{
+		return;
+	}
+	std::array<f32, 9> rotation{};
+	f32 tan_x = 0.f, tan_y = 0.f;
+	const bool headset_view = rsx::vr::camera_probe::get().vr_view_rotation(rotation, tan_x, tan_y);
+	const f32 eye_aspect = headset_view ? rsx::vr::eye_view_aspect() : vk::xr::screen_content_aspect();
+	if (!(eye_aspect > 0.f))
+	{
+		return;
+	}
+	const f32 aspect = 2.f * eye_aspect;
+	const f32 window_w = static_cast<f32>(m_swapchain_dims.width), window_h = static_cast<f32>(m_swapchain_dims.height);
+	const f32 w = std::min(window_w, window_h * aspect);
+	const f32 h = w / aspect;
+	const s32 x = static_cast<s32>((window_w - w) * 0.5f), y = static_cast<s32>((window_h - h) * 0.5f);
+	region = {x, y, x + static_cast<s32>(w), y + static_cast<s32>(h)};
+}
+
 void VKGSRender::vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>& calibration_src, u32 buffer_width, u32 buffer_height)
 {
 	if (!buffer_width || !buffer_height)
