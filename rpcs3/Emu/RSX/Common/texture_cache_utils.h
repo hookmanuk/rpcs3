@@ -26,6 +26,9 @@ namespace rsx
 		hash
 	};
 
+	// VR fork: the frame the edge-page hashes are checked in (texture_cache::on_frame_end advances it).
+	inline u32 g_section_edge_frame = 0;
+
 	static inline void memory_protect(const address_range32& range, utils::protection prot)
 	{
 		ensure(range.is_page_range());
@@ -889,6 +892,16 @@ namespace rsx
 		section_protection_strategy protection_strat = section_protection_strategy::lock;
 		u64 mem_hash = 0;
 
+		// VR fork: a page at one end of locked_range that another writer shares (its writes landed in this section's
+		// slack) is left unprotected and the section's bytes inside it are hashed instead, checked once a frame
+		// (see exclude_edge_page). Gran Turismo 5 writes small per-frame data into pages shared with the ends of its
+		// car textures, which dropped and re-uploaded ~60 textures a frame.
+		address_range32 edge_page;
+		u64 edge_hash = 0;
+		bool edge_valid = false;
+		mutable u32 edge_checked_frame = 0xffffffffu;
+		u64 edge_hash_internal() const;
+
 		bool locked = false;
 		void init_lockable_range(const address_range32& range);
 		u64  fast_hash_internal() const;
@@ -908,6 +921,8 @@ namespace rsx
 		void protect(utils::protection prot, const std::pair<u32, u32>& new_confirm);
 		void unprotect();
 		bool sync() const;
+		bool exclude_edge_page(const address_range32& page); // VR fork: leave this end page unprotected, hash the bytes in it
+		bool has_edge_page() const { return edge_valid; }
 
 		void discard();
 		const address_range32& get_bounds(section_bounds bounds) const;

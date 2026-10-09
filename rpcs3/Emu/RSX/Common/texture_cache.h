@@ -657,6 +657,8 @@ namespace rsx
 		predictor_type m_predictor;
 
 		atomic_t<u64> m_cache_update_tag = {0};
+		u32 m_av_fault_address = 0;   // VR fork: set during invalidate_address
+		u64 m_edge_pages_excluded = 0; // VR fork: sections given a hashed edge page
 
 		address_range32 read_only_range;
 		address_range32 no_access_range;
@@ -1180,6 +1182,61 @@ namespace rsx
 			if (trampled_set.sections.empty())
 			{
 				return {};
+			}
+
+			// VR fork: a write that lands in locked sections' slack at one end of their page range (another object shares
+			// that page) gives the page back to the writer and hashes the sections' bytes in it instead of dropping them.
+			// Dev: RPCS3_TEX_EDGE=0 keeps the plain unprotect-and-reupload behaviour.
+			static const bool s_edge_pages = []
+			{
+				const char* v = std::getenv("RPCS3_TEX_EDGE");
+				return !v || v[0] != '0';
+			}();
+			if (s_edge_pages && m_av_fault_address && !cause.is_read() && cause.deferred_flush())
+			{
+				const address_range32 write_range = address_range32::start_length(m_av_fault_address, 128);
+				bool all_slack = true;
+				u32 overlapping = 0;
+				for (auto& obj : trampled_set.sections)
+				{
+					auto& tex = *obj;
+					if (!tex.is_locked() || !tex.overlaps(fault_range, section_bounds::locked_range))
+					{
+						continue;
+					}
+					overlapping++;
+					if (!tex.is_locked(true) || tex.is_flushable() || tex.get_context() != rsx::texture_upload_context::shader_read ||
+						tex.has_edge_page() || tex.get_confirmed_range().overlaps(write_range) ||
+						(fault_range.start != tex.get_locked_range().start && fault_range.end != tex.get_locked_range().end))
+					{
+						all_slack = false;
+						break;
+					}
+				}
+				if (all_slack && overlapping)
+				{
+					u32 excluded = 0;
+					for (auto& obj : trampled_set.sections)
+					{
+						auto& tex = *obj;
+						if (tex.is_locked() && tex.overlaps(fault_range, section_bounds::locked_range))
+						{
+							excluded += tex.exclude_edge_page(fault_range);
+						}
+					}
+					if (excluded == overlapping)
+					{
+						static u32 s_logged = 0;
+						if (s_logged++ < 8)
+						{
+							rsx_log.notice("Texture cache: write at 0x%x in the slack of %u locked section(s); page 0x%x hashed instead of dropping them", m_av_fault_address, excluded, fault_range.start);
+						}
+						m_edge_pages_excluded += excluded;
+						result.violation_handled = true;
+						return result;
+					}
+					// A page could not be excluded after all: the others are unprotected now, let the normal path drop them.
+				}
 			}
 
 			// Fast code-path for keeping the fault range protection when not flushing anything
@@ -1870,6 +1927,7 @@ namespace rsx
 
 		virtual void on_frame_end()
 		{
+			g_section_edge_frame++; // VR fork: edge-page hashes are checked once a frame
 			// Must manually release each cached entry
 			for (auto& entry : m_temporary_subresource_cache)
 			{
@@ -2156,6 +2214,8 @@ namespace rsx
 				return{};
 
 			std::lock_guard lock(m_cache_mutex);
+			m_av_fault_address = address; // VR fork: the exact address, for the slack test (cleared on return)
+			struct clear_fault_t { u32& a; ~clear_fault_t() { a = 0; } } clear_fault{m_av_fault_address};
 			return invalidate_range_impl_base(cmd, range, cause, on_data_transfer_completed, std::forward<Args>(extras)...);
 		}
 

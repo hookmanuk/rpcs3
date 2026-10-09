@@ -18,6 +18,7 @@ namespace rsx
 	void buffered_section::init_lockable_range(const address_range32& range)
 	{
 		locked_range = range.to_page_range();
+		edge_valid = false;
 		AUDIT((locked_range.start == page_start(range.start)) || (locked_range.start == next_page(range.start)));
 		AUDIT(locked_range.end <= page_end(range.end));
 		ensure(locked_range.is_page_range());
@@ -79,6 +80,11 @@ namespace rsx
 		if (protection_strat == section_protection_strategy::lock)
 		{
 			rsx::memory_protect(locked_range, new_prot);
+			if (edge_valid && new_prot != utils::protection::rw)
+			{
+				edge_hash = edge_hash_internal();
+				edge_checked_frame = g_section_edge_frame;
+			}
 		}
 		else if (new_prot != utils::protection::rw)
 		{
@@ -220,10 +226,73 @@ namespace rsx
 	{
 		if (protection_strat == section_protection_strategy::lock || !locked)
 		{
-			return true;
+			if (!locked || !edge_valid || edge_checked_frame == g_section_edge_frame)
+			{
+				return true;
+			}
+			edge_checked_frame = g_section_edge_frame;
+			return edge_hash_internal() == edge_hash;
 		}
 
 		return (fast_hash_internal() == mem_hash);
+	}
+
+	// VR fork: the section's bytes inside the shared edge page.
+	u64 buffered_section::edge_hash_internal() const
+	{
+		const auto data_range = confirmed_range.valid() ? confirmed_range : cpu_range;
+		const u32 start = std::max(data_range.start, edge_page.start);
+		const u32 end = std::min(data_range.end, edge_page.end);
+		usz hash = rpcs3::fnv_seed;
+		if (start > end)
+		{
+			return hash;
+		}
+		const u8* src = get_ptr<const u8>(start);
+		const u32 length = end - start + 1;
+		u32 i = 0;
+		for (; i + 8 <= length; i += 8)
+		{
+			u64 word;
+			std::memcpy(&word, src + i, 8);
+			hash = rpcs3::hash64(hash, word);
+		}
+		for (; i < length; ++i)
+		{
+			hash = rpcs3::hash64(hash, src[i]);
+		}
+		return hash;
+	}
+
+	// VR fork: a write into this section's slack at one end of its page range. The page is given back to the writer
+	// and the section's bytes in it are hashed (sync() checks them once a frame); the other pages stay locked.
+	bool buffered_section::exclude_edge_page(const address_range32& page)
+	{
+		if (!locked || protection_strat != section_protection_strategy::lock || edge_valid || !locked_range.valid() ||
+			!page.is_page_range() || page.length() != 4096 || locked_range.length() <= 4096)
+		{
+			return false;
+		}
+		const bool first = page.start == locked_range.start;
+		const bool last = page.end == locked_range.end;
+		if (!first && !last)
+		{
+			return false;
+		}
+		rsx::memory_protect(page, utils::protection::rw);
+		if (first)
+		{
+			locked_range.start += 4096;
+		}
+		else
+		{
+			locked_range.end -= 4096;
+		}
+		edge_page = page;
+		edge_valid = true;
+		edge_hash = edge_hash_internal();
+		edge_checked_frame = g_section_edge_frame;
+		return true;
 	}
 
 	namespace blit_engine_helpers
