@@ -634,11 +634,17 @@ fragment_program_utils::fragment_program_metadata fragment_program_utils::analys
 		index++;
 	}
 
+	usz acc0 = 0, acc1 = 0, h2 = 0xcbf29ce484222325ull; // VR fork: the ucode hashes in the same pass (see fragment_program_compare)
+	const s32 start_index = index;
 	while (true)
 	{
 		const auto inst = v128::loadu(instBuffer, index);
 		const auto d0 = OPDEST::from_be32(inst._u32[0]);
 		const auto opcode = static_cast<rsx::assembler::FP_opcode>(d0.opcode);
+		acc0 += std::rotr(inst._u64[0], (index - start_index) * 2);
+		acc1 += std::rotr(inst._u64[1], (index - start_index) * 2 + 1);
+		h2 = (h2 ^ inst._u64[0]) * 0x100000001b3ull;
+		h2 = (h2 ^ inst._u64[1]) * 0x100000001b3ull;
 
 		switch (opcode)
 		{
@@ -694,6 +700,8 @@ fragment_program_utils::fragment_program_metadata fragment_program_utils::analys
 	}
 
 	result.program_ucode_length = (index - (result.program_start_offset / 16)) * 16;
+	result.ucode_hash = acc0 + acc1;
+	result.ucode_hash2 = h2 ? h2 : 1;
 	return result;
 }
 
@@ -720,7 +728,7 @@ usz fragment_program_utils::get_fragment_program_ucode_hash(const RSXFragmentPro
 
 usz fragment_program_storage_hash::operator()(const RSXFragmentProgram& program) const
 {
-	const usz ucode_hash = fragment_program_utils::get_fragment_program_ucode_hash(program);
+	const usz ucode_hash = program.ucode_hash ? program.ucode_hash : fragment_program_utils::get_fragment_program_ucode_hash(program); // VR fork: known from the analysis
 	const u32 state_params[] =
 	{
 		program.ctrl,
@@ -743,8 +751,16 @@ bool fragment_program_compare::operator()(const RSXFragmentProgram& binary1, con
 		return false;
 	}
 
+	// VR fork: two programs with both 64-bit hashes known and equal (the words outside constant slots) are equal; the
+	// word compare below runs only when a side has no hashes yet (loaded from the shader cache) and fills them in.
+	if (binary1.ucode_hash && binary1.ucode_hash2 && binary2.ucode_hash && binary2.ucode_hash2)
+	{
+		return binary1.ucode_hash == binary2.ucode_hash && binary1.ucode_hash2 == binary2.ucode_hash2;
+	}
+
 	const void* instBuffer1 = binary1.get_data();
 	const void* instBuffer2 = binary2.get_data();
+	usz acc0 = 0, acc1 = 0, h2 = 0xcbf29ce484222325ull;
 	for (usz instIndex = 0; instIndex < (binary1.ucode_length / 16); instIndex++)
 	{
 		const auto inst1 = v128::loadu(instBuffer1, instIndex);
@@ -755,11 +771,19 @@ bool fragment_program_compare::operator()(const RSXFragmentProgram& binary1, con
 			return false;
 		}
 
+		acc0 += std::rotr(inst1._u64[0], static_cast<int>(instIndex) * 2);
+		acc1 += std::rotr(inst1._u64[1], static_cast<int>(instIndex) * 2 + 1);
+		h2 = (h2 ^ inst1._u64[0]) * 0x100000001b3ull;
+		h2 = (h2 ^ inst1._u64[1]) * 0x100000001b3ull;
+
 		// Skip constants
 		if (fragment_program_utils::is_any_src_constant(inst1))
 			instIndex++;
 	}
-	
+
+	// Equal: both sides get the hashes (the next compare of either is two word compares).
+	binary1.ucode_hash = binary2.ucode_hash = acc0 + acc1;
+	binary1.ucode_hash2 = binary2.ucode_hash2 = h2 ? h2 : 1;
 	return true;
 }
 

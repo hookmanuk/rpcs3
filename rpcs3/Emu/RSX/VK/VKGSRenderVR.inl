@@ -94,7 +94,13 @@
 	u32 m_vr_trace_other_count = 0; // non-camera draws into the latest camera target
 	bool vr_tracing() const
 	{
-		return (m_vr_trace_flips % 150) < 6;
+		// Dev: RPCS3_VR_TRACE=1 (off by default: the string work cost the 6 traced frames ~1 ms each).
+		static const bool s_on = []
+		{
+			const char* v = std::getenv("RPCS3_VR_TRACE");
+			return v && v[0] == '1';
+		}();
+		return s_on && (m_vr_trace_flips % 150) < 6;
 	}
 	void vr_trace_copy_reads(bool camera); // textures read from copies of render-target memory
 	void vr_trace_flush_cam();
@@ -351,6 +357,7 @@
 	// end()
 	void vr_on_draw_begin();     // GPU profiler draw marks
 	bool vr_skip_far_cars();     // dev RPCS3_VR_CAR_LIMIT=<n>: only the n nearest cars are drawn (GT5 test)
+	bool vr_shared_target_skipped(); // profile shared_frame_targets: the bound target is not refreshed this frame (draws and clears left out)
 	bool vr_skip_draw();         // profile hidden_draws, probe hide=, RPCS3_VR_RTDUMP prog= (does the nop draw itself)
 	void vr_before_draw_setup(); // realign blend targets, stereo inspector draw ordinal
 

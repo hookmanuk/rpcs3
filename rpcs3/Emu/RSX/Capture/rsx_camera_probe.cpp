@@ -1447,6 +1447,23 @@ namespace rsx::vr
 			if (profile->car_draw_tiers.empty() || profile->car_body_programs.empty())
 				fail("car_draw_limit: expected {\"tiers\": [...], \"body_programs\": [\"<vertex ucode hash>\", ...]}");
 		}
+		if (const YAML::Node shared = child(root, "shared_frame_targets"); shared && shared.IsSequence())
+		{
+			for (const auto& node : shared)
+			{
+				const YAML::Node width = node["width"], height = node["height"], frames = node["frames"];
+				if (!width || !width.IsScalar() || !height || !height.IsScalar() || (frames && !frames.IsScalar()))
+				{
+					fail("shared_frame_targets: expected [{\"width\": <w>, \"height\": <h>, \"frames\": <n>}]");
+					continue;
+				}
+				title_profile::shared_frame_target t{};
+				t.width = static_cast<u16>(std::clamp(std::atoi(width.as<std::string>().c_str()), 1, 8192));
+				t.height = static_cast<u16>(std::clamp(std::atoi(height.as<std::string>().c_str()), 1, 8192));
+				t.frames = frames ? static_cast<u32>(std::clamp(std::atoi(frames.as<std::string>().c_str()), 1, 16)) : 2u;
+				profile->shared_frame_targets.push_back(t);
+			}
+		}
 		if (const YAML::Node min_scalable = child(root, "min_scalable_dimension"); min_scalable && min_scalable.IsScalar())
 		{
 			profile->min_scalable_dimension = static_cast<u16>(std::clamp(std::atoi(min_scalable.as<std::string>().c_str()), 0, 4096));
@@ -1459,7 +1476,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});

@@ -575,6 +575,18 @@ namespace rsx::vr
 		std::vector<car_draw_tier> car_draw_tiers;
 		std::vector<u64> car_body_programs;
 
+		// Profile shared_frame_targets: render targets of this size are each drawn (and cleared) only every `frames`
+		// frames, in turn by target address, and keep their content in between. For passes that redraw slowly
+		// changing content into several targets every frame: Gran Turismo 5's six 256x256 environment cube faces
+		// (534 of 2,650 draws on a busy frame), with frames 3 two faces are refreshed a frame.
+		struct shared_frame_target
+		{
+			u16 width = 0;
+			u16 height = 0;
+			u32 frames = 2;
+		};
+		std::vector<shared_frame_target> shared_frame_targets;
+
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
 	};

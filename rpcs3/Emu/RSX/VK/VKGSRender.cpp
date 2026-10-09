@@ -1318,6 +1318,7 @@ void VKGSRender::clear_surface(u32 mask)
 	{
 		return;
 	}
+	if (vr_shared_target_skipped()) return; // VR fork: profile shared_frame_targets
 
 	//float depth_clear = 1.f;
 	u32   stencil_clear = 0;

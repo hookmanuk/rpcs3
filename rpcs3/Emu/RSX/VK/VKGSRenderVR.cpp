@@ -147,9 +147,11 @@ namespace vk
 // shadow cascades (1024 wide) into the memory of the buffer it is not showing.
 static bool vr_display_buffer(const rsx::thread& rsx, u32 address, u32 width, u32 height)
 {
+	// Display buffers are in local memory: the plain address (rsx::get_address's lookup and checks cost ~0.5% of the
+	// RSX thread over the per-draw calls).
 	for (const auto& buffer : rsx.display_buffers)
 	{
-		if (buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == address &&
+		if (buffer.width && rsx::constants::local_mem_base + buffer.offset == address &&
 			buffer.width == width && buffer.height == height)
 		{
 			return true;
@@ -720,7 +722,7 @@ u32 VKGSRender::vr_sampled_textures()
 		bool display_read = false;
 		for (const auto& buffer : display_buffers)
 		{
-			display_read |= buffer.width && rsx::get_address(buffer.offset, CELL_GCM_LOCATION_LOCAL) == tex_address;
+			display_read |= buffer.width && rsx::constants::local_mem_base + buffer.offset == tex_address;
 		}
 		kinds |= display_read ? vr_texture_colour_target | vr_texture_view_target : vr_texture_ordinary;
 	}
@@ -2760,8 +2762,64 @@ void VKGSRender::vr_restore_texture(u32 i, const vr_texture_redirect& redirect)
 // 30+ times within 3 m of a car and almost never elsewhere. Only body and car-part draws are ever skipped; a cap counts
 // each transform group's own draws in its first pass, so small part groups stay under it, and a car's later pass
 // (glass and other see-through parts, drawn after all the cars' bodies) is kept.
+// end() (through vr_skip_far_cars) and clear_surface(): profile shared_frame_targets. Targets of a rule's size take
+// turns by address: the n-th address seen is refreshed on frames where n % frames == frame % frames and keeps its
+// content otherwise. Dev: RPCS3_VR_SHARED_TARGETS=0 draws everything every frame.
+bool VKGSRender::vr_shared_target_skipped()
+{
+	const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
+	static const bool s_off = []
+	{
+		const char* v = std::getenv("RPCS3_VR_SHARED_TARGETS");
+		return v && v[0] == '0';
+	}();
+	if (s_off || !profile || profile->shared_frame_targets.empty())
+	{
+		return false;
+	}
+	const u32 address = m_framebuffer_layout.color_addresses[0];
+	if (!address)
+	{
+		return false;
+	}
+	for (const auto& rule : profile->shared_frame_targets)
+	{
+		if (rule.width != m_framebuffer_layout.width || rule.height != m_framebuffer_layout.height || rule.frames < 2)
+		{
+			continue;
+		}
+		// Addresses in order of first sighting (a target redrawn at a new address restarts the table).
+		static std::vector<u32> s_addresses;
+		static const rsx::vr::title_profile* s_profile = nullptr;
+		if (s_profile != profile)
+		{
+			s_profile = profile;
+			s_addresses.clear();
+		}
+		auto it = std::find(s_addresses.begin(), s_addresses.end(), address);
+		if (it == s_addresses.end())
+		{
+			if (s_addresses.size() >= 16)
+			{
+				s_addresses.clear();
+			}
+			s_addresses.push_back(address);
+			it = s_addresses.end() - 1;
+		}
+		const u32 index = static_cast<u32>(it - s_addresses.begin());
+		return (index % rule.frames) != (static_cast<u32>(int_flip_index) % rule.frames);
+	}
+	return false;
+}
+
 bool VKGSRender::vr_skip_far_cars()
 {
+	if (vr_shared_target_skipped())
+	{
+		execute_nop_draw();
+		rsx::thread::end();
+		return true;
+	}
 	const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
 	// RPCS3_VR_CAR_LIMIT=0: off; -1: observe only (the car log, nothing skipped).
 	static const s32 s_env = []
@@ -4221,25 +4279,31 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
 	// Ordinary stores, as in bind_vr_eye_constants: the classification reads this buffer right back.
 	const auto& guest_constants = rsx::method_registers.transform_constants;
-	if (constant_ids.empty())
+	// The game's constants for this program (the eyes' transforms start from these); run again for the rare redo below
+	// instead of keeping a copy of every draw's constants.
+	const auto fill_guest = [&](u8* dst)
 	{
-		std::memcpy(scratch.data(), guest_constants.data(), 468 * 16);
-	}
-	else
-	{
-		u8* dst = scratch.data();
-		for (const u16 index : constant_ids)
+		if (constant_ids.empty())
 		{
-			std::memcpy(dst, &guest_constants[index], 16);
-			dst += 16;
+			std::memcpy(dst, guest_constants.data(), 468 * 16);
 		}
-	}
-	if (probe.enabled())
-	{
-		probe.apply(scratch.data(), constant_ids.data(), constant_ids.size(), guest_constants.data(),
-			rsx::method_registers.surface_clip_width(), rsx::method_registers.surface_clip_height());
-	}
-	scale_offset_constants(scratch.data(), constant_ids);
+		else
+		{
+			u8* out = dst;
+			for (const u16 index : constant_ids)
+			{
+				std::memcpy(out, &guest_constants[index], 16);
+				out += 16;
+			}
+		}
+		if (probe.enabled())
+		{
+			probe.apply(dst, constant_ids.data(), constant_ids.size(), guest_constants.data(),
+				rsx::method_registers.surface_clip_width(), rsx::method_registers.surface_clip_height());
+		}
+		scale_offset_constants(dst, constant_ids);
+	};
+	fill_guest(scratch.data());
 	std::memcpy(scratch.data() + stride, scratch.data(), size);
 	vr_write_depth_remap(scratch.data() + size, remap_size, false);
 	vr_write_depth_remap(scratch.data() + stride + size, remap_size, false);
@@ -4276,10 +4340,8 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 	}
 	if (!keep_game_camera)
 	{
-		// The untransformed constants, to redo an eye when the two classify the draw differently (a rule that
-		// came true during the left eye's apply, such as the projection becoming known, must not leave the eyes apart).
-		static thread_local std::vector<u8> pristine;
-		pristine.assign(scratch.begin(), scratch.begin() + size);
+		// When the two eyes classify the draw differently (a rule that came true during the left eye's apply, such as
+		// the projection becoming known, must not leave the eyes apart) both are redone from the game's constants.
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 		vr_write_depth_remap(scratch.data() + size, remap_size, true);
 		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
@@ -4295,13 +4357,13 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 				rsx_log.notice("VR multiview: eyes classified a draw of program %016llx differently (left world %d, right world %d); redoing the left eye",
 					vr_vertex_program_hash(), classified_world, right_world);
 			}
-			std::memcpy(scratch.data(), pristine.data(), size);
+			fill_guest(scratch.data());
 			probe.clear_box_mapped();
 			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 			vr_write_depth_remap(scratch.data() + size, remap_size, true);
 			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 			probe.clear_box_mapped();
-			std::memcpy(scratch.data() + stride, pristine.data(), size);
+			fill_guest(scratch.data() + stride);
 			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
 			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true);
 			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);

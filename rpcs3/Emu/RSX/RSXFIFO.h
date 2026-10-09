@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+
 #include "util/types.hpp"
 #include "Emu/RSX/gcm_enums.h"
 
@@ -153,7 +155,16 @@ namespace rsx
 
 			u32 translate_address(u32 addr) const;
 
-			std::pair<bool, u32> fetch_u32(u32 addr);
+			std::pair<bool, u32> fetch_u32_slow(u32 addr); // the cache fill (was fetch_u32)
+			// VR fork: the cached word inline; the out-of-line call per FIFO word was ~2% of the RSX thread in Gran Turismo 5.
+			inline std::pair<bool, u32> fetch_u32(u32 addr)
+			{
+				if (addr - m_cache_addr < m_cache_size) [[likely]]
+				{
+					return {true, std::byteswap(read_from_ptr_unsafe<u32>(+m_cache[0], addr - m_cache_addr))}; // big-endian guest words
+				}
+				return fetch_u32_slow(addr);
+			}
 			void invalidate_cache() { m_cache_size = 0; }
 
 			u32 get_pos() const { return m_fifo_pos; }

@@ -262,6 +262,8 @@ struct RSXFragmentProgram
 	u32 offset = 0;
 	u32 ucode_length = 0;
 	u32 total_length = 0;
+	mutable usz ucode_hash = 0;  // VR fork: computed with the analysis (0: not known, hash the ucode)
+	mutable usz ucode_hash2 = 0; // VR fork: a second, independent hash of the same words; two programs with both hashes equal are taken as equal
 	u32 ctrl = 0;
 	u32 texcoord_control_mask = 0;
 	u32 mrt_buffers_count = 0;

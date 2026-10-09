@@ -93,7 +93,7 @@ namespace rsx
 			}
 		}
 
-		std::pair<bool, u32> FIFO_control::fetch_u32(u32 addr)
+		std::pair<bool, u32> FIFO_control::fetch_u32_slow(u32 addr) // VR fork: the inline fetch_u32 handles the cached word
 		{
 			if (addr - m_cache_addr >= m_cache_size)
 			{

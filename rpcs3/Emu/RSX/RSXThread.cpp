@@ -2194,6 +2194,8 @@ namespace rsx
 		current_fragment_program.data = (static_cast<u8*>(data_ptr) + current_fp_metadata.program_start_offset);
 		current_fragment_program.offset = program_offset + current_fp_metadata.program_start_offset;
 		current_fragment_program.ucode_length = current_fp_metadata.program_ucode_length;
+		current_fragment_program.ucode_hash = current_fp_metadata.ucode_hash; // VR fork: hashed in the analysis pass
+		current_fragment_program.ucode_hash2 = current_fp_metadata.ucode_hash2;
 		current_fragment_program.total_length = current_fp_metadata.program_ucode_length + current_fp_metadata.program_start_offset;
 		current_fragment_program.texture_state.import(current_fp_texture_state, current_fp_metadata.referenced_textures_mask);
 		current_fragment_program.valid = true;

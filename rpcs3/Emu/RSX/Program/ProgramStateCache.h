@@ -9,6 +9,7 @@
 #include "util/v128.hpp"
 #include <util/bless.hpp>
 
+#include <array>
 #include <span>
 #include <unordered_map>
 
@@ -55,6 +56,8 @@ namespace program_hash_util
 			u32 program_start_offset;
 			u32 program_ucode_length;
 			u32 program_constants_buffer_length;
+			usz ucode_hash;  // VR fork: get_fragment_program_ucode_hash of the program, from the same pass
+			usz ucode_hash2; // VR fork: FNV-1a of the same words (RSXFragmentProgram::ucode_hash2)
 			u16 referenced_textures_mask;
 			u16 bx2_texture_reads_mask;
 
@@ -212,6 +215,16 @@ protected:
 	binary_to_vertex_program m_vertex_shader_cache;
 	binary_to_fragment_program m_fragment_shader_cache;
 	std::unordered_map<pipeline_key, pipeline_storage_type, pipeline_key_hash, pipeline_key_compare> m_storage;
+
+	// VR fork: recent lookups (see get_graphics_pipeline)
+	struct lookup_slot
+	{
+		pipeline_key key{};
+		pipeline_storage_type* value = nullptr;
+		u64 generation = 0;
+	};
+	std::array<lookup_slot, 512> m_lookup_cache{};
+	u64 m_lookup_generation = 1;
 
 	decompiler_callback_t notify_pipeline_compiled;
 
@@ -374,9 +387,23 @@ public:
 			// There is a high chance the pipeline object was compiled if the two shaders already existed before
 			backend_traits::validate_pipeline_properties(vertex_program, fragment_program, pipeline_properties);
 
+			// VR fork: a direct-mapped cache of recent lookups in front of the map (its hash and compare walk the
+			// whole pipeline state: ~4% of the RSX thread in Gran Turismo 5 at 2,600 draws a frame). The map's
+			// nodes stay put until clear(), which bumps the generation.
+			auto& slot = m_lookup_cache[(key.vertex_program_id * 131u + key.fragment_program_id * 7u) % m_lookup_cache.size()];
+			if (slot.generation == m_lookup_generation && slot.value && slot.key.vertex_program_id == key.vertex_program_id &&
+				slot.key.fragment_program_id == key.fragment_program_id && slot.key.properties == key.properties)
+			{
+				m_cache_miss_flag = (*slot.value == __null_pipeline_handle);
+				return { slot.value->get(), &vertex_program, &fragment_program };
+			}
+
 			reader_lock lock(m_pipeline_mutex);
 			if (const auto I = m_storage.find(key); I != m_storage.end())
 			{
+				slot.key = key;
+				slot.value = &I->second;
+				slot.generation = m_lookup_generation;
 				m_cache_miss_flag = (I->second == __null_pipeline_handle);
 				return { I->second.get(), &vertex_program, &fragment_program };
 			}
@@ -466,5 +493,6 @@ public:
 		m_fragment_shader_cache.clear();
 		m_vertex_shader_cache.clear();
 		m_storage.clear();
+		m_lookup_generation++; // VR fork: the lookup cache's nodes are gone
 	}
 };

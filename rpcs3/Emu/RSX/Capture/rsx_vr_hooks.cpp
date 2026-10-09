@@ -28,6 +28,7 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <tlhelp32.h>
 #include <DbgHelp.h>
 #include "Utilities/stack_trace.h"
 #endif
@@ -414,6 +415,51 @@ namespace rsx::vr
 		// RPCS3_RSX_SAMPLE: started from the RSX thread (it samples the calling thread).
 		static std::once_flag s_sampler_started;
 		std::call_once(s_sampler_started, start_rsx_host_sampler);
+		// VR fork dev experiment: RPCS3_VR_RSX_CORE=<logical cpu>: the RSX thread alone on that core (its SMT sibling
+		// idle), every other thread of the process kept off the pair. Checked every 2 s for threads created later.
+		static const int s_rsx_core = []
+		{
+			const char* v = std::getenv("RPCS3_VR_RSX_CORE");
+			return v ? std::atoi(v) : -1;
+		}();
+		if (s_rsx_core >= 0)
+		{
+			static u64 s_last_us = 0;
+			const u64 now_us = get_system_time();
+			if (now_us - s_last_us >= 2'000'000)
+			{
+				s_last_us = now_us;
+				const u64 pair = (3ull << (s_rsx_core & ~1));
+				DWORD_PTR process_mask = 0, system_mask = 0;
+				GetProcessAffinityMask(GetCurrentProcess(), &process_mask, &system_mask);
+				const u64 others = process_mask & ~pair;
+				SetThreadAffinityMask(GetCurrentThread(), 1ull << s_rsx_core);
+				const DWORD me = GetCurrentThreadId(), pid = GetCurrentProcessId();
+				HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+				THREADENTRY32 te{};
+				te.dwSize = sizeof(te);
+				u32 moved = 0;
+				for (BOOL ok = Thread32First(snap, &te); ok; ok = Thread32Next(snap, &te))
+				{
+					if (te.th32OwnerProcessID != pid || te.th32ThreadID == me)
+					{
+						continue;
+					}
+					if (HANDLE h = OpenThread(THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID))
+					{
+						moved += SetThreadAffinityMask(h, others) != 0;
+						CloseHandle(h);
+					}
+				}
+				CloseHandle(snap);
+				static bool s_logged = false;
+				if (!s_logged)
+				{
+					s_logged = true;
+					rsx_log.success("VR dev: RSX thread pinned to cpu %d, %u other threads kept off 0x%llx", s_rsx_core, moved, pair);
+				}
+			}
+		}
 #endif
 
 		// The dev trigger files below are checked at most every 100 ms: a file stat per frame each cost ~1% of
