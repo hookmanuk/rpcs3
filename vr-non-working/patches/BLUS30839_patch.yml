@@ -74,7 +74,7 @@ PPU-ffd4f8966a67f15ea02a903c3a9bc96c39fa7087:
     Author: "VR fork"
     Notes: "Turns off the race camera's shake, which is uncomfortable in VR: the speed and boost shake (Perlin-noise rotation, 0x86a680) and the impact shake (collisions, 0x86a0c8). Both take their own reset path every frame (as on a camera cut): the shake state stays zero and the camera keeps the view the game computed. Camera moves such as the boost dip are kept."
     Patch Version: 1.0
-    Enabled By Default: false
+    Enabled By Default: true
     Apply To Savestates: true
     Patch:
       - [ be32, 0x0086a718, 0x60000000 ] # nop (was beq): speed/boost shake always takes its reset path
