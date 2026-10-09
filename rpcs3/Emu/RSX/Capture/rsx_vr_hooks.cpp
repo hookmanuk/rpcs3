@@ -363,6 +363,117 @@ namespace rsx::vr
 		return s_depth_remap;
 	}
 
+	namespace
+	{
+		struct vp_analysis_entry
+		{
+			u32 entry = 0;
+			u32 prefix_count = 0; // instructions hashed for the key
+			u32 range_first = 0, range_count = 0;
+			u64 range_hash = 0;
+			RSXVertexProgram program;
+			program_hash_util::vertex_program_utils::vertex_program_metadata metadata{};
+		};
+		std::unordered_map<u64, vp_analysis_entry> s_vp_analyses;
+		u32 s_vp_hits = 0, s_vp_misses = 0;
+
+		u64 vp_hash_range(const u32* block, u32 first, u32 count)
+		{
+			u64 h = 0xcbf29ce484222325ull;
+			const u32* w = block + first * 4;
+			for (u32 i = 0; i < count * 4; ++i)
+			{
+				h = (h ^ w[i]) * 0x100000001b3ull;
+			}
+			return h;
+		}
+
+		// The key: the entry and the hash of the instructions up to the first end marker (the whole program when it
+		// has no branches past it; the range hash on the stored entry catches the rest).
+		u64 vp_prefix_key(const u32* block, u32 entry, u32& prefix_count)
+		{
+			u64 h = 0xcbf29ce484222325ull ^ entry;
+			u32 i = entry;
+			for (; i < rsx::max_vertex_program_instructions; ++i)
+			{
+				const u32* w = block + i * 4;
+				h = (h ^ w[0]) * 0x100000001b3ull;
+				h = (h ^ w[1]) * 0x100000001b3ull;
+				h = (h ^ w[2]) * 0x100000001b3ull;
+				h = (h ^ w[3]) * 0x100000001b3ull;
+				if (w[3] & 1) // D3.end
+				{
+					i++;
+					break;
+				}
+			}
+			prefix_count = i - entry;
+			return h;
+		}
+
+		bool vp_cache_enabled()
+		{
+			static const bool s_on = []
+			{
+				const char* v = std::getenv("RPCS3_VR_VP_CACHE");
+				return !v || v[0] != '0';
+			}();
+			return s_on;
+		}
+	}
+
+	bool vp_analysis_cached(const u32* block, u32 entry, RSXVertexProgram& program, program_hash_util::vertex_program_utils::vertex_program_metadata& metadata)
+	{
+		if (!vp_cache_enabled() || entry >= rsx::max_vertex_program_instructions)
+		{
+			return false;
+		}
+		u32 prefix_count = 0;
+		const u64 key = vp_prefix_key(block, entry, prefix_count);
+		const auto it = s_vp_analyses.find(key);
+		if (it == s_vp_analyses.end() || it->second.entry != entry || it->second.prefix_count != prefix_count ||
+			vp_hash_range(block, it->second.range_first, it->second.range_count) != it->second.range_hash)
+		{
+			s_vp_misses++;
+			return false;
+		}
+		const auto& e = it->second;
+		program.data = e.program.data;
+		program.base_address = e.program.base_address;
+		program.entry = e.program.entry;
+		program.instruction_mask = e.program.instruction_mask;
+		program.jump_table = e.program.jump_table;
+		metadata = e.metadata;
+		s_vp_hits++;
+		return true;
+	}
+
+	void vp_analysis_store(const u32* block, u32 entry, const RSXVertexProgram& program, const program_hash_util::vertex_program_utils::vertex_program_metadata& metadata)
+	{
+		if (!vp_cache_enabled() || entry >= rsx::max_vertex_program_instructions || !metadata.ucode_length)
+		{
+			return;
+		}
+		if (s_vp_analyses.size() >= 2048)
+		{
+			s_vp_analyses.clear();
+		}
+		u32 prefix_count = 0;
+		const u64 key = vp_prefix_key(block, entry, prefix_count);
+		auto& e = s_vp_analyses[key];
+		e.entry = entry;
+		e.prefix_count = prefix_count;
+		e.range_first = program.base_address;
+		e.range_count = std::min<u32>(metadata.ucode_length / 16, rsx::max_vertex_program_instructions - program.base_address);
+		e.range_hash = vp_hash_range(block, e.range_first, e.range_count);
+		e.program.data = program.data;
+		e.program.base_address = program.base_address;
+		e.program.entry = program.entry;
+		e.program.instruction_mask = program.instruction_mask;
+		e.program.jump_table = program.jump_table;
+		e.metadata = metadata;
+	}
+
 	bool on_vertex_ucode(const RSXVertexProgram& program)
 	{
 		// Only for a profile that lists programs (Gran Turismo 5's menu cards, Asura's Wrath's shadow mask).

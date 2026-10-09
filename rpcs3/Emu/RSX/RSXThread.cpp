@@ -2240,12 +2240,16 @@ namespace rsx
 		current_vertex_program.data.reserve(512 * 4);
 		current_vertex_program.jump_table.clear();
 
+		if (!rsx::vr::vp_analysis_cached(method_registers.transform_program.data(), transform_program_start, current_vertex_program, current_vp_metadata)) // VR fork: analysis cache
+		{
 		current_vp_metadata = program_hash_util::vertex_program_utils::analyse_vertex_program
 		(
 			method_registers.transform_program.data(),  // Input raw block
 			transform_program_start,                    // Address of entry point
 			current_vertex_program                      // [out] Program object
 		);
+		rsx::vr::vp_analysis_store(method_registers.transform_program.data(), transform_program_start, current_vertex_program, current_vp_metadata); // VR fork
+		}
 		if (rsx::vr::on_vertex_ucode(current_vertex_program)) m_graphics_state |= (rsx::pipeline_state::vertex_program_state_dirty | rsx::pipeline_state::fragment_program_state_dirty); // VR fork: exact depth
 
 		current_vertex_program.texture_state.import(current_vp_texture_state, current_vp_metadata.referenced_textures_mask);

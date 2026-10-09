@@ -6,6 +6,7 @@
 // is set (see the comments on each).
 
 #include "util/types.hpp"
+#include "Emu/RSX/Program/ProgramStateCache.h" // vertex_program_metadata (vp_analysis_cached)
 
 #include <string>
 
@@ -47,6 +48,13 @@ namespace rsx::vr
 	// screen_space.hud_exact_depth_programs or depth_remap_programs. True when that changed (both programs' control
 	// bits then need updating).
 	bool on_vertex_ucode(const RSXVertexProgram& program);
+
+	// prefetch_vertex_program(): a cache of vertex program analyses by the ucode in the transform program block.
+	// Keyed by the entry and a hash of the instructions from the entry to the first end marker, verified by a hash of
+	// the analysed program's whole instruction range. Gran Turismo 5 switches programs several hundred times a frame
+	// and the analysis (a control-flow walk with heap allocations) was ~4% of the RSX thread.
+	bool vp_analysis_cached(const u32* block, u32 entry, RSXVertexProgram& program, program_hash_util::vertex_program_utils::vertex_program_metadata& metadata);
+	void vp_analysis_store(const u32* block, u32 entry, const RSXVertexProgram& program, const program_hash_util::vertex_program_utils::vertex_program_metadata& metadata);
 	// rsx_camera_probe.cpp: whether any program is listed, and whether this vertex ucode hash is one.
 	bool exact_depth_programs_listed();
 	bool exact_depth_program(u64 vertex_ucode_hash);
