@@ -341,7 +341,7 @@ namespace rsx
 			auto scale_result = [](u32 value)
 			{
 				const auto scale = get_current_renderer()->resolution_scaling_config.scale_percent;
-				const auto result = (value * 10000ull) / (scale * scale);
+				const auto result = (value * 10000ull) / (scale * get_current_renderer()->resolution_scaling_config.percent_y()); // VR fork: percent_y
 				return std::max(1u, static_cast<u32>(result));
 			};
 

@@ -20,6 +20,7 @@
 #include "../Capture/rsx_stereo_inspector.h"
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_profile_generator.h"
+#include "../Capture/rsx_vr_eye_shape.h"
 #include "../Common/BufferUtils.h"
 #include "../Program/GLSLCommon.h"
 #include "../rsx_methods.h"
@@ -1052,7 +1053,8 @@ const std::vector<const rsx::vr::fragment_constant_override*>* VKGSRender::find_
 void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> constant_ids)
 {
 	const auto* profile = rsx::vr::camera_probe::get().profile();
-	if (!profile || profile->resolution_scaled_constants.empty() || !m_vertex_prog || resolution_scaling_config.scale_percent == 100)
+	if (!profile || profile->resolution_scaled_constants.empty() || !m_vertex_prog ||
+		(resolution_scaling_config.scale_percent == 100 && resolution_scaling_config.percent_y() == 100))
 	{
 		return;
 	}
@@ -1080,7 +1082,9 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 	}
 
 	// Written from the guest registers, never read back from the (write-combined) buffer.
-	const f32 k = 100.f / resolution_scaling_config.scale_percent;
+	// Taps are (x, y) pairs: x and z take the horizontal scale, y and w the vertical one (headset-shaped eyes scale them apart).
+	const f32 k[4] = {100.f / resolution_scaling_config.scale_percent, 100.f / resolution_scaling_config.percent_y(),
+		100.f / resolution_scaling_config.scale_percent, 100.f / resolution_scaling_config.percent_y()};
 	for (const u16 slot : *m_scaled_constants_slots)
 	{
 		usz index = slot;
@@ -1097,7 +1101,7 @@ void VKGSRender::scale_offset_constants(void* buffer, std::span<const u16> const
 		f32 value[4];
 		for (u32 c = 0; c < 4; ++c)
 		{
-			value[c] = std::bit_cast<f32>(reg[c]) * k;
+			value[c] = std::bit_cast<f32>(reg[c]) * k[c];
 		}
 		std::memcpy(static_cast<u8*>(buffer) + index * 16, value, sizeof(value));
 	}
@@ -1672,6 +1676,11 @@ void VKGSRender::vr_update_view()
 	const size2u output_size = g_fxo->get<rsx::avconf>().video_frame_size();
 	const f32 aspect = output_size.width && output_size.height ? static_cast<f32>(output_size.width) / output_size.height : 16.f / 9.f;
 	const f32 depth = vr_hud_distance;
+	if (located)
+	{
+		// Headset-shaped eyes: the rendered eye extents set the vertical / horizontal resolution scale (rsx_vr_eye_shape.h).
+		rsx::vr::set_eye_shape(render_fov[0][1] - render_fov[0][0], render_fov[0][2] - render_fov[0][3], aspect);
+	}
 	f32 box_y = 0.f;
 	f32 width = 0.f;
 	if (located)
@@ -2132,9 +2141,9 @@ void VKGSRender::vr_setup_draw()
 void VKGSRender::vr_clear_shown_region()
 {
 	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
-	const f32 scale = resolution_scaling_config.scale_factor();
 	VkClearRect rect{};
-	rect.rect.extent = {std::min<u32>(static_cast<u32>(out.width * scale), m_draw_fbo->width()), std::min<u32>(static_cast<u32>(out.height * scale), m_draw_fbo->height())};
+	rect.rect.extent = {std::min<u32>(static_cast<u32>(out.width * resolution_scaling_config.scale_factor()), m_draw_fbo->width()),
+		std::min<u32>(static_cast<u32>(out.height * resolution_scaling_config.scale_factor_y()), m_draw_fbo->height())};
 	rect.layerCount = 1;
 	VkClearAttachment attachment{};
 	attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -3237,7 +3246,8 @@ std::optional<areai> VKGSRender::vr_map_clear_rect(u16 fb_width, u16 fb_height, 
 		f32 rect[4] = {static_cast<f32>(scissor_x), static_cast<f32>(scissor_y), static_cast<f32>(scissor_x + scissor_w), static_cast<f32>(scissor_y + scissor_h)};
 		f32 right[4];
 		m_vr_clear_quads_valid = false;
-		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), m_framebuffer_layout.width, m_framebuffer_layout.height,
+		if (rsx::vr::camera_probe::get().map_subviewport_clear(resolution_scaling_config.scale_factor(), resolution_scaling_config.scale_factor_y(),
+				m_framebuffer_layout.width, m_framebuffer_layout.height,
 				fb_width, fb_height, rect, right, m_vr_clear_quads))
 		{
 			m_vr_clear_quads_valid = true;

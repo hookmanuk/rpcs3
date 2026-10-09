@@ -3898,7 +3898,7 @@ namespace rsx::vr
 		       std::fabs(rsx::method_registers.viewport_scale_y()) * 2.f < shown_h * 0.9f;
 	}
 
-	bool camera_probe::map_subviewport_clear(f32 host_scale, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4], f32 (*quads)[4][2]) const
+	bool camera_probe::map_subviewport_clear(f32 host_scale_x, f32 host_scale_y, u32 surface_w, u32 surface_h, f32 host_width, f32 host_height, f32 rect[4], f32 right_rect[4], f32 (*quads)[4][2]) const
 	{
 		const title_profile* p = profile();
 		const size2u shown = g_fxo->get<rsx::avconf>().video_frame_size();
@@ -3915,8 +3915,8 @@ namespace rsx::vr
 		f32 box[4][4];
 		std::copy(rect, rect + 4, right_rect);
 		const f32 aspect = static_cast<f32>(shown.width) / shown.height;
-		const bool mapped = map_vr_passthrough_hud(box, 1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, right_rect, quads ? quads[1] : nullptr) &&
-		                    map_vr_passthrough_hud(box, -1.f, aspect) && map_box_scissor(host_scale, host_scale, host_width, host_height, rect, quads ? quads[0] : nullptr);
+		const bool mapped = map_vr_passthrough_hud(box, 1.f, aspect) && map_box_scissor(host_scale_x, host_scale_y, host_width, host_height, right_rect, quads ? quads[1] : nullptr) &&
+		                    map_vr_passthrough_hud(box, -1.f, aspect) && map_box_scissor(host_scale_x, host_scale_y, host_width, host_height, rect, quads ? quads[0] : nullptr);
 		m_hud_env_request = request;
 		return mapped;
 	}

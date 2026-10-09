@@ -1802,8 +1802,9 @@ namespace rsx
 					{
 						scaling_config =
 						{
-							.scale_percent = static_cast<u16>(g_cfg.video.resolution_scale_percent),
+							.scale_percent = rsx::vr::eye_shape_percent_x(static_cast<u16>(g_cfg.video.resolution_scale_percent)), // VR fork: headset-shaped eyes
 							.min_scalable_dimension = rsx::vr::min_scalable_dimension(static_cast<u16>(g_cfg.video.min_scalable_dimension)), // VR fork
+							.scale_percent_y = rsx::vr::eye_shape_percent_y(static_cast<u16>(g_cfg.video.resolution_scale_percent)), // VR fork: headset-shaped eyes
 						};
 					}
 

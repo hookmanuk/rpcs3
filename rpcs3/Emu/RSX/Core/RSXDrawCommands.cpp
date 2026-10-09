@@ -725,7 +725,7 @@ namespace rsx
 		const auto pixel_center = REGS(m_ctx)->pixel_center();
 		const f32 resolution_scale = (window_height <= RSX(m_ctx)->resolution_scaling_config.min_scalable_dimension)
 			? 1.f
-			: RSX(m_ctx)->resolution_scaling_config.scale_factor();
+			: RSX(m_ctx)->resolution_scaling_config.scale_factor_y(); // VR fork: the vertical scale (headset-shaped eyes scale x apart)
 
 		payload.wpos_scale = (window_origin == rsx::window_origin::top) ? (1.f / resolution_scale) : (-1.f / resolution_scale);
 		payload.wpos_bias[0] = 0.f;
@@ -739,6 +739,7 @@ namespace rsx
 			payload.wpos_bias[0] -= 0.5f;
 			payload.wpos_bias[1] -= 0.5f;
 		}
+		rsx::vr::encode_wpos_x(payload.wpos_bias[0], RSX(m_ctx)->resolution_scaling_config, window_height); // VR fork: headset-shaped eyes
 
 		utils::stream_vector_from_memory<2>(buffer, &payload);
 	}

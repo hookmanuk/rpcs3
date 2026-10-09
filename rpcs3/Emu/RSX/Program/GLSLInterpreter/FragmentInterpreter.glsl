@@ -543,6 +543,7 @@ void initialize()
 	// WPOS
 	vr0 = vec4(abs(wpos_scale), wpos_scale, 1., 1.);
 	vr1 = vec4(wpos_bias, 0., 0.);
+	if (vr1.x > 1024.) { vr0.x = round(vr1.x / 4096.); vr1.x -= vr0.x * 4096.; vr0.x = 100. / vr0.x; } // VR fork: x scaled apart (rsx_vr_eye_shape.h)
 	wpos = gl_FragCoord * vr0 + vr1;
 
 	// Other

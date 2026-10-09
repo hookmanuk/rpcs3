@@ -214,15 +214,20 @@ namespace rsx
 	{
 		u16 scale_percent = 100;
 		u16 min_scalable_dimension = 0;
+		u16 scale_percent_y = 0; // VR fork: vertical scale when it differs (headset-shaped eyes, rsx_vr_eye_shape.h); 0 = scale_percent
 
 		f32 scale_factor() const { return scale_percent * 0.01f; }
+		u16 percent_y() const { return scale_percent_y ? scale_percent_y : scale_percent; } // VR fork
+		f32 scale_factor_y() const { return percent_y() * 0.01f; } // VR fork
 
 		bool operator == (const surface_scaling_config_t& that) const
 		{
-			return this->scale_percent == that.scale_percent &&
+			return this->scale_percent == that.scale_percent && this->percent_y() == that.percent_y() && // VR fork: percent_y
 				this->min_scalable_dimension == that.min_scalable_dimension;
 		}
 	};
+
+	namespace vr { u16 eye_shape_percent_x(u16 percent); u16 eye_shape_percent_y(u16 percent); void encode_wpos_x(f32& wpos_bias_x, const surface_scaling_config_t& config, u32 window_height); } // VR fork: headset-shaped eyes (rsx_vr_eye_shape.cpp)
 
 	// Returns an ever-increasing tag value
 	static inline u64 get_shared_tag()
@@ -378,7 +383,7 @@ namespace rsx
 		{
 			// Upscale both width and height
 			width = (config.scale_percent * width) / 100;
-			height = (config.scale_percent * height) / 100;
+			height = (config.percent_y() * height) / 100; // VR fork: percent_y
 
 			if constexpr (clamp)
 			{
@@ -398,7 +403,7 @@ namespace rsx
 	{
 		// Inverse scale
 		auto width_ = (width * 100) / config.scale_percent;
-		auto height_ = (height * 100) / config.scale_percent;
+		auto height_ = (height * 100) / config.percent_y(); // VR fork: percent_y
 
 		if constexpr (clamp)
 		{

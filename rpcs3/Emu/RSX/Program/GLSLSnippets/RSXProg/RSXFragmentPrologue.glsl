@@ -46,7 +46,9 @@ bool _fragment_discard = false;
 vec4 get_wpos()
 {
 	float abs_scale = abs(wpos_scale);
-	return (gl_FragCoord * vec4(abs_scale, wpos_scale, 1., 1.)) + vec4(wpos_bias, 0., 0.);
+	vec2 bias = wpos_bias;
+	if (bias.x > 1024.) { const float percent = round(bias.x / 4096.); bias.x -= percent * 4096.; abs_scale = 100. / percent; } // VR fork: x scaled apart (rsx_vr_eye_shape.h)
+	return (gl_FragCoord * vec4(abs_scale, wpos_scale, 1., 1.)) + vec4(bias, 0., 0.);
 }
 #endif
 
