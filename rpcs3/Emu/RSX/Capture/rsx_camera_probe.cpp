@@ -1986,8 +1986,10 @@ namespace rsx::vr
 			const f32 half_deg = behind ? 90.f : std::atan(h) * 57.29578f + rule.margin_deg;
 			const f32 wanted = std::clamp(2.f * half_deg / rule.fov_deg, rule.min, rule.max);
 			// Up at once (newly visible scenery must not be missing); down slowly, so a glance back and forth does not
-			// make the scenery at the edges pop in and out.
-			be_t<f32>& value = *vm::_ptr<be_t<f32>>(address);
+			// make the scenery at the edges pop in and out. Written past the page protection, as a game patch is: the
+			// word can sit in a patch's code cave (SEGA Rally: the code segment's tail, read-only on a fresh boot; a plain
+			// write there froze the emulator on the title screen).
+			be_t<f32>& value = *vm::get_super_ptr<f32>(address);
 			const f32 current = value;
 			const f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : std::max(wanted, current - 0.01f);
 			if (next != current)
