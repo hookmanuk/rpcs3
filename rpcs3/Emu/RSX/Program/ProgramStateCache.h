@@ -389,8 +389,11 @@ public:
 
 			// VR fork: a direct-mapped cache of recent lookups in front of the map (its hash and compare walk the
 			// whole pipeline state: ~4% of the RSX thread in Gran Turismo 5 at 2,600 draws a frame). The map's
-			// nodes stay put until clear(), which bumps the generation.
-			auto& slot = m_lookup_cache[(key.vertex_program_id * 131u + key.fragment_program_id * 7u) % m_lookup_cache.size()];
+			// nodes stay put until clear(), which bumps the generation. Only the RSX thread's lookups (they pass a
+			// cache hint) use it: the shader cache loader's workers call this in parallel, and two of them writing one
+			// slot could pair one pipeline's key with another's value.
+			lookup_slot dummy_slot{};
+			auto& slot = cache_hint ? m_lookup_cache[(key.vertex_program_id * 131u + key.fragment_program_id * 7u) % m_lookup_cache.size()] : dummy_slot;
 			if (slot.generation == m_lookup_generation && slot.value && slot.key.vertex_program_id == key.vertex_program_id &&
 				slot.key.fragment_program_id == key.fragment_program_id && slot.key.properties == key.properties)
 			{
