@@ -200,7 +200,8 @@ namespace rsx
 			// scenes; live), first so they are seen. "General": every game's settings. Headings only when the game has options.
 			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && (profile->reduced_scale_percent ||
 				rsx::vr::profile_has_option(*profile, "highest_detail") || rsx::vr::profile_has_option(*profile, "reflections") ||
-				rsx::vr::profile_has_option(*profile, "mirror") || rsx::vr::profile_has_option(*profile, "distant_cars")))
+				rsx::vr::profile_has_option(*profile, "mirror") || rsx::vr::profile_has_option(*profile, "distant_cars") ||
+				rsx::vr::profile_has_option(*profile, "simpler_vehicles") || rsx::vr::profile_has_option(*profile, "fewer_shadows")))
 			{
 				const auto heading = [this](localized_string_id id)
 				{
@@ -208,6 +209,8 @@ namespace rsx
 				};
 				heading(localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GAME);
 				if (rsx::vr::profile_has_option(*profile, "highest_detail")) add_checkbox(&g_cfg.video.vr.highest_detail_models, localized_string_id::HOME_MENU_SETTINGS_VR_HIGHEST_DETAIL_MODELS);
+				if (rsx::vr::profile_has_option(*profile, "simpler_vehicles")) add_checkbox(&g_cfg.video.vr.simpler_vehicles, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES);
+				if (rsx::vr::profile_has_option(*profile, "fewer_shadows")) add_checkbox(&g_cfg.video.vr.fewer_shadows, localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS);
 				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
 				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
 				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);

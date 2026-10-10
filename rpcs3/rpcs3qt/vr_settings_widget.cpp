@@ -58,6 +58,8 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			any |= offered;
 		};
 		game_option(ui->vrHighestDetailModels, emu_settings_type::VRHighestDetailModels, "highest_detail", tooltips.settings.vr_highest_detail_models);
+		game_option(ui->vrSimplerVehicles, emu_settings_type::VRSimplerVehicles, "simpler_vehicles", tooltips.settings.vr_simpler_vehicles);
+		game_option(ui->vrFewerShadows, emu_settings_type::VRFewerShadows, "fewer_shadows", tooltips.settings.vr_fewer_shadows);
 		game_option(ui->vrReducedRateReflections, emu_settings_type::VRReducedRateReflections, "reflections", tooltips.settings.vr_reduced_rate_reflections);
 		game_option(ui->vrReducedRateMirror, emu_settings_type::VRReducedRateMirror, "mirror", tooltips.settings.vr_reduced_rate_mirror);
 		game_option(ui->vrSimplerDistantCars, emu_settings_type::VRSimplerDistantCars, "distant_cars", tooltips.settings.vr_simpler_distant_cars);

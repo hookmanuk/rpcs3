@@ -653,9 +653,9 @@ namespace rsx::vr
 	// Whether a game with this max_fps lists the option (Default always).
 	bool frame_rate_option_allowed(u32 option, u32 max_fps);
 
-	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" | "highest_detail" follow the VR settings
-	// Reduced-Rate Reflections, Reduced-Rate Mirror, Simpler Distant Cars and Highest Detail Models (live). Untagged rules
-	// and unknown names are always on.
+	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" | "highest_detail" | "simpler_vehicles" |
+	// "fewer_shadows" follow the VR settings Reduced-Rate Reflections, Reduced-Rate Mirror, Simpler Distant Cars, Highest
+	// Detail Models, Simpler Other Vehicles and Fewer Shadows (live). Untagged rules and unknown names are always on.
 	bool profile_option_enabled(const std::string& option);
 	// The home menu shows a setting only for games whose profile has a rule tagged with it.
 	bool profile_has_option(const title_profile& profile, std::string_view option);

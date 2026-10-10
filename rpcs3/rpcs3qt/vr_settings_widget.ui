@@ -42,6 +42,20 @@
              </widget>
             </item>
             <item>
+             <widget class="QCheckBox" name="vrSimplerVehicles">
+              <property name="text">
+               <string>Simpler Other Vehicles</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="vrFewerShadows">
+              <property name="text">
+               <string>Fewer Shadows</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QCheckBox" name="vrReducedRateReflections">
               <property name="text">
                <string>Reduced-Rate Reflections</string>

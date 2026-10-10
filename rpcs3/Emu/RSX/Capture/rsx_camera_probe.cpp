@@ -1661,6 +1661,14 @@ namespace rsx::vr
 		{
 			return g_cfg.video.vr.highest_detail_models.get();
 		}
+		if (option == "simpler_vehicles")
+		{
+			return g_cfg.video.vr.simpler_vehicles.get();
+		}
+		if (option == "fewer_shadows")
+		{
+			return g_cfg.video.vr.fewer_shadows.get();
+		}
 		return true;
 	}
 

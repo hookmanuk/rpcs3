@@ -93,22 +93,66 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
       - [ be32, 0x0037384c, 0x91370004 ]  # stw r9,4(r23)  range y = 0 (was stfs f30,4(r23): 0.003 at rest, ~1.0 boosting)
       - [ be32, 0x00373850, 0x91370000 ]  # stw r9,0(r23)  range x = 0 (was stfs f3,0(r23))
 
-  "Highest detail models (VR option)":
+  "Model detail (VR options)":
     Games:
       "MotorStorm: Pacific Rift":
         BCUS98155: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Trees, rocks and vehicles switch to simpler models with distance, which shows in the headset as models changing as you approach. With the VR setting Highest Detail Models (home menu, on by default) the game's level-of-detail bias (scripts/viewportquality.xml GroupSettings lodBias, 2^bias scales the switch distances) is held at -8, so everything uses its most detailed model. Measured: ~1.1M vertices instead of ~0.66M, RSX thread and GPU load unchanged within noise. Without the VR profile the word stays 100 and the game's own bias is used."
-    Patch Version: 1.0
+    Notes: "The game's detail settings per object group (scripts/viewportquality.xml GroupSettings: lodBias, 2^bias scales the distances at which models switch to simpler ones; cullThreshold and shadowCullThreshold, the screen size below which an object is not drawn or casts no shadow), set from the VR settings through the VR profile (option_f32): Highest Detail Models holds scenery and your own vehicle at the most detailed models, so trees and rocks do not visibly change as you approach; Simpler Other Vehicles gives the other vehicles simpler models sooner and drops their small parts sooner; Fewer Shadows drops small objects' shadows sooner. The last two are for the race start, where the pack in view and its shadows limit the frame rate. Without the VR profile the game's own values are used."
+    Patch Version: 1.2
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
-      # 0x35db78 hands each object group's settings to the renderer every frame; it loads lodBias at 0x35dbd0. The cave
-      # uses min(lodBias, word 0x145fe04); the VR profile writes the word (option_f32: -8 with the setting on, 100 off).
-      - [ be32, 0x0145fe04, 0x42c80000 ]  # word: 100.0 (no change) until the VR profile writes it; same page as the Wider view scale
-      - [ calloc, 0x0035dbd0, 5 ]         # was lfs f11,0(r30)  lodBias
+      # 0x35db78 (r4 = the viewport's GroupSettings, r7 = group 0-4) hands one object group's settings to the renderer;
+      # it runs per frame for each group, the vehicle group once per competitor (r7 3), the player's vehicle with r7 4.
+      # lodBias = max(min(lodBias, cap[r7]), floor[r7]); the cull thresholds x cull[r7] / shadow[r7] (r7, the group, is kept
+      # at 0x145fe50 for them: r7 is reused before they load). The VR profile writes the tables (option_f32).
+      - [ be32, 0x0145fe10, 0x42c80000 ]  # cap[0] object: 100 = none
+      - [ be32, 0x0145fe14, 0x42c80000 ]  # cap[1] dynamic_objects: 100 = none
+      - [ be32, 0x0145fe18, 0x42c80000 ]  # cap[2] world: 100 = none
+      - [ be32, 0x0145fe1c, 0x42c80000 ]  # cap[3] vehicle: 100 = none
+      - [ be32, 0x0145fe20, 0x42c80000 ]  # cap[4] player: 100 = none
+      - [ be32, 0x0145fe30, 0xc2c80000 ]  # floor[0] object: -100 = none
+      - [ be32, 0x0145fe34, 0xc2c80000 ]  # floor[1] dynamic_objects: -100 = none
+      - [ be32, 0x0145fe38, 0xc2c80000 ]  # floor[2] world: -100 = none
+      - [ be32, 0x0145fe3c, 0xc2c80000 ]  # floor[3] vehicle: -100 = none
+      - [ be32, 0x0145fe40, 0xc2c80000 ]  # floor[4] player: -100 = none
+      - [ be32, 0x0145fe60, 0x3f800000 ]  # cull[0] object: cullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe64, 0x3f800000 ]  # cull[1] dynamic_objects: cullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe68, 0x3f800000 ]  # cull[2] world: cullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe6c, 0x3f800000 ]  # cull[3] vehicle: cullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe70, 0x3f800000 ]  # cull[4] player: cullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe80, 0x3f800000 ]  # shadow[0] object: shadowCullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe84, 0x3f800000 ]  # shadow[1] dynamic_objects: shadowCullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe88, 0x3f800000 ]  # shadow[2] world: shadowCullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe8c, 0x3f800000 ]  # shadow[3] vehicle: shadowCullThreshold factor, 1 = game value
+      - [ be32, 0x0145fe90, 0x3f800000 ]  # shadow[4] player: shadowCullThreshold factor, 1 = game value
+      - [ calloc, 0x0035dbd0, 12 ]        # was lfs f11,0(r30)  lodBias
       - [ be32, 0x0, 0xc17e0000 ]         # lfs f11,0(r30)       the game's lodBias
-      - [ be32, 0x0, 0x3d800146 ]         # lis r12,0x146        (r12 is free here: rewritten at 0x35dbf4)
-      - [ be32, 0x0, 0xc00cfe04 ]         # lfs f0,-0x1fc(r12)   word 0x145fe04
-      - [ be32, 0x0, 0xeda05828 ]         # fsubs f13,f0,f11     (f0, f13 free: rewritten at 0x35dc28, 0x35dc04)
-      - [ be32, 0x0, 0xfd6d02ee ]         # fsel f11,f13,f11,f0  lodBias = min(lodBias, word)
+      - [ be32, 0x0, 0x3d800146 ]         # lis r12,0x146        (r0, r12, f0, f13 are free here: rewritten at 0x35dc70,
+      - [ be32, 0x0, 0x90ecfe50 ]         # stw r7,-0x1b0(r12)   the group, for the cull caves
+      - [ be32, 0x0, 0x54e0103a ]         # slwi r0,r7,2          0x35dbf4, 0x35dc28, 0x35dc04; r7 is still the group)
+      - [ be32, 0x0, 0x398cfe10 ]         # addi r12,r12,-0x1f0  cap table 0x145fe10
+      - [ be32, 0x0, 0x7c0c042e ]         # lfsx f0,r12,r0
+      - [ be32, 0x0, 0xeda05828 ]         # fsubs f13,f0,f11
+      - [ be32, 0x0, 0xfd6d02ee ]         # fsel f11,f13,f11,f0  min(lodBias, cap)
+      - [ be32, 0x0, 0x398c0020 ]         # addi r12,r12,0x20    floor table 0x145fe30
+      - [ be32, 0x0, 0x7c0c042e ]         # lfsx f0,r12,r0
+      - [ be32, 0x0, 0xedab0028 ]         # fsubs f13,f11,f0
+      - [ be32, 0x0, 0xfd6d02ee ]         # fsel f11,f13,f11,f0  max(.., floor)
+      - [ calloc, 0x0035dce0, 7 ]         # was lfs f1,0x10(r30) shadowCullThreshold (r29 != 0); a call follows: r0, r12, f0 free
+      - [ be32, 0x0, 0xc03e0010 ]         # lfs f1,0x10(r30)
+      - [ be32, 0x0, 0x3d800146 ]         # lis r12,0x146
+      - [ be32, 0x0, 0x800cfe50 ]         # lwz r0,-0x1b0(r12)   group
+      - [ be32, 0x0, 0x5400103a ]         # slwi r0,r0,2
+      - [ be32, 0x0, 0x398cfe80 ]         # addi r12,r12,-0x180  shadow table 0x145fe80
+      - [ be32, 0x0, 0x7c0c042e ]         # lfsx f0,r12,r0
+      - [ be32, 0x0, 0xec210032 ]         # fmuls f1,f1,f0
+      - [ calloc, 0x0035dd20, 7 ]         # was lfs f1,0xc(r30)  cullThreshold
+      - [ be32, 0x0, 0xc03e000c ]         # lfs f1,0xc(r30)
+      - [ be32, 0x0, 0x3d800146 ]         # lis r12,0x146
+      - [ be32, 0x0, 0x800cfe50 ]         # lwz r0,-0x1b0(r12)   group
+      - [ be32, 0x0, 0x5400103a ]         # slwi r0,r0,2
+      - [ be32, 0x0, 0x398cfe60 ]         # addi r12,r12,-0x1a0  cull table 0x145fe60
+      - [ be32, 0x0, 0x7c0c042e ]         # lfsx f0,r12,r0
+      - [ be32, 0x0, 0xec210032 ]         # fmuls f1,f1,f0
