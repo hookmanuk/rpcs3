@@ -106,6 +106,7 @@ namespace vk
 			bool provoking_vertex_last = false;
 			bool multiview = false;                   // VR fork: VK_KHR_multiview (core 1.1)
 			bool shader_viewport_index_layer = false; // VR fork: VK_EXT_shader_viewport_index_layer (per-view scissor)
+			u32 max_push_descriptors = 0;             // VR fork: VK_KHR_push_descriptor (0: unsupported or off)
 		} optional_features_support;
 
 		friend class render_device;
@@ -201,6 +202,7 @@ namespace vk
 		bool get_extended_device_fault_support() const { return pgpu->optional_features_support.extended_device_fault; }
 		bool get_texture_compression_bc_support() const { return pgpu->optional_features_support.texture_compression_bc; }
 		bool get_provoking_vertex_last_support() const { return pgpu->optional_features_support.provoking_vertex_last; }
+		u32 get_push_descriptor_limit() const { return pgpu->optional_features_support.max_push_descriptors; } // VR fork
 
 		u64 get_descriptor_update_after_bind_support() const { return pgpu->descriptor_indexing_support.update_after_bind_mask; }
 		u32 get_descriptor_max_draw_calls() const { return pgpu->descriptor_max_draw_calls; }

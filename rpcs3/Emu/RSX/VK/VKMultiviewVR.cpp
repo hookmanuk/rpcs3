@@ -2,6 +2,10 @@
 #include "VKMultiviewVR.h"
 
 #include "VKHelpers.h"
+#include "VKProgramPipeline.h"
+#include "vkutils/descriptors.h"
+#include "vkutils/device.h"
+#include "vkutils/instance.h"
 #include "vkutils/query_pool.hpp"
 #include "VKQueryPool.h"
 #include "VKRenderPass.h"
@@ -496,3 +500,124 @@ namespace vk
 		OS << fs_text;
 	}
 } // namespace vk
+
+// ---- Push descriptors ---------------------------------------------------------------------------------
+
+namespace vk
+{
+	u32 vr_push_descriptor_limit(VkPhysicalDevice dev)
+	{
+		static const bool s_allowed = []
+		{
+			const char* v = std::getenv("RPCS3_VK_PUSH_DESCRIPTORS");
+			return !v || v[0] != '0';
+		}();
+		if (!s_allowed || !supported_extensions(supported_extensions::device, nullptr, dev).is_supported(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME))
+		{
+			return 0;
+		}
+		VkPhysicalDevicePushDescriptorPropertiesKHR push_props{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR };
+		VkPhysicalDeviceProperties2 props2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &push_props };
+		vkGetPhysicalDeviceProperties2(dev, &props2);
+		if (push_props.maxPushDescriptors)
+		{
+			rsx_log.notice("Push descriptors available (up to %u per set)", push_props.maxPushDescriptors);
+		}
+		return push_props.maxPushDescriptors;
+	}
+
+	VkDescriptorSetLayout vr_push_descriptor_layout(glsl::descriptor_table_t& table, const rsx::simple_array<VkDescriptorSetLayoutBinding>& bindings)
+	{
+		auto& push = table.m_vr_push;
+		push.enabled = false;
+		if (!push.candidate)
+		{
+			return VK_NULL_HANDLE;
+		}
+		u32 total = 0;
+		for (const auto& binding : bindings)
+		{
+			total += binding.descriptorCount;
+		}
+		if (!total || total > g_render_device->get_push_descriptor_limit())
+		{
+			return VK_NULL_HANDLE;
+		}
+		// Push sets take no update-after-bind flags: they are written when the command is recorded.
+		const VkDescriptorSetLayoutCreateInfo info
+		{
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+			.bindingCount = ::size32(bindings),
+			.pBindings = bindings.data()
+		};
+		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+		CHECK_RESULT(vkCreateDescriptorSetLayout(*g_render_device, &info, nullptr, &layout));
+		push.enabled = true;
+		return layout;
+	}
+
+	void vr_push_descriptor_table(glsl::descriptor_table_t& table, const command_buffer& cmd, VkPipelineBindPoint bind_point,
+		VkPipelineLayout layout, u32 set_index, bool still_bound)
+	{
+		auto& push = table.m_vr_push;
+		if (still_bound && push.writes_valid && !table.m_any_descriptors_dirty && push.last_cmd == static_cast<VkCommandBuffer>(cmd))
+		{
+			return;
+		}
+
+		const u32 slots = ::size32(table.m_descriptor_slots);
+		if (push.writes.size() != slots)
+		{
+			push.writes.resize(slots);
+			push.arrays.resize(slots);
+			push.writes_valid = false;
+		}
+
+		if (!push.writes_valid || table.m_any_descriptors_dirty)
+		{
+			for (u32 i = 0; i < slots; ++i)
+			{
+				if (push.writes_valid && !table.m_descriptors_dirty[i])
+				{
+					continue;
+				}
+
+				auto& write = push.writes[i];
+				write = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstBinding = i, .descriptorCount = 1, .descriptorType = table.m_descriptor_types[i] };
+				const auto& slot = table.m_descriptor_slots[i];
+
+				if (auto ptr = std::get_if<VkDescriptorImageInfoEx>(&slot))
+				{
+					write.pImageInfo = ptr;
+				}
+				else if (auto ptr = std::get_if<VkDescriptorBufferInfoEx>(&slot))
+				{
+					write.pBufferInfo = ptr;
+				}
+				else if (auto ptr = std::get_if<VkDescriptorBufferViewEx>(&slot))
+				{
+					write.pTexelBufferView = &ptr->view;
+				}
+				else if (auto ptr = std::get_if<glsl::descriptor_image_array_t>(&slot))
+				{
+					push.arrays[i] = ptr->map(FN(static_cast<VkDescriptorImageInfo>(x)));
+					write.descriptorCount = ::size32(push.arrays[i]);
+					write.pImageInfo = push.arrays[i].data();
+				}
+				else
+				{
+					fmt::throw_exception("Unexpected descriptor structure at index %u", i);
+				}
+
+				table.m_descriptors_dirty[i] = false;
+			}
+
+			push.writes_valid = true;
+			table.m_any_descriptors_dirty = false;
+		}
+
+		_vkCmdPushDescriptorSetKHR(cmd, bind_point, layout, set_index, ::size32(push.writes), push.writes.data());
+		push.last_cmd = cmd;
+	}
+}

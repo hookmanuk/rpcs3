@@ -5,6 +5,8 @@
 // that each upstream site carries one line. Bodies in VKMultiviewVR.cpp, except the one template.
 
 #include "util/types.hpp"
+#include "VulkanAPI.h"
+#include "Emu/RSX/Common/simple_array.hpp"
 #include "Emu/RSX/Capture/rsx_vr_hooks.h" // rsx::vr::multiview_active(), RSX_SHADER_CONTROL_VR_MULTIVIEW
 
 #include <ostream>
@@ -22,6 +24,27 @@ namespace vk
 {
 	class command_buffer;
 	class image;
+
+	namespace glsl
+	{
+		struct descriptor_table_t;
+	}
+
+	// ---- Push descriptors (VK_KHR_push_descriptor) -----------------------------------------------------
+	// The fragment set of separate-object graphics pipelines (textures; rewritten on about half the draws in
+	// Gran Turismo 5) is written into the command buffer instead of allocated, updated at submit and bound.
+	// Any GPU without the extension, or a set larger than its limit, keeps the allocated path.
+	// RPCS3_VK_PUSH_DESCRIPTORS=0 turns it off.
+
+	// get_physical_device_properties_1(): maxPushDescriptors, or 0 when unsupported or turned off.
+	u32 vr_push_descriptor_limit(VkPhysicalDevice dev);
+	// create_descriptor_set_layout(): a push layout for a candidate set within the limit (sets m_vr_push.enabled),
+	// else VK_NULL_HANDLE (the caller creates the ordinary layout).
+	VkDescriptorSetLayout vr_push_descriptor_layout(glsl::descriptor_table_t& table, const rsx::simple_array<VkDescriptorSetLayoutBinding>& bindings);
+	// program::bind(): writes the set's descriptors. Skipped when nothing changed since the last push into this
+	// command buffer and the program's pipeline was still bound there (the pushed state is intact).
+	void vr_push_descriptor_table(glsl::descriptor_table_t& table, const command_buffer& cmd, VkPipelineBindPoint bind_point,
+		VkPipelineLayout layout, u32 set_index, bool still_bound);
 
 	// The shader interpreter's multiview variant: a compiler option above upstream's
 	// (program_common::interpreter::compiler_option; VKMultiviewVR.cpp checks that they stay below it).

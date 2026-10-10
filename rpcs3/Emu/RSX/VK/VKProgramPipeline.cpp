@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "VKProgramPipeline.h"
 #include "VKResourceManager.h"
+#include "VKMultiviewVR.h" // VR fork: push descriptors
 #include "vkutils/descriptors.h"
 #include "vkutils/device.h"
 #include "vkutils/image.h"
@@ -247,6 +248,7 @@ namespace vk
 			}
 			else
 			{
+				m_sets[binding_set_index_fragment].m_vr_push.candidate = g_render_device->get_push_descriptor_limit() != 0; // VR fork: push descriptors
 				for (auto& set : m_sets)
 				{
 					for (auto& type_arr : set.m_inputs)
@@ -403,6 +405,7 @@ namespace vk
 			VkDescriptorSet bind_sets[binding_set_index_max_enum];
 			unsigned count = 0;
 
+			descriptor_table_t* vr_push = nullptr; u32 vr_push_index = 0; // VR fork: push descriptors (the last set in use)
 			for (auto& set : m_sets)
 			{
 				if (!set.m_device)
@@ -410,11 +413,14 @@ namespace vk
 					continue;
 				}
 
+				if (set.m_vr_push.enabled) { vr_push = &set; vr_push_index = count; continue; } // VR fork
 				bind_sets[count++] = set.commit();   // Commit variable changes and return handle to the new set
 			}
 
+			const bool vr_push_bound = vr_push && cmd.bound_pipeline(bind_point) == m_pipeline; // VR fork
 			cmd.bind_pipeline(m_pipeline, bind_point);
 			cmd.bind_descriptor_sets({ bind_sets, count }, bind_point, m_pipeline_layout);
+			if (vr_push) vk::vr_push_descriptor_table(*vr_push, cmd, bind_point, m_pipeline_layout, vr_push_index, vr_push_bound); // VR fork
 			return *this;
 		}
 
@@ -692,7 +698,8 @@ namespace vk
 				m_descriptor_types[i] = descriptor_type_map[i];
 			}
 
-			m_descriptor_set_layout = vk::descriptors::create_layout(bindings);
+			m_descriptor_set_layout = vk::vr_push_descriptor_layout(*this, bindings); // VR fork: a push layout when it fits, else create_layout
+			if (!m_descriptor_set_layout) m_descriptor_set_layout = vk::descriptors::create_layout(bindings);
 		}
 
 		void descriptor_table_t::create_descriptor_pool()

@@ -160,6 +160,10 @@ namespace vk
 			std::vector<bool> m_descriptors_dirty;
 			bool m_any_descriptors_dirty = false;
 
+			// VR fork: push descriptors (VKMultiviewVR.cpp, vk::vr_push_descriptor_table)
+			struct { bool candidate = false, enabled = false, writes_valid = false; VkCommandBuffer last_cmd = VK_NULL_HANDLE;
+				rsx::simple_array<VkWriteDescriptorSet> writes; std::vector<rsx::simple_array<VkDescriptorImageInfo>> arrays; } m_vr_push;
+
 			void init(VkDevice dev);
 			void destroy();
 

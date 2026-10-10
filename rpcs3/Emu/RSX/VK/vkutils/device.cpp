@@ -1,5 +1,6 @@
 #include "device.h"
 #include "../VKOpenXR.h"
+#include "../VKMultiviewVR.h" // VR fork: push descriptors
 #include "instance.h"
 #include "util/logs.hpp"
 #include "Emu/system_config.h"
@@ -237,6 +238,8 @@ namespace vk
 				descriptor_max_draw_calls = 8192;
 			}
 		}
+
+		optional_features_support.max_push_descriptors = vk::vr_push_descriptor_limit(dev); // VR fork: push descriptors
 
 		if (multidraw_support.supported)
 		{
@@ -618,6 +621,10 @@ namespace vk
 			if (pgpu->optional_features_support.shader_viewport_index_layer)
 			{
 				requested_extensions.push_back(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
+			}
+			if (pgpu->optional_features_support.max_push_descriptors)
+			{
+				requested_extensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 			}
 		}
 		
