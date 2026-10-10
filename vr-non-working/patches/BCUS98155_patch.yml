@@ -82,18 +82,13 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
       "MotorStorm: Pacific Rift":
         BCUS98155: [ 01.00 ]
     Author: "VR fork"
-    Notes: "The chase camera hangs under a 'Shake the camera' node whose strength grows with speed and most with boost (X): in the headset the view jolted left and right. The camera controller now gives the shake a zero range, so the camera follows the vehicle without it."
+    Notes: "Boosting (X) shakes the view quickly left and right: the chase view hangs under a 'Vehicle shake platform' node whose shake range the game raises while boosting. In the headset that is a fast jolt every frame. The range is now kept at zero, so the view stays steady."
     Patch Version: 1.0
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
-      # camera controller 0x37fb68 stores the shake range (x, y, z) at node+0x80 each frame; the shake node (update 0x42e65c)
-      # scales its random step by it and clamps its offset to +-range, so a zero range keeps the offset at exactly 0.
-      # (Zeroing node+0xa0 instead, the per-frame velocity limit, froze the velocity and the camera drifted away.)
-      - [ calloc, 0x0037fe14, 4 ]         # was stfs f28,0(r12)  range x
-      - [ be32, 0x0, 0x38000000 ]         # li r0,0
-      - [ be32, 0x0, 0x900c0000 ]         # stw r0,0(r12)        range x = 0
-      - [ be32, 0x0, 0x900c0004 ]         # stw r0,4(r12)        range y = 0
-      - [ be32, 0x0, 0x900c0008 ]         # stw r0,8(r12)        range z = 0 (the cave returns to 0x37fe18)
-      - [ be32, 0x0037fe18, 0x60000000 ]  # nop (was stfs f0,8(r12))
-      - [ be32, 0x0037fe1c, 0x60000000 ]  # nop (was stfs f6,4(r12))
+      # 0x373680 (vehicle camera update) stores the shake range (x, y) of the "Vehicle shake platform" node (+0x80); the node's
+      # update (0x42e65c) scales its random step by the range and clamps its offset to +-range, so a zero range keeps it at 0.
+      # r9 is 0 here (li r9,0 at 0x37383c; the game stores it as the range z at 0x373870).
+      - [ be32, 0x0037384c, 0x91370004 ]  # stw r9,4(r23)  range y = 0 (was stfs f30,4(r23): 0.003 at rest, ~1.0 boosting)
+      - [ be32, 0x00373850, 0x91370000 ]  # stw r9,0(r23)  range x = 0 (was stfs f3,0(r23))
