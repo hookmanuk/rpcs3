@@ -522,6 +522,17 @@ namespace rsx::vr
 			f32 step = 0.f;
 		};
 		std::vector<culling_scale_rule> culling_scale_f32;
+		// option_f32: { "address": "0x...", "option": "highest_detail", "on": -8, "off": 100 }. A patch's word written each
+		// frame with "on" or "off" by the VR setting the option names (profile_option_enabled), so a game setting a patch
+		// reads can be changed live from the home menu. MotorStorm: Pacific Rift's level-of-detail bias limit.
+		struct option_f32_rule
+		{
+			guest_address address;
+			std::string option;
+			f32 on = 1.f;
+			f32 off = 0.f;
+		};
+		std::vector<option_f32_rule> option_f32;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective
 		// vblank rate. For games that count vblanks as 1/60 s: Kingdom Hearts' frame step is the elapsed vblanks
 		// times this factor (through a patch that reads it), so it stays real-time at the headset's rate.
@@ -642,8 +653,9 @@ namespace rsx::vr
 	// Whether a game with this max_fps lists the option (Default always).
 	bool frame_rate_option_allowed(u32 option, u32 max_fps);
 
-	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" follow the VR settings Reduced-Rate
-	// Reflections, Reduced-Rate Mirror and Simpler Distant Cars (live). Untagged rules and unknown names are always on.
+	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" | "highest_detail" follow the VR settings
+	// Reduced-Rate Reflections, Reduced-Rate Mirror, Simpler Distant Cars and Highest Detail Models (live). Untagged rules
+	// and unknown names are always on.
 	bool profile_option_enabled(const std::string& option);
 	// The home menu shows a setting only for games whose profile has a rule tagged with it.
 	bool profile_has_option(const title_profile& profile, std::string_view option);
@@ -674,6 +686,8 @@ namespace rsx::vr
 	void update_game_refresh_rate();
 	// Writes the profile's culling_scale_f32 words from the head pose. Called once per frame by the RSX thread.
 	void update_culling_scale();
+	// Writes the profile's option_f32 words from their VR settings. Called once per frame by the RSX thread.
+	void update_option_words();
 	// The draw path: a draw matching the profile's frame_rate_draws was made (see title_profile::frame_rate_draws).
 	void note_frame_rate_draw(u32 index);
 	// Each game flip (rsx::thread::handle_emu_flip): measures the real frame rate update_game_refresh_rate falls back to.

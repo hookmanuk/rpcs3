@@ -8,6 +8,7 @@
   "game_frame_time_f32": ["0x145ff00"],
   "clear_view_targets": true,
   "culling_scale_f32": [{ "address": "0x145fe00", "fov_deg": 56.31, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 8.0, "mode": "tangent_x", "step": 0.25 }],
+  "option_f32": [{ "address": "0x145fe04", "option": "highest_detail", "on": -8, "off": 100 }],
 
   "matrix_layout": "row_vectors",
   "depth_remap_programs": ["05da43f83668a0ad"],

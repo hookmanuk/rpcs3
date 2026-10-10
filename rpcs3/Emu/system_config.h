@@ -275,6 +275,7 @@ struct cfg_root : cfg::node
 			cfg::_bool reduced_rate_reflections{ this, "Reduced-Rate Reflections", true, true }; // "reflections": reflection maps redrawn in turns
 			cfg::_bool reduced_rate_mirror{ this, "Reduced-Rate Mirror", true, true };           // "mirror": the rear-view mirror redrawn every other frame
 			cfg::_bool simpler_distant_cars{ this, "Simpler Distant Cars", true, true };         // "distant_cars": car_draw_limit
+			cfg::_bool highest_detail_models{ this, "Highest Detail Models", true, true };       // VR fork: "highest_detail": option_f32 (MotorStorm's LOD)
 
 		} vr{ this };
 

@@ -392,6 +392,9 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS: return tr("Reduced-Rate Reflections", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR: return tr("Reduced-Rate Mirror", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS: return tr("Simpler Distant Cars", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HIGHEST_DETAIL_MODELS: return tr("Highest Detail Models", "VR"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GAME: return tr("Game", "VR settings section"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL: return tr("General", "VR settings section"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE: return tr("World Scale", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE: return tr("Generate VR Profile (samples 10 seconds of gameplay)", "VR");
 		case localized_string_id::VR_PROFILE_GENERATING: return tr("Generating VR profile: keep playing for 10 seconds...", "VR");

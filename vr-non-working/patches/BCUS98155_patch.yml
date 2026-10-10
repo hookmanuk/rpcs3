@@ -92,3 +92,23 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
       # r9 is 0 here (li r9,0 at 0x37383c; the game stores it as the range z at 0x373870).
       - [ be32, 0x0037384c, 0x91370004 ]  # stw r9,4(r23)  range y = 0 (was stfs f30,4(r23): 0.003 at rest, ~1.0 boosting)
       - [ be32, 0x00373850, 0x91370000 ]  # stw r9,0(r23)  range x = 0 (was stfs f3,0(r23))
+
+  "Highest detail models (VR option)":
+    Games:
+      "MotorStorm: Pacific Rift":
+        BCUS98155: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Trees, rocks and vehicles switch to simpler models with distance, which shows in the headset as models changing as you approach. With the VR setting Highest Detail Models (home menu, on by default) the game's level-of-detail bias (scripts/viewportquality.xml GroupSettings lodBias, 2^bias scales the switch distances) is held at -8, so everything uses its most detailed model. Measured: ~1.1M vertices instead of ~0.66M, RSX thread and GPU load unchanged within noise. Without the VR profile the word stays 100 and the game's own bias is used."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      # 0x35db78 hands each object group's settings to the renderer every frame; it loads lodBias at 0x35dbd0. The cave
+      # uses min(lodBias, word 0x145fe04); the VR profile writes the word (option_f32: -8 with the setting on, 100 off).
+      - [ be32, 0x0145fe04, 0x42c80000 ]  # word: 100.0 (no change) until the VR profile writes it; same page as the Wider view scale
+      - [ calloc, 0x0035dbd0, 5 ]         # was lfs f11,0(r30)  lodBias
+      - [ be32, 0x0, 0xc17e0000 ]         # lfs f11,0(r30)       the game's lodBias
+      - [ be32, 0x0, 0x3d800146 ]         # lis r12,0x146        (r12 is free here: rewritten at 0x35dbf4)
+      - [ be32, 0x0, 0xc00cfe04 ]         # lfs f0,-0x1fc(r12)   word 0x145fe04
+      - [ be32, 0x0, 0xeda05828 ]         # fsubs f13,f0,f11     (f0, f13 free: rewritten at 0x35dc28, 0x35dc04)
+      - [ be32, 0x0, 0xfd6d02ee ]         # fsel f11,f13,f11,f0  lodBias = min(lodBias, word)

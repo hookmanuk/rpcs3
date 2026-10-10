@@ -196,6 +196,24 @@ namespace rsx
 				return;
 			}
 
+			// VR fork: two sections. "Game": the options this game's VR profile offers (its rules tagged "option", cinematic
+			// scenes; live), first so they are seen. "General": every game's settings. Headings only when the game has options.
+			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && (profile->reduced_scale_percent ||
+				rsx::vr::profile_has_option(*profile, "highest_detail") || rsx::vr::profile_has_option(*profile, "reflections") ||
+				rsx::vr::profile_has_option(*profile, "mirror") || rsx::vr::profile_has_option(*profile, "distant_cars")))
+			{
+				const auto heading = [this](localized_string_id id)
+				{
+					add_item(home_menu::fa_icon::none, get_localized_string(id), [](pad_button) { return page_navigation::stay; });
+				};
+				heading(localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GAME);
+				if (rsx::vr::profile_has_option(*profile, "highest_detail")) add_checkbox(&g_cfg.video.vr.highest_detail_models, localized_string_id::HOME_MENU_SETTINGS_VR_HIGHEST_DETAIL_MODELS);
+				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
+				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
+				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);
+				if (profile->reduced_scale_percent) add_dropdown(&g_cfg.video.vr.cinematic_scenes, localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES);
+				heading(localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL);
+			}
 			add_checkbox(&g_cfg.video.vr.fixed_screen, localized_string_id::HOME_MENU_SETTINGS_VR_FIXED_SCREEN);
 			add_checkbox(&g_cfg.video.vr.hud_fixed, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_FIXED);
 			// Frame rates up to the most this game works at (its VR profile's max_fps).
@@ -211,18 +229,6 @@ namespace rsx
 						if (rsx::vr::frame_rate_option_fps(option) != umax) return text;
 						return default_fps ? fmt::format("%s (%u FPS)", text, default_fps) : fmt::format("%s (headset refresh rate)", text);
 					});
-			}
-			// Only for games whose VR profile marks cinematic scenes (reduced_scale_frames).
-			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->reduced_scale_percent)
-			{
-				add_dropdown(&g_cfg.video.vr.cinematic_scenes, localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES);
-			}
-			// Performance options the game's VR profile offers (live).
-			if (const auto* profile = rsx::vr::camera_probe::get().profile())
-			{
-				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
-				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
-				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);

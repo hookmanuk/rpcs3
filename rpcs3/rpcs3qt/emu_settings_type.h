@@ -245,6 +245,10 @@ enum class emu_settings_type
 	VRFixedScreen,
 	VRFrameRate,
 	VRCinematicScenes,
+	VRHighestDetailModels,    // VR fork: game options (rules tagged "option" in the VR profile)
+	VRReducedRateReflections,
+	VRReducedRateMirror,
+	VRSimplerDistantCars,
 	VRScreenDepth,
 	VRHudScale,
 	VRHudOffsetX,

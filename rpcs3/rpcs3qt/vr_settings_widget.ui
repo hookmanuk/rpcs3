@@ -29,6 +29,61 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrGame">
+           <property name="title">
+            <string>Game</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrGame_layout">
+            <item>
+             <widget class="QCheckBox" name="vrHighestDetailModels">
+              <property name="text">
+               <string>Highest Detail Models</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="vrReducedRateReflections">
+              <property name="text">
+               <string>Reduced-Rate Reflections</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="vrReducedRateMirror">
+              <property name="text">
+               <string>Reduced-Rate Mirror</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="vrSimplerDistantCars">
+              <property name="text">
+               <string>Simpler Distant Cars</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="gb_vrCinematicScenes">
+              <property name="title">
+               <string>Cinematic Scenes</string>
+              </property>
+              <layout class="QVBoxLayout" name="gb_vrCinematicScenes_layout">
+               <item>
+                <widget class="QComboBox" name="vrCinematicScenes"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="gb_vrGeneral">
+           <property name="title">
+            <string>General</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrGeneral_layout">
+         <item>
           <widget class="QCheckBox" name="vrFixedScreen">
            <property name="text">
             <string>Fixed Screen (floating 3D window)</string>
@@ -50,18 +105,6 @@
            <layout class="QVBoxLayout" name="gb_vrFrameRate_layout">
             <item>
              <widget class="QComboBox" name="vrFrameRate"/>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="gb_vrCinematicScenes">
-           <property name="title">
-            <string>Cinematic Scenes</string>
-           </property>
-           <layout class="QVBoxLayout" name="gb_vrCinematicScenes_layout">
-            <item>
-             <widget class="QComboBox" name="vrCinematicScenes"/>
             </item>
            </layout>
           </widget>
@@ -448,6 +491,9 @@
               </item>
              </layout>
             </item>
+           </layout>
+          </widget>
+         </item>
            </layout>
           </widget>
          </item>

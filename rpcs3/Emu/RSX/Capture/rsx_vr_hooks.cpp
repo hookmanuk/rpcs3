@@ -520,6 +520,7 @@ namespace rsx::vr
 		rsx::vr::camera_probe::get().poll();
 		rsx::vr::update_game_refresh_rate();
 		rsx::vr::update_culling_scale();
+		rsx::vr::update_option_words();
 		rsx::vr::profile_generator::get().on_frame_end();
 
 #ifdef _WIN32

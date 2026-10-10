@@ -44,7 +44,25 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
 	m_emu_settings->EnhanceComboBox(ui->vrCinematicScenes, emu_settings_type::VRCinematicScenes);
 	subscribe_tooltip(ui->gb_vrCinematicScenes, tooltips.settings.vr_cinematic_scenes);
-	ui->gb_vrCinematicScenes->setVisible(vr_profile && vr_profile->reduced_scale_percent);
+	const bool cinematic = vr_profile && vr_profile->reduced_scale_percent;
+	ui->gb_vrCinematicScenes->setVisible(cinematic);
+	// "Game": the options this game's VR profile offers (its rules tagged "option", cinematic scenes), first so they are
+	// seen. Each shows only when the profile has it; the box hides when there are none. "General": every game's settings.
+	{
+		bool any = cinematic;
+		const auto game_option = [&](QCheckBox* checkbox, emu_settings_type type, std::string_view option, const QString& tooltip)
+		{
+			enhance_checkbox(type, checkbox, tooltip);
+			const bool offered = vr_profile && rsx::vr::profile_has_option(*vr_profile, option);
+			checkbox->setVisible(offered);
+			any |= offered;
+		};
+		game_option(ui->vrHighestDetailModels, emu_settings_type::VRHighestDetailModels, "highest_detail", tooltips.settings.vr_highest_detail_models);
+		game_option(ui->vrReducedRateReflections, emu_settings_type::VRReducedRateReflections, "reflections", tooltips.settings.vr_reduced_rate_reflections);
+		game_option(ui->vrReducedRateMirror, emu_settings_type::VRReducedRateMirror, "mirror", tooltips.settings.vr_reduced_rate_mirror);
+		game_option(ui->vrSimplerDistantCars, emu_settings_type::VRSimplerDistantCars, "distant_cars", tooltips.settings.vr_simpler_distant_cars);
+		ui->gb_vrGame->setVisible(any);
+	}
 	{
 		// Each game's default rate, from its VR profile, with the headset refresh rates that
 		// are an exact multiple of it.
@@ -177,6 +195,7 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			const bool vr = vr_profiled_title && ui->vrEnabled->isChecked();
 			ui->vrHudFixed->setEnabled(vr);
 			ui->gb_vrFrameRate->setEnabled(vr);
+			ui->gb_vrGame->setEnabled(vr);
 			ui->vrFixedScreen->setEnabled(vr);
 			ui->gb_vrHudScale->setEnabled(vr);
 			ui->gb_vrHudOffsetX->setEnabled(vr);
