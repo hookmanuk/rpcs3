@@ -165,6 +165,10 @@ namespace rsx::vr
 		// are unchanged from that eye's previous plain scene-camera draw (SEGA Rally: ~95% of its 2-4k draws a frame).
 		// Dev: RPCS3_VR_BLOCK_CACHE=0/1 forces it off/on.
 		bool camera_block_cache = false;
+		// "clear_view_targets": true: a view-sized colour target is cleared the first time it is bound in a frame. For games
+		// that never clear colour because their sky covers the game's view: turned, the parts outside it kept older
+		// frames and smeared (MotorStorm: Pacific Rift).
+		bool clear_view_targets = false;
 		// The game's clip space has NDC +Y pointing down the screen (its viewport's y scale is positive: Kingdom
 		// Hearts 1.5). The head pose is turned into that basis with y flipped, else head pitch and roll turn the
 		// world the wrong way (yaw is unaffected). Same as RPCS3_OPENXR_FLIP_Y, for this game only.

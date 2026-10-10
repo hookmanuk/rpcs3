@@ -90,6 +90,9 @@
 	u32 m_vr_trace_flips = 0;
 	u32 m_vr_ckpt_frame = 0; // dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS): flips and draws since the last flip
 	u32 m_vr_ckpt_draw = 0;
+	u32 m_vr_clear_flip = umax; // profile clear_view_targets: the flip the list below belongs to
+	std::vector<u32> m_vr_cleared_targets;
+	void vr_clear_view_target(vk::render_target* surface, bool right);
 	u32 m_vr_trace_addr = 0;
 	u32 m_vr_trace_cam_pose = 0;
 	u32 m_vr_trace_cam_count = 0;

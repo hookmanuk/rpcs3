@@ -6,6 +6,7 @@
   "max_fps": 0,
   "default_fps": 0,
   "game_frame_time_f32": ["0x145ff00"],
+  "clear_view_targets": true,
 
   "matrix_layout": "row_vectors",
   "depth_remap_programs": ["05da43f83668a0ad"],

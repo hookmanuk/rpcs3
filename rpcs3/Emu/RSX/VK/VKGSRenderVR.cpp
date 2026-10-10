@@ -3641,6 +3641,44 @@ bool VKGSRender::vr_before_prepare_rtts()
 // target set for the right eye. This deliberately uses a separate surface cache: guest addresses
 // remain the semantic key, but no right-eye image is ever exposed to guest memory or the ordinary
 // texture cache. The path is inert unless render=1 is armed.
+// vr_prepare_right_rtts(): profile clear_view_targets. The first bind of a view-sized colour target in a frame clears it
+// (both multiview layers; the right eye's own target in two-draw mode), so nothing of an older frame survives where
+// the game draws nothing this frame.
+void VKGSRender::vr_clear_view_target(vk::render_target* surface, bool right)
+{
+	auto& probe = rsx::vr::camera_probe::get();
+	const auto* profile = probe.profile();
+	if (!surface || !profile || !profile->clear_view_targets || !probe.render_enabled() || !m_framebuffer_layout.color_addresses[0])
+	{
+		return;
+	}
+	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+	if (!out.height || !profile->is_view_target(m_framebuffer_layout.width, m_framebuffer_layout.height, static_cast<f32>(out.width) / out.height))
+	{
+		return;
+	}
+	if (m_vr_clear_flip != static_cast<u32>(int_flip_index))
+	{
+		m_vr_clear_flip = static_cast<u32>(int_flip_index);
+		m_vr_cleared_targets.clear();
+	}
+	const u32 key = m_framebuffer_layout.color_addresses[0] ^ (right ? 1u : 0u);
+	if (std::find(m_vr_cleared_targets.begin(), m_vr_cleared_targets.end(), key) != m_vr_cleared_targets.end())
+	{
+		return;
+	}
+	m_vr_cleared_targets.push_back(key);
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, surface->layers() };
+	const VkClearColorValue black{};
+	surface->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+	vkCmdClearColorImage(*m_current_command_buffer, surface->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+	surface->pop_layout(*m_current_command_buffer);
+}
+
 void VKGSRender::vr_prepare_right_rtts()
 {
 	if (vk::xr::is_running())
@@ -3654,6 +3692,8 @@ void VKGSRender::vr_prepare_right_rtts()
 			m_framebuffer_layout.width, m_framebuffer_layout.height,
 			m_framebuffer_layout.color_addresses[0] ? static_cast<u32>(m_framebuffer_layout.color_format) : 0x1000u + static_cast<u32>(m_framebuffer_layout.depth_format)});
 	}
+
+	vr_clear_view_target(std::get<1>(m_rtts.m_bound_render_targets[0]), false);
 
 	if (!rsx::vr::camera_probe::get().render_enabled() || m_vr_multiview) // multiview: the right eye is layer 1 of the ordinary targets
 	{
@@ -3677,6 +3717,7 @@ void VKGSRender::vr_prepare_right_rtts()
 	// their raw surface pointers would only accumulate stale bookkeeping.
 	m_vr_right_rtts.superseded_surfaces.clear();
 	m_vr_right_rtts.orphaned_surfaces.clear();
+	vr_clear_view_target(std::get<1>(m_vr_right_rtts.m_bound_render_targets[0]), true);
 
 	// Initialize new right-eye surfaces as the left eye does before its first draw
 	// (clear, or inherit from overlapping older surfaces). Without this a new or
