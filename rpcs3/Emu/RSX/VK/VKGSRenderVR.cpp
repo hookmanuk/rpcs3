@@ -2990,6 +2990,11 @@ bool VKGSRender::vr_skip_far_cars()
 	const bool by_distance = std::any_of(profile->car_draw_tiers.begin(), profile->car_draw_tiers.end(), [](const auto& t) { return t.min_distance > 0.f; });
 	if (by_distance)
 	{
+		// The nearest full_nearest cars stay complete wherever they are (the car you are chasing).
+		if (rank < profile->car_full_nearest)
+		{
+			return false;
+		}
 		// Tiers by the car's view depth: the last tier whose min_distance the car has reached (a tier without one
 		// covers the nearest cars).
 		tier = nullptr;

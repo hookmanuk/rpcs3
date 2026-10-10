@@ -1459,6 +1459,10 @@ namespace rsx::vr
 			{
 				profile->car_draw_option = option.as<std::string>();
 			}
+			if (const YAML::Node nearest = limit["full_nearest"]; nearest && nearest.IsScalar())
+			{
+				profile->car_full_nearest = static_cast<u32>(std::clamp(std::atoi(nearest.as<std::string>().c_str()), 0, 64));
+			}
 			if (profile->car_draw_tiers.empty() || profile->car_body_programs.empty())
 				fail("car_draw_limit: expected {\"tiers\": [...], \"body_programs\": [\"<vertex ucode hash>\", ...], \"option\": \"<setting>\"}");
 		}

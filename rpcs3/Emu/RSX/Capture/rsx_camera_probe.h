@@ -576,6 +576,7 @@ namespace rsx::vr
 		std::vector<car_draw_tier> car_draw_tiers;
 		std::vector<u64> car_body_programs;
 		std::string car_draw_option; // "option": the VR setting that switches car_draw_limit (profile_option_enabled)
+		u32 car_full_nearest = 0;    // "full_nearest": with distance tiers, the nearest n cars stay complete at any distance
 
 		// Profile shared_frame_targets: render targets of this size are each drawn (and cleared) only every `frames`
 		// frames, in turn by target address, and keep their content in between. For passes that redraw slowly
