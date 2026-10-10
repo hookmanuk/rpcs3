@@ -506,6 +506,12 @@ namespace rsx::vr
 			f32 margin_deg = 6.f;
 			f32 min = 1.f;
 			f32 max = 2.5f;
+			// "mode": "tangent": the scale divides the game's projection (x and y tangents x scale), so it is the tangent
+			// ratio; "tangent_x": the same for the horizontal axis alone, sized by the headset's horizontal extent (Gran
+			// Turismo 5's Wider view: a racing game is looked around left and right); default "angle": the FOV angle x
+			// scale (SEGA Rally).
+			bool tangent = false;
+			bool horizontal = false;
 		};
 		std::vector<culling_scale_rule> culling_scale_f32;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective

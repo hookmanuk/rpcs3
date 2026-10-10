@@ -1285,6 +1285,10 @@ namespace rsx::vr
 				read(node, "margin_deg", rule.margin_deg, false);
 				read(node, "min", rule.min, false);
 				read(node, "max", rule.max, false);
+				std::string mode = "angle";
+				read(node, "mode", mode, false);
+				rule.tangent = mode == "tangent" || mode == "tangent_x";
+				rule.horizontal = mode == "tangent_x";
 				if (!parse_guest_address("culling_scale_f32", address, rule.address))
 				{
 					continue;
@@ -2015,10 +2019,10 @@ namespace rsx::vr
 		}
 		std::array<f32, 9> R{};
 		f32 tx = 0.f, ty = 0.f;
-		if (!camera_probe::get().vr_view_rotation(R, tx, ty))
-		{
-			return;
-		}
+		// No headset view this frame (fixed screen: menus, Gran Turismo 5's pre-race views and replays; no headset):
+		// the game's own culling, so a patch that widens the game's projection with the scale shows the game's own
+		// framing on the screen instead of a zoomed-out one.
+		const bool head_view = camera_probe::get().vr_view_rotation(R, tx, ty);
 		for (const auto& rule : profile->culling_scale_f32)
 		{
 			const u32 address = resolve_guest_address(rule.address);
@@ -2026,10 +2030,19 @@ namespace rsx::vr
 			{
 				continue;
 			}
+			if (!head_view)
+			{
+				be_t<f32>& value = *vm::get_super_ptr<f32>(address);
+				if (value != rule.min)
+				{
+					value = rule.min;
+				}
+				continue;
+			}
 			// The headset frustum's corners turned by the head: the game's frustum (half-height h, half-width
 			// h x aspect, in tangents) must hold each, so h >= max(|y / z|, |x / z| / aspect). A corner at or behind the
 			// camera's plane takes the maximum. Both rotation directions are tested (the basis holds the transpose).
-			f32 h = 0.f;
+			f32 h = 0.f, hx = 0.f; // hx: the horizontal tangent alone
 			bool behind = false;
 			for (u32 transpose = 0; transpose < 2; ++transpose)
 			{
@@ -2050,11 +2063,17 @@ namespace rsx::vr
 							continue;
 						}
 						h = std::max({h, std::fabs(y / z), std::fabs(x / z) / rule.aspect});
+						hx = std::max(hx, std::fabs(x / z));
 					}
 				}
 			}
-			const f32 half_deg = behind ? 90.f : std::atan(h) * 57.29578f + rule.margin_deg;
-			const f32 wanted = std::clamp(2.f * half_deg / rule.fov_deg, rule.min, rule.max);
+			const f32 half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg;
+			// Tangent mode: the projection's scales are divided by the word, so the game's half-height tangent becomes
+			// tan(fov / 2) x scale (89 degrees at most: a corner behind the camera takes the maximum). tangent_x: the
+			// half-width tangent, tan(fov / 2) x aspect x scale.
+			const f32 game_tan = std::tan(rule.fov_deg / 2.f / 57.29578f) * (rule.horizontal ? rule.aspect : 1.f);
+			const f32 wanted = std::clamp(rule.tangent ? std::tan(std::min(half_deg, 89.f) / 57.29578f) / game_tan :
+				2.f * half_deg / rule.fov_deg, rule.min, rule.max);
 			// Up at once (newly visible scenery must not be missing); down slowly, so a glance back and forth does not
 			// make the scenery at the edges pop in and out. Written past the page protection, as a game patch is: the
 			// word can sit in a patch's code cave (SEGA Rally: the code segment's tail, read-only on a fresh boot; a plain

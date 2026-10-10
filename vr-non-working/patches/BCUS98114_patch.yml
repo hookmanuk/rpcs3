@@ -26,3 +26,48 @@ PPU-a5e547ce3ce25092ac6cae85631f50ba5d9ea914:
     Apply To Savestates: true
     Patch:
       - [ be32, 0x0017e300, 0x38000001 ]  # li r0,1 (was li r0,2): flip interval 1
+
+  "VR: Wider view (head-driven culling)":
+    Games:
+      "Gran Turismo 5":
+        BCUS98114: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gran Turismo 5 draws only what its own camera sees (about 75 degrees across), so in the headset, cars beside you and near the sides of a turned view lost their outside pieces. This widens the game's camera horizontally by a scale (word 0x1a48200) that the VR profile sets each frame from the head pose (culling_scale_f32, tangent_x): just wide enough to cover both eyes left to right, 1.0 on the fixed screen. The height is the game's own. The headset view keeps its framing (VR re-projects it); the rear-view mirror and the camera's sub-pixel jitter are compensated. Untick to go back to the game's own view."
+    Patch Version: 1.2
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x01a48200, 0x3f800000 ]  # scale (1.0), written by the VR profile; past the data segment's end (0x1a481a8), same page
+      - [ be32, 0x01782480, 0xec2000b2 ]  # cave 1: fmuls f1,f0,f2         the decorator's x scale, as before
+      - [ be32, 0x01782484, 0x3d8001a5 ]  #         lis r12,0x1a5
+      - [ be32, 0x01782488, 0xc14c8200 ]  #         lfs f10,-0x7e00(r12)  scale
+      - [ be32, 0x0178248c, 0xec215024 ]  #         fdivs f1,f1,f10       projection x / scale: wider left and right only
+      - [ be32, 0x01782490, 0x4e800020 ]  #         blr
+      - [ be32, 0x017824a0, 0x3d8001a5 ]  # cave 2: lis r12,0x1a5         (rear-view mirror)
+      - [ be32, 0x017824a4, 0xc14c8200 ]  #         lfs f10,-0x7e00(r12)
+      - [ be32, 0x017824a8, 0xec2102b2 ]  #         fmuls f1,f1,f10       the mirror's glScalef x times the scale
+      - [ be32, 0x017824ac, 0x4b5b8804 ]  #         b 0xd3acb0            glScalef
+      - [ be32, 0x017824c0, 0xec00002a ]  # cave 3: fadds f0,f0,f0         the camera's sub-pixel x jitter (x2), as before
+      - [ be32, 0x017824c4, 0x3d8001a5 ]  #         lis r12,0x1a5
+      - [ be32, 0x017824c8, 0xc14c8200 ]  #         lfs f10,-0x7e00(r12)
+      - [ be32, 0x017824cc, 0xec005024 ]  #         fdivs f0,f0,f10       / scale: VR stretches the widened view back by the scale, which magnified the jitter
+      - [ be32, 0x017824d0, 0x4e800020 ]  #         blr
+      - [ be32, 0x0091e1f0, 0x48000044 ]  # projection decorator 0x91e178: always scale (was bne cr7,0x91e234: only with a non-default zoom)
+      - [ be32, 0x0091e29c, 0x48e641e5 ]  # bl cave 1 (was fmuls f1,f0,f2)
+      - [ be32, 0x00305170, 0x4947d331 ]  # mirror: bl cave 2 (was bl 0xd3acb0)
+      - [ be32, 0x0091c254, 0x48e6626d ]  # projection wrapper 0x91c19c, x jitter: bl cave 3 (was fadds f0,f0,f0)
+
+  "VR: No camera jitter":
+    Games:
+      "Gran Turismo 5":
+        BCUS98114: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gran Turismo 5 shifts its camera by a fraction of a pixel each frame for its anti-aliasing. In the headset that shows as a fine shimmer. This keeps the camera still (the jitter offsets read 0). Edges may look slightly more aliased; no frame-rate change. Off by default."
+    Patch Version: 1.0
+    Enabled By Default: false
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0091c22c, 0xc0028ec4 ]  # lfs f0,-0x713c(r2) = 0.0 (was lfs f0,0x14(r31): x jitter, per projection scale)
+      - [ be32, 0x0091c238, 0xc1828ec4 ]  # lfs f12,-0x713c(r2) = 0.0 (was lfs f12,0xc(r31): x jitter)
+      - [ be32, 0x0091c264, 0xc0028ec4 ]  # lfs f0,-0x713c(r2) = 0.0 (was lfs f0,0x18(r31): y jitter, per projection scale)
+      - [ be32, 0x0091c26c, 0xc1628ec4 ]  # lfs f11,-0x713c(r2) = 0.0 (was lfs f11,0x10(r31): y jitter)
