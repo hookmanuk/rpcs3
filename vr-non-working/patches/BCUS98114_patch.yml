@@ -33,7 +33,7 @@ PPU-a5e547ce3ce25092ac6cae85631f50ba5d9ea914:
         BCUS98114: [ 01.00 ]
     Author: "VR fork"
     Notes: "Gran Turismo 5 draws only what its own camera sees (about 75 degrees across), so in the headset, cars beside you and near the sides of a turned view lost their outside pieces. This widens the game's camera horizontally by a scale (word 0x1a48200) that the VR profile sets each frame from the head pose (culling_scale_f32, tangent_x): just wide enough to cover both eyes left to right, 1.0 on the fixed screen. The height is the game's own. The headset view keeps its framing (VR re-projects it); the rear-view mirror and the camera's sub-pixel jitter are compensated. Untick to go back to the game's own view."
-    Patch Version: 1.2
+    Patch Version: 1.3
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
@@ -56,6 +56,12 @@ PPU-a5e547ce3ce25092ac6cae85631f50ba5d9ea914:
       - [ be32, 0x0091e29c, 0x48e641e5 ]  # bl cave 1 (was fmuls f1,f0,f2)
       - [ be32, 0x00305170, 0x4947d331 ]  # mirror: bl cave 2 (was bl 0xd3acb0)
       - [ be32, 0x0091c254, 0x48e6626d ]  # projection wrapper 0x91c19c, x jitter: bl cave 3 (was fadds f0,f0,f0)
+      - [ be32, 0x017824e0, 0xc1a100c0 ]  # cave 4: lfs f13,0xc0(r1)       the mirror reads the projection back (P00) to size its viewport
+      - [ be32, 0x017824e4, 0x3d8001a5 ]  #         lis r12,0x1a5
+      - [ be32, 0x017824e8, 0xc14c8200 ]  #         lfs f10,-0x7e00(r12)
+      - [ be32, 0x017824ec, 0xedad02b2 ]  #         fmuls f13,f13,f10     P00 x scale: the game's own P00, so the mirror keeps its width
+      - [ be32, 0x017824f0, 0x4e800020 ]  #         blr
+      - [ be32, 0x00305088, 0x4947d459 ]  # mirror: bl cave 4 (was lfs f13,0xc0(r1))
 
   "VR: No camera jitter":
     Games:
