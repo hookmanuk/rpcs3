@@ -512,6 +512,10 @@ namespace rsx::vr
 			// scale (SEGA Rally).
 			bool tangent = false;
 			bool horizontal = false;
+			// "step": the scale moves in steps of this size and falls back only when a whole step is no longer needed, so
+			// small head movements leave it (and the game's shadow-map fit to its frustum: Gran Turismo 5) unchanged.
+			// 0: continuous (up at once, down 0.01 a frame).
+			f32 step = 0.f;
 		};
 		std::vector<culling_scale_rule> culling_scale_f32;
 		// Floats holding the length of one vblank in 60 Hz frames (1.0 at 60 Hz), written with 60 / the effective

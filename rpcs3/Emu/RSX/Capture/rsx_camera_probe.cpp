@@ -1285,6 +1285,7 @@ namespace rsx::vr
 				read(node, "margin_deg", rule.margin_deg, false);
 				read(node, "min", rule.min, false);
 				read(node, "max", rule.max, false);
+				read(node, "step", rule.step, false);
 				std::string mode = "angle";
 				read(node, "mode", mode, false);
 				rule.tangent = mode == "tangent" || mode == "tangent_x";
@@ -2080,7 +2081,14 @@ namespace rsx::vr
 			// write there froze the emulator on the title screen).
 			be_t<f32>& value = *vm::get_super_ptr<f32>(address);
 			const f32 current = value;
-			const f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : std::max(wanted, current - 0.01f);
+			f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : std::max(wanted, current - 0.01f);
+			if (rule.step > 0.f)
+			{
+				// Stepped: up to the next step at once; down only when the head no longer needs the step below this one.
+				const f32 stepped = std::min(rule.max, rule.min + std::ceil((wanted - rule.min) / rule.step - 1e-4f) * rule.step);
+				const bool valid = current >= rule.min && current <= rule.max;
+				next = !valid || stepped > current || stepped < current - rule.step - 1e-4f ? stepped : current;
+			}
 			if (next != current)
 			{
 				value = next;
