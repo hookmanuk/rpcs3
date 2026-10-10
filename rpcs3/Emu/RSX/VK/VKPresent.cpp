@@ -595,6 +595,21 @@ void VKGSRender::flip(const rsx::display_flip_info_t& info)
 		buffer_height = present_info.height;
 	}
 
+	if (m_dlss && !avconfig.stereo_enabled && !generated_stereo) // DLSS test: the displayed image through DLSS (or the motion debug view)
+	{
+		const bool vr_active = m_vr_multiview || rsx::vr::camera_probe::get().render_enabled();
+		const auto target = avconfig.aspect_convert_region({ buffer_width, buffer_height }, m_swapchain_dims);
+		u32 out_w = 0, out_h = 0;
+		if (vk::viewable_image* dlss_image = m_dlss->on_flip(*m_current_command_buffer, image_to_flip, buffer_width, buffer_height,
+				static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, vr_active, out_w, out_h))
+		{
+			image_to_flip = dlss_image;
+			buffer_width = out_w;
+			buffer_height = out_h;
+			m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+		}
+	}
+
 	if (info.emu_flip)
 	{
 		evaluate_cpu_usage_reduction_limits();

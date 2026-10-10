@@ -667,6 +667,8 @@ if(TARGET 3rdparty_vulkan)
         RSX/VK/VKGSRenderVRDev.cpp
         RSX/VK/VKOverlaysVR.cpp
         RSX/VK/VKMultiviewVR.cpp
+        RSX/VK/VKDLSS.cpp
+        RSX/VK/VKGSRenderDLSS.cpp
         RSX/VK/VKPresent.cpp
         RSX/VK/VKProgramPipeline.cpp
         RSX/VK/VKQueryPool.cpp
@@ -738,6 +740,18 @@ endif()
 
 if(WAYLAND_FOUND)
     target_link_libraries(rpcs3_emu PRIVATE OpenGL::EGL)
+endif()
+
+# DLSS test: -DDLSS_SDK=<folder of https://github.com/NVIDIA/DLSS> builds VKDLSS.cpp against NGX (else motion vector debug views only)
+set(DLSS_SDK "" CACHE PATH "NVIDIA DLSS SDK folder (include/, lib/)")
+if(DLSS_SDK AND TARGET rpcs3_emu)
+    target_compile_definitions(rpcs3_emu PRIVATE HAVE_DLSS)
+    target_include_directories(rpcs3_emu PRIVATE "${DLSS_SDK}/include")
+    if(WIN32)
+        target_link_libraries(rpcs3_emu PRIVATE "${DLSS_SDK}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib")
+    else()
+        target_link_libraries(rpcs3_emu PRIVATE "${DLSS_SDK}/lib/Linux_x86_64/libnvsdk_ngx.a" ${CMAKE_DL_LIBS})
+    endif()
 endif()
 
 # VR fork: the vendored OpenXR headers use C-style casts in their version macros

@@ -1,6 +1,7 @@
 #include "device.h"
 #include "../VKOpenXR.h"
 #include "../VKMultiviewVR.h" // VR fork: push descriptors
+#include "../VKDLSS.h" // DLSS test
 #include "instance.h"
 #include "util/logs.hpp"
 #include "Emu/system_config.h"
@@ -774,6 +775,7 @@ namespace vk
 		}
 
 		vk::vr_gpu_checkpoints_extensions(*pgpu, requested_extensions); // VR fork: dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS)
+		vk::dlss_device_extensions(*pgpu, requested_extensions); // DLSS test: NGX's device extensions (RPCS3_DLSS)
 
 		VkDeviceCreateInfo device = {};
 		device.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -789,6 +791,7 @@ namespace vk
 		VkPhysicalDeviceVulkan12Features vulkan12_features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
 		vulkan12_features.runtimeDescriptorArray = VK_TRUE;
 		vulkan12_features.uniformBufferStandardLayout = VK_TRUE;
+		vk::dlss_device_features(*pgpu, vulkan12_features); // DLSS test: buffer device addresses for NGX (RPCS3_DLSS)
 		vulkan12_features.pNext = const_cast<void*>(device.pNext);
 		device.pNext = &vulkan12_features;
 

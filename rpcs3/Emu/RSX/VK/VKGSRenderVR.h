@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../Capture/rsx_camera_probe.h"
+#include "VKDLSS.h" // DLSS test: vk::dlss_context (VKGSRender::m_dlss)
 #include "../gcm_enums.h"
 
 namespace rsx

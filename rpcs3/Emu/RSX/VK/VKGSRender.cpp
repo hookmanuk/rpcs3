@@ -475,6 +475,7 @@ VKGSRender::VKGSRender(utils::serial* ar) noexcept : GSRender(ar)
 	vk::set_current_renderer(m_swapchain->get_device());
 	vk::init();
 	vr_init_after_device(); // VR fork: the OpenXR session
+	if (vk::dlss_enabled()) m_dlss = std::make_unique<vk::dlss_context>(*m_device); // DLSS test (RPCS3_DLSS)
 
 	m_swapchain_dims.width = m_frame->client_width();
 	m_swapchain_dims.height = m_frame->client_height();
@@ -874,6 +875,7 @@ VKGSRender::~VKGSRender()
 	m_frame_context_storage.clear();
 
 	// Textures
+	m_dlss.reset(); // DLSS test
 	vr_destroy_resources(); // VR fork
 	m_rtts.destroy();
 	m_texture_cache.destroy();
@@ -1852,7 +1854,7 @@ bool VKGSRender::load_program()
 		if (shadermode == shader_mode::interpreter_only)
 		{
 			m_program = m_shader_interpreter.get(
-				m_pipeline_properties,
+				dlss_interpreter_pipeline(), // DLSS test: was m_pipeline_properties
 				current_fp_metadata,
 				current_vp_metadata,
 				current_vertex_program.ctrl,
@@ -1886,6 +1888,7 @@ bool VKGSRender::load_program()
 		);
 
 		properties.renderpass_key = m_current_renderpass_key;
+		vk::dlss_apply_pipeline_props(properties, static_cast<u32>(m_draw_buffers.size())); // DLSS test: the motion attachment's blend state
 		if (m_program &&
 			!m_shader_interpreter.is_interpreter(m_program) &&
 			m_pipeline_properties == properties)
@@ -1962,7 +1965,7 @@ bool VKGSRender::load_program()
 		if (!m_program)
 		{
 			m_program = m_shader_interpreter.get(
-				m_pipeline_properties,
+				dlss_interpreter_pipeline(), // DLSS test: was m_pipeline_properties
 				current_fp_metadata,
 				current_vp_metadata,
 				current_vertex_program.ctrl,
@@ -2275,7 +2278,7 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 	m_xform_constants_data_size = transform_constants_size; // VR fork: bind_vr_eye_constants clones this allocation per eye
 	if (transform_constants_size)
 	{
-		buffer.reserve(transform_constants_size + vr_depth_remap_size()); // VR fork: room for the depth remap matrix
+		buffer.reserve(transform_constants_size + vr_depth_remap_size() + dlss_draw_block_size()); // VR fork: room for the depth remap matrix (DLSS test: and the motion block)
 		auto buf = buffer.data();
 
 		const auto constant_ids = (transform_constants_size == 8192)
@@ -2284,6 +2287,7 @@ void VKGSRender::upload_transform_constants(const rsx::io_buffer& buffer)
 		m_draw_processor.fill_vertex_program_constants_data(buf, constant_ids);
 		scale_offset_constants(buf, constant_ids); // VR fork: profile resolution_scaled_constants
 		vr_write_depth_remap(static_cast<u8*>(buf) + transform_constants_size, vr_depth_remap_size(), false); // VR fork: the identity
+		dlss_write_draw_block(static_cast<u8*>(buf) + transform_constants_size + vr_depth_remap_size()); // DLSS test
 	}
 }
 
@@ -2732,6 +2736,8 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 	}
 
 	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments, vr_draw_view_mask()); // VR fork: multiview
+	std::vector<vk::image*>* fbo_images = &m_fbo_images;
+	dlss_prepare_framebuffer(fbo_images); // DLSS test: the motion attachment of the scene target
 	m_cached_renderpass = vk::get_renderpass(*m_device, m_current_renderpass_key);
 
 	// Search old framebuffers for this same configuration
@@ -2743,7 +2749,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		m_draw_fbo->release();
 	}
 
-	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, m_fbo_images, m_vr_draw_view_mask, 0, m_vr_draw_view_mask ? 2 : 0); // VR fork: both layers
+	m_draw_fbo = vk::get_framebuffer(*m_device, fbo_width, fbo_height, vk::to_bool32(!input_attachments.empty()), m_cached_renderpass, *fbo_images, m_vr_draw_view_mask, 0, m_vr_draw_view_mask ? 2 : 0); // VR fork: both layers (DLSS test: fbo_images)
 	m_draw_fbo->add_ref();
 
 	set_viewport();

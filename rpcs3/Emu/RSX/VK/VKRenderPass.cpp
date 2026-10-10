@@ -4,6 +4,7 @@
 #include "VKRenderPass.h"
 #include "vkutils/image.h"
 #include "VKMultiviewVR.h" // VR fork
+#include "VKDLSS.h" // DLSS test: the motion attachment
 
 #include "Emu/RSX/Common/unordered_map.hpp"
 
@@ -29,6 +30,7 @@ namespace vk
 	// 22-36 current layouts
 	// 37-41 input attachments
 	// 42-43 VR fork: multiview view mask (0 none, 1 both views, 2 view 0, 3 view 1)
+	// 44 DLSS test: the motion attachment (vk::dlss_renderpass_motion_bit), after the colour attachments
 	union renderpass_key_blob
 	{
 	private:
@@ -325,6 +327,22 @@ namespace vk
 
 			attachments.push_back(std::move(color_attachment_description));
 			attachment_references.push_back({ attachment_count++, layout });
+		}
+
+		if (vk::dlss_renderpass_has_motion(renderpass_key)) // DLSS test: the motion attachment, last colour attachment (before depth)
+		{
+			VkAttachmentDescription motion_attachment_description = {};
+			motion_attachment_description.format = vk::dlss_motion_format;
+			motion_attachment_description.samples = samples;
+			motion_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			motion_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			motion_attachment_description.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+			motion_attachment_description.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+			motion_attachment_description.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+			motion_attachment_description.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+			attachments.push_back(std::move(motion_attachment_description));
+			attachment_references.push_back({ attachment_count++, VK_IMAGE_LAYOUT_GENERAL });
 		}
 
 		if (depth_format)

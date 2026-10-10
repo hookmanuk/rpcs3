@@ -33,6 +33,7 @@
     <ClInclude Include="Emu\RSX\VK\VKGSRenderVR.inl" />
     <ClInclude Include="Emu\RSX\VK\VKOverlaysVR.h" />
     <ClInclude Include="Emu\RSX\VK\VKMultiviewVR.h" />
+    <ClInclude Include="Emu\RSX\VK\VKDLSS.h" />
     <ClInclude Include="Emu\RSX\VK\VKPipelineCompiler.h" />
     <ClInclude Include="Emu\RSX\VK\VKProcTable.h" />
     <ClInclude Include="Emu\RSX\VK\VKProgramBuffer.h" />
@@ -99,6 +100,8 @@
     <ClCompile Include="Emu\RSX\VK\VKGSRenderVRDev.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKOverlaysVR.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKMultiviewVR.cpp" />
+    <ClCompile Include="Emu\RSX\VK\VKDLSS.cpp" />
+    <ClCompile Include="Emu\RSX\VK\VKGSRenderDLSS.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKProgramPipeline.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKQueryPool.cpp" />
     <ClCompile Include="Emu\RSX\VK\VKRenderPass.cpp" />
@@ -176,6 +179,7 @@
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|x64'">MaxSpeed</Optimization>
     </ClCompile>
   </ItemDefinitionGroup>
+  <Import Project="$(SolutionDir)\buildfiles\msvc\dlss.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

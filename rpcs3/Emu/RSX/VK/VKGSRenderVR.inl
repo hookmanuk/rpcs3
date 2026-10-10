@@ -2,6 +2,20 @@
 	// VKGSRender.h (private section), so that upstream's header changes by two lines.
 	// Definitions: VKGSRenderVR.cpp (rendering) and VKGSRenderVRDev.cpp (development tools).
 
+	// DLSS test (VKDLSS.h): motion vectors, jitter and DLSS at flip. Null unless RPCS3_DLSS is set.
+	std::unique_ptr<vk::dlss_context> m_dlss;
+	bool m_dlss_motion_bound = false;          // the bound framebuffer has the motion attachment
+	std::vector<vk::image*> m_dlss_fbo_images; // its attachments: m_fbo_images with the motion image before depth
+	// prepare_rtts(): the motion attachment for the framebuffer just set up (key bit, attachment list, shader variants).
+	void dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images);
+	// end(), after load_program(): scene target detection, and a constant upload for every draw into the scene target.
+	void dlss_after_load_program();
+	// upload_transform_constants(): the motion block after the constants (and the depth remap), for programs that read it.
+	usz dlss_draw_block_size() const;
+	void dlss_write_draw_block(void* dst);
+	// load_program(): the pipeline the shader interpreter gets (it does not write the motion output).
+	vk::pipeline_props dlss_interpreter_pipeline() const;
+
 	vk::surface_cache m_vr_right_rtts;
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
 	std::vector<vk::image*> m_vr_right_fbo_images;

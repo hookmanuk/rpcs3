@@ -1336,6 +1336,8 @@ void VKGSRender::end()
 		return;
 	}
 
+	dlss_after_load_program(); // DLSS test
+
 	// Load program execution environment
 	load_program_env();
 	m_frame_stats.setup_time += m_profiler.duration();

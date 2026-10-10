@@ -18,6 +18,9 @@ constexpr u32 RSX_SHADER_CONTROL_VR_MULTIVIEW = 0x00004000;
 constexpr u32 RSX_SHADER_CONTROL_VR_EXACT_DEPTH = 0x00002000;
 // The variants that rebuild positions from the depth buffer as the game's camera saw them (profile depth_remap_programs).
 constexpr u32 RSX_SHADER_CONTROL_VR_DEPTH_REMAP = 0x00001000;
+// DLSS test (VK/VKDLSS.h): the variants that output motion vectors and jitter the scene, used while the scene target
+// with its motion attachment is bound.
+constexpr u32 RSX_SHADER_CONTROL_DLSS_MOTION = 0x80000000;
 
 struct RSXVertexProgram;
 
@@ -44,6 +47,9 @@ namespace rsx::vr
 	// control bits: RSX_SHADER_CONTROL_VR_MULTIVIEW as multiview_active() says, RSX_SHADER_CONTROL_VR_EXACT_DEPTH and
 	// RSX_SHADER_CONTROL_VR_DEPTH_REMAP as on_vertex_ucode() decided for the current vertex program.
 	void set_vr_program_ctrl(u32& ctrl);
+	// DLSS test: the bound framebuffer has the motion attachment (set by the renderer before the programs are fetched);
+	// set_vr_program_ctrl() then adds RSX_SHADER_CONTROL_DLSS_MOTION.
+	void set_dlss_motion_variant(bool enabled);
 	// rsx::thread::prefetch_vertex_program, after the ucode is analysed: whether the program is listed in the profile's
 	// screen_space.hud_exact_depth_programs or depth_remap_programs. True when that changed (both programs' control
 	// bits then need updating).

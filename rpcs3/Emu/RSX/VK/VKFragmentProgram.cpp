@@ -5,6 +5,7 @@
 #include "vkutils/device.h"
 #include "Emu/system_config.h"
 #include "../Program/GLSLCommon.h"
+#include "VKDLSS.h" // DLSS test
 #include "VKMultiviewVR.h" // VR fork
 
 std::string VKFragmentDecompilerThread::getFloatTypeName(usz elementCount)
@@ -160,6 +161,7 @@ void VKFragmentDecompilerThread::insertInputs(std::stringstream & OS)
 	);
 	vk::vr_insert_exact_depth_fragment_input(OS, m_prog.ctrl); // VR fork: exact depth
 	vk::vr_insert_depth_remap_fragment_input(OS, m_prog.ctrl); // VR fork: depth remap
+	vk::dlss_insert_fragment_input(OS, m_prog.ctrl); // DLSS test: motion
 }
 
 void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
@@ -194,6 +196,7 @@ void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
 		OS << "layout(location=" << std::to_string(output_index++) << ") " << "out vec4 " << table[i].first << ";\n";
 		vk_prog->output_color_masks[i] = -1;
 	}
+	vk::dlss_insert_fragment_output(OS, m_prog.ctrl, m_prog.mrt_buffers_count); // DLSS test: the motion attachment follows the colour attachments
 }
 
 void VKFragmentDecompilerThread::insertConstants(std::stringstream & OS)
@@ -604,6 +607,7 @@ void VKFragmentDecompilerThread::insertMainEnd(std::stringstream & OS)
 		}
 	}
 
+	vk::dlss_insert_fragment_end(OS, m_prog.ctrl); // DLSS test: motion
 	OS << "}\n";
 }
 

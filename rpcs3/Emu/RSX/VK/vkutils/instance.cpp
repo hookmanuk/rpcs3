@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "../VKOpenXR.h"
 #include "../VKMultiviewVR.h" // VR fork: dev GPU checkpoints
+#include "../VKDLSS.h" // DLSS test
 #include "instance.h"
 
 #include "Emu/system_config.h"
@@ -156,6 +157,7 @@ namespace vk
 				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 			}
 			vk::vr_gpu_checkpoints_instance_extensions(extensions); // VR fork: dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS)
+			vk::dlss_instance_extensions(extensions); // DLSS test: NGX's instance extensions (RPCS3_DLSS)
 
 #ifdef _WIN32
 			extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);

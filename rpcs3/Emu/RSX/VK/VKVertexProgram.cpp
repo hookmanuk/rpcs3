@@ -6,6 +6,7 @@
 #include "vkutils/device.h"
 #include "../Program/GLSLCommon.h"
 #include "VKMultiviewVR.h" // VR fork
+#include "VKDLSS.h" // DLSS test
 #include "Emu/system_config.h"
 
 std::string VKVertexDecompilerThread::getFloatTypeName(usz elementCount)
@@ -329,6 +330,7 @@ void VKVertexDecompilerThread::insertOutputs(std::stringstream& OS, const std::v
 	}
 	vk::vr_insert_exact_depth_vertex_output(OS, m_prog.ctrl); // VR fork: exact depth
 	vk::vr_insert_depth_remap_vertex_output(OS, m_prog.ctrl); // VR fork: depth remap
+	vk::dlss_insert_vertex_output(OS, m_prog.ctrl); // DLSS test: motion
 }
 
 void VKVertexDecompilerThread::insertFSExport(std::stringstream& OS)
@@ -492,6 +494,8 @@ void VKVertexDecompilerThread::insertMainEnd(std::stringstream& OS)
 	OS << "	gl_Position = apply_zclip_xform(gl_Position, z_near, z_far);\n";
 	vk::vr_insert_exact_depth_vertex_end(OS, m_prog.ctrl); // VR fork: exact depth
 	vk::vr_insert_depth_remap_vertex_end(OS, m_prog.ctrl, properties.has_indexed_constants ? 512 : ::size32(m_constant_ids)); // VR fork: depth remap
+	vk::dlss_insert_vertex_end(OS, m_prog.ctrl, (properties.has_indexed_constants ? 512 : ::size32(m_constant_ids)) + ((m_prog.ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) ? 5 : 0),
+		properties.has_indexed_constants || !m_constant_ids.empty()); // DLSS test: motion and jitter (last: jitter moves the final position)
 	OS << "}\n";
 }
 

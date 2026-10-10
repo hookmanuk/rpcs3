@@ -2380,6 +2380,7 @@
     <Text Include="CMakeLists.txt" />
     <Text Include="rpcs3qt\CMakeLists.txt" />
   </ItemGroup>
+  <Import Project="$(SolutionDir)\buildfiles\msvc\dlss.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ProjectExtensions>

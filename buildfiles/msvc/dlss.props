@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DLSS test (fork): builds rpcs3/Emu/RSX/VK/VKDLSS.cpp against the NVIDIA DLSS SDK when the DLSS_SDK environment
+     variable (or MSBuild property) names its folder (a clone or release of https://github.com/NVIDIA/DLSS: include\,
+     lib\Windows_x86_64\). Without it the build is unchanged and RPCS3_DLSS only gives the motion vector debug views. -->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup Condition="'$(DLSS_SDK)' != ''">
+    <ClCompile>
+      <PreprocessorDefinitions>HAVE_DLSS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(DLSS_SDK)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(DLSS_SDK)\lib\Windows_x86_64\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <!-- Release builds use the static CRT (/MT), Debug the dynamic debug CRT (/MDd). -->
+      <AdditionalDependencies Condition="$(Configuration.Contains('Release'))">nvsdk_ngx_s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies Condition="$(Configuration.Contains('Debug'))">nvsdk_ngx_d_dbg.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <!-- The DLSS runtime goes next to rpcs3.exe. -->
+  <Target Name="CopyDlssRuntime" AfterTargets="Build" Condition="'$(DLSS_SDK)' != '' And '$(TargetExt)' == '.exe' And Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll')">
+    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
