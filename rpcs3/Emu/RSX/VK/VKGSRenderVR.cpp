@@ -2985,15 +2985,36 @@ bool VKGSRender::vr_skip_far_cars()
 	// The car's rank: the previous frame's cars nearer than this one (half a car length of slack).
 	const u32 rank = static_cast<u32>(std::count_if(s_cars.begin(), s_cars.end(), [&](f32 d) { return d < depth - near_car / 2.f; }));
 	const auto* tier = &profile->car_draw_tiers.back();
-	u32 first = 0;
-	for (const auto& t : profile->car_draw_tiers)
+	const bool by_distance = std::any_of(profile->car_draw_tiers.begin(), profile->car_draw_tiers.end(), [](const auto& t) { return t.min_distance > 0.f; });
+	if (by_distance)
 	{
-		if (!t.cars || rank < first + t.cars)
+		// Tiers by the car's view depth: the last tier whose min_distance the car has reached (a tier without one
+		// covers the nearest cars).
+		tier = nullptr;
+		for (const auto& t : profile->car_draw_tiers)
 		{
-			tier = &t;
-			break;
+			if (depth >= t.min_distance)
+			{
+				tier = &t;
+			}
 		}
-		first += t.cars;
+		if (!tier)
+		{
+			return false;
+		}
+	}
+	else
+	{
+		u32 first = 0;
+		for (const auto& t : profile->car_draw_tiers)
+		{
+			if (!t.cars || rank < first + t.cars)
+			{
+				tier = &t;
+				break;
+			}
+			first += t.cars;
+		}
 	}
 	u32 cutoff = 0;
 	if (tier->keep_percent)

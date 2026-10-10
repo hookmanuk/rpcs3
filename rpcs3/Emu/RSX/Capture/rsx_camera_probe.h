@@ -571,6 +571,7 @@ namespace rsx::vr
 			s32 draws = -1;
 			u32 min_vertices = 0;
 			u32 keep_percent = 0;
+			f32 min_distance = 0.f; // when any tier has one, tiers are chosen by the car's view depth (metres) instead of its rank
 		};
 		std::vector<car_draw_tier> car_draw_tiers;
 		std::vector<u64> car_body_programs;

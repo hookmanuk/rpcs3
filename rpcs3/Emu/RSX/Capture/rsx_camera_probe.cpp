@@ -1427,14 +1427,15 @@ namespace rsx::vr
 			{
 				for (const auto& tier : tiers)
 				{
-					const YAML::Node cars = tier["cars"], draws = tier["draws"], min_vertices = tier["min_vertices"], keep_percent = tier["keep_percent"];
+					const YAML::Node cars = tier["cars"], draws = tier["draws"], min_vertices = tier["min_vertices"], keep_percent = tier["keep_percent"], min_distance = tier["min_distance"];
 					if (!cars || !cars.IsScalar() || (draws && !draws.IsScalar()) || (min_vertices && !min_vertices.IsScalar()) ||
-						(keep_percent && !keep_percent.IsScalar()))
+						(keep_percent && !keep_percent.IsScalar()) || (min_distance && !min_distance.IsScalar()))
 					{
-						fail("car_draw_limit.tiers: expected {\"cars\": <n, 0 = the rest>, \"draws\": <-1 all, 0 none, n first n>, \"min_vertices\": <v>, \"keep_percent\": <1-99>}");
+						fail("car_draw_limit.tiers: expected {\"cars\": <n, 0 = the rest>, \"draws\": <-1 all, 0 none, n first n>, \"min_vertices\": <v>, \"keep_percent\": <1-99>, \"min_distance\": <m>}");
 						continue;
 					}
 					title_profile::car_draw_tier t{};
+					t.min_distance = min_distance ? static_cast<f32>(std::clamp(std::atof(min_distance.as<std::string>().c_str()), 0.0, 10000.0)) : 0.f;
 					t.cars = static_cast<u32>(std::clamp(std::atoi(cars.as<std::string>().c_str()), 0, 64));
 					t.draws = draws ? std::clamp(std::atoi(draws.as<std::string>().c_str()), -1, 4096) : -1;
 					t.min_vertices = min_vertices ? static_cast<u32>(std::clamp(std::atoi(min_vertices.as<std::string>().c_str()), 0, 1 << 20)) : 0u;
