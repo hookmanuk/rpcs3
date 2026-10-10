@@ -2,6 +2,7 @@
 #include "VKOpenXR.h"
 #include "VKHelpers.h"
 #include "vkutils/commands.h"
+#include "VKMultiviewVR.h" // dev GPU checkpoints
 #include "vkutils/image.h"
 #include "vkutils/image_helpers.h"
 #include "../Capture/rsx_camera_probe.h"
@@ -1193,6 +1194,7 @@ namespace vk::xr
 							VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_SHADER_READ_BIT,
 							VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 					}
+					vk::vr_gpu_checkpoint(g_xr.cmd, { .kind = 4 });
 					vkEndCommandBuffer(g_xr.cmd);
 
 					VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -1356,6 +1358,7 @@ namespace vk::xr
 				{
 					break;
 				}
+				vk::vr_gpu_checkpoints_check(g_xr.device, g_xr.fence, g_xr.render_queue ? g_xr.render_queue : g_xr.queue, g_xr.own_queue ? g_xr.queue : VK_NULL_HANDLE);
 				run_frame();
 			}
 		}

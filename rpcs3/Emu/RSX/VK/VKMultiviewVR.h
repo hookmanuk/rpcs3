@@ -12,6 +12,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 enum class FUNCTION; // Emu/RSX/Program/ShaderParam.h
 
@@ -134,4 +135,32 @@ namespace vk
 	void vr_insert_interpreter_fragment_extensions(std::ostream& OS, u64 compiler_options);
 	std::string_view vr_interpreter_sampler_type(std::string_view type, u64 compiler_options);
 	void vr_insert_interpreter_fragment(std::ostream& OS, const std::string& fragment_interpreter, u64 compiler_options);
+	// ---- GPU checkpoints (dev: RPCS3_VR_GPU_CHECKPOINTS=1, NVIDIA VK_NV_device_diagnostic_checkpoints) ------------
+	// A marker before every draw and at each flip; when the device is lost, the last markers each queue reached are
+	// logged with what the CPU recorded for them (frame, draw, FIFO position, programs, target), and the driver's
+	// fault info. For GPU faults that hang instead of crashing (Gran Turismo 5's boot after "Accessing game data").
+
+	bool vr_gpu_checkpoints_enabled();
+	// instance::create(): VK_EXT_debug_utils, then a messenger for the device's address binding reports
+	// (VK_EXT_device_address_binding_report): every GPU address range bound and unbound, so a fault's address names
+	// the object (and whether it was already freed).
+	void vr_gpu_checkpoints_instance_extensions(std::vector<const char*>& extensions);
+	void vr_gpu_checkpoints_messenger(VkInstance instance);
+	// create(): the extensions (supported ones only) and, before vkCreateDevice, the diagnostics config in the chain.
+	void vr_gpu_checkpoints_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions);
+	void vr_gpu_checkpoints_chain(VkDeviceCreateInfo& info);
+	struct vr_gpu_checkpoint_info
+	{
+		u32 kind = 0; // 1 draw, 2 flip, 3 eye/overlay copies published, 4 OpenXR frame-thread copy
+		u32 frame = 0;
+		u32 draw = 0;
+		u32 fifo_pos = 0;
+		u64 vp_hash = 0;
+		u64 fp_hash = 0;
+		u32 target = 0;
+		u32 target_w = 0, target_h = 0;
+	};
+	void vr_gpu_checkpoint(VkCommandBuffer cmd, const vr_gpu_checkpoint_info& info);
+	// Polled from the OpenXR frame thread (it keeps running when RSX waits forever): once the device is lost, logs.
+	void vr_gpu_checkpoints_check(VkDevice dev, VkFence any_fence, VkQueue render_queue, VkQueue xr_queue);
 } // namespace vk

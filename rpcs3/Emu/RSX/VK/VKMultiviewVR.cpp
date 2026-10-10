@@ -621,3 +621,233 @@ namespace vk
 		push.last_cmd = cmd;
 	}
 }
+
+// ---- GPU checkpoints ----------------------------------------------------------------------------------
+
+namespace vk
+{
+	std::string retrieve_device_fault_info(); // vkutils/shared.cpp
+
+	namespace
+	{
+		VkPhysicalDeviceDiagnosticsConfigFeaturesNV s_ckpt_features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DIAGNOSTICS_CONFIG_FEATURES_NV };
+		VkDeviceDiagnosticsConfigCreateInfoNV s_ckpt_config{ .sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV };
+		bool s_ckpt_supported = false, s_ckpt_config_supported = false;
+		PFN_vkCmdSetCheckpointNV s_set_checkpoint = nullptr;
+		PFN_vkGetQueueCheckpointDataNV s_get_checkpoints = nullptr;
+		std::array<vr_gpu_checkpoint_info, 1u << 16> s_ckpt_ring{};
+		atomic_t<u64> s_ckpt_next = 0;
+		atomic_t<bool> s_ckpt_reported = false;
+		atomic_t<u32> s_ckpt_frame = 0;
+
+		// Address binding reports.
+		bool s_abr_supported = false;
+		VkPhysicalDeviceAddressBindingReportFeaturesEXT s_abr_features{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT };
+		VkDebugUtilsMessengerEXT s_abr_messenger = VK_NULL_HANDLE;
+		struct abr_event
+		{
+			u64 base, size, handle, seq;
+			u32 object_type, frame;
+			bool bind;
+		};
+		std::mutex s_abr_mutex;
+		std::vector<abr_event> s_abr_events; // bounded: the newest 400,000
+		u64 s_abr_seq = 0;
+
+		VKAPI_ATTR VkBool32 VKAPI_CALL abr_callback(VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT type,
+			const VkDebugUtilsMessengerCallbackDataEXT* data, void*)
+		{
+			if (!(type & VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT) || !data)
+			{
+				return VK_FALSE;
+			}
+			for (auto* p = static_cast<const VkBaseInStructure*>(data->pNext); p; p = p->pNext)
+			{
+				if (p->sType != VK_STRUCTURE_TYPE_DEVICE_ADDRESS_BINDING_CALLBACK_DATA_EXT)
+					continue;
+				const auto* b = reinterpret_cast<const VkDeviceAddressBindingCallbackDataEXT*>(p);
+				abr_event e{ b->baseAddress, b->size, data->objectCount ? data->pObjects[0].objectHandle : 0, 0,
+					data->objectCount ? static_cast<u32>(data->pObjects[0].objectType) : 0u, s_ckpt_frame.load(),
+					b->bindingType == VK_DEVICE_ADDRESS_BINDING_TYPE_BIND_EXT };
+				std::lock_guard lock(s_abr_mutex);
+				e.seq = s_abr_seq++;
+				if (s_abr_events.size() >= 400'000)
+					s_abr_events.erase(s_abr_events.begin(), s_abr_events.begin() + 100'000);
+				s_abr_events.push_back(e);
+			}
+			return VK_FALSE;
+		}
+	}
+
+	void vr_gpu_checkpoints_instance_extensions(std::vector<const char*>& extensions)
+	{
+		if (!vr_gpu_checkpoints_enabled())
+		{
+			return;
+		}
+		const supported_extensions support(supported_extensions::instance);
+		if (support.is_supported(VK_EXT_DEBUG_UTILS_EXTENSION_NAME) &&
+			std::none_of(extensions.begin(), extensions.end(), [](const char* e) { return std::string_view(e) == VK_EXT_DEBUG_UTILS_EXTENSION_NAME; }))
+		{
+			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+		}
+	}
+
+	void vr_gpu_checkpoints_messenger(VkInstance instance)
+	{
+		if (!vr_gpu_checkpoints_enabled() || s_abr_messenger)
+		{
+			return;
+		}
+		const auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+		if (!create)
+		{
+			rsx_log.warning("GPU checkpoints: no VK_EXT_debug_utils, no address binding reports");
+			return;
+		}
+		const VkDebugUtilsMessengerCreateInfoEXT info
+		{
+			.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+			.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
+			.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT,
+			.pfnUserCallback = abr_callback
+		};
+		create(instance, &info, nullptr, &s_abr_messenger);
+	}
+
+	bool vr_gpu_checkpoints_enabled()
+	{
+		static const bool s_on = []
+		{
+			const char* v = std::getenv("RPCS3_VR_GPU_CHECKPOINTS");
+			return v && v[0] == '1';
+		}();
+		return s_on;
+	}
+
+	void vr_gpu_checkpoints_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
+	{
+		if (!vr_gpu_checkpoints_enabled())
+		{
+			return;
+		}
+		const supported_extensions support(supported_extensions::device, nullptr, pdev);
+		s_ckpt_supported = support.is_supported(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+		s_ckpt_config_supported = support.is_supported(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
+		if (s_ckpt_supported)
+			extensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+		if (s_ckpt_config_supported)
+			extensions.push_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME);
+		s_abr_supported = support.is_supported(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+		if (s_abr_supported)
+			extensions.push_back(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME);
+		rsx_log.warning("GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS): checkpoints %s, diagnostics config %s, address binding reports %s",
+			s_ckpt_supported ? "on" : "unsupported", s_ckpt_config_supported ? "on" : "unsupported", s_abr_supported ? "on" : "unsupported");
+	}
+
+	void vr_gpu_checkpoints_chain(VkDeviceCreateInfo& info)
+	{
+		if (!vr_gpu_checkpoints_enabled())
+		{
+			return;
+		}
+		if (s_abr_supported)
+		{
+			s_abr_features.reportAddressBinding = VK_TRUE;
+			s_abr_features.pNext = const_cast<void*>(info.pNext);
+			info.pNext = &s_abr_features;
+		}
+		if (!s_ckpt_config_supported)
+		{
+			return;
+		}
+		s_ckpt_features.diagnosticsConfig = VK_TRUE;
+		s_ckpt_features.pNext = const_cast<void*>(info.pNext);
+		s_ckpt_config.flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV |
+			VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_ERROR_REPORTING_BIT_NV;
+		s_ckpt_config.pNext = &s_ckpt_features;
+		info.pNext = &s_ckpt_config;
+	}
+
+	void vr_gpu_checkpoint(VkCommandBuffer cmd, const vr_gpu_checkpoint_info& info)
+	{
+		if (!vr_gpu_checkpoints_enabled() || !s_ckpt_supported || !cmd)
+		{
+			return;
+		}
+		if (!s_set_checkpoint)
+		{
+			s_set_checkpoint = reinterpret_cast<PFN_vkCmdSetCheckpointNV>(vkGetDeviceProcAddr(*g_render_device, "vkCmdSetCheckpointNV"));
+			s_get_checkpoints = reinterpret_cast<PFN_vkGetQueueCheckpointDataNV>(vkGetDeviceProcAddr(*g_render_device, "vkGetQueueCheckpointDataNV"));
+			if (!s_set_checkpoint)
+			{
+				s_ckpt_supported = false;
+				return;
+			}
+		}
+		const u64 id = s_ckpt_next++;
+		s_ckpt_ring[id % s_ckpt_ring.size()] = info;
+		if (info.kind == 2)
+			s_ckpt_frame = info.frame;
+		s_set_checkpoint(cmd, reinterpret_cast<const void*>(static_cast<uptr>(id + 1)));
+	}
+
+	void vr_gpu_checkpoints_check(VkDevice dev, VkFence any_fence, VkQueue render_queue, VkQueue xr_queue)
+	{
+		if (!vr_gpu_checkpoints_enabled() || !dev || !any_fence || s_ckpt_reported)
+		{
+			return;
+		}
+		if (vkGetFenceStatus(dev, any_fence) != VK_ERROR_DEVICE_LOST || s_ckpt_reported.exchange(true))
+		{
+			return;
+		}
+		rsx_log.error("GPU checkpoints: device lost; %llu markers were set", s_ckpt_next.load());
+		const auto dump_queue = [&](VkQueue queue, const char* name)
+		{
+			if (!queue || !s_get_checkpoints)
+			{
+				return;
+			}
+			u32 count = 0;
+			s_get_checkpoints(queue, &count, nullptr);
+			std::vector<VkCheckpointDataNV> data(count, VkCheckpointDataNV{ .sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV });
+			s_get_checkpoints(queue, &count, data.data());
+			rsx_log.error("GPU checkpoints: %s queue: %u entries", name, count);
+			for (const auto& d : data)
+			{
+				const u64 marker = reinterpret_cast<uptr>(d.pCheckpointMarker);
+				if (!marker || marker > s_ckpt_next)
+				{
+					rsx_log.error("  stage 0x%x: marker 0x%llx (not ours: driver automatic checkpoint)", static_cast<u32>(d.stage), marker);
+					continue;
+				}
+				const u64 id = marker - 1;
+				const auto& e = s_ckpt_ring[id % s_ckpt_ring.size()];
+				rsx_log.error("  stage 0x%x: marker %llu (%llu before the newest): kind %u frame %u draw %u fifo 0x%x vp %016llx fp %016llx target 0x%x %ux%u",
+					static_cast<u32>(d.stage), id, s_ckpt_next - 1 - id, e.kind, e.frame, e.draw, e.fifo_pos, e.vp_hash, e.fp_hash, e.target, e.target_w, e.target_h);
+			}
+		};
+		dump_queue(render_queue, "render");
+		dump_queue(xr_queue, "OpenXR");
+		const std::string fault = retrieve_device_fault_info();
+		rsx_log.error("GPU checkpoints: driver fault info: %s", fault);
+
+		// Every reported binding that covered a faulting address (oldest first): what lived there, and whether it was freed.
+		for (usz pos = fault.find("address 0x"); pos != umax; pos = fault.find("address 0x", pos + 1))
+		{
+			const u64 address = std::strtoull(fault.c_str() + pos + 8, nullptr, 16);
+			std::lock_guard lock(s_abr_mutex);
+			u32 shown = 0;
+			for (const auto& e : s_abr_events)
+			{
+				if (address >= e.base && address < e.base + e.size && shown++ < 40)
+				{
+					rsx_log.error("GPU checkpoints: 0x%llx: #%llu %s base 0x%llx size 0x%llx object type %u handle 0x%llx at frame %u",
+						address, e.seq, e.bind ? "BIND" : "UNBIND", e.base, e.size, e.object_type, e.handle, e.frame);
+				}
+			}
+			rsx_log.error("GPU checkpoints: 0x%llx: %u bindings covered it (%llu reported in all, newest frame %u)", address, shown, s_abr_seq, s_ckpt_frame.load());
+		}
+	}
+} // namespace vk

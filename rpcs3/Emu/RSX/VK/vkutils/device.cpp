@@ -773,6 +773,8 @@ namespace vk
 			}
 		}
 
+		vk::vr_gpu_checkpoints_extensions(*pgpu, requested_extensions); // VR fork: dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS)
+
 		VkDeviceCreateInfo device = {};
 		device.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 		device.pNext = nullptr;
@@ -904,6 +906,7 @@ namespace vk
 			device.pNext = &multiview_features;
 		}
 
+		vk::vr_gpu_checkpoints_chain(device); // VR fork: dev GPU checkpoints
 		if (auto error = vkCreateDevice(*pgpu, &device, nullptr, &dev))
 		{
 			dump_debug_info(requested_extensions, enabled_features);

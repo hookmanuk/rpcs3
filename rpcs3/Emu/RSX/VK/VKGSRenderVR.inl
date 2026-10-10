@@ -88,6 +88,8 @@
 	// logged for 6 consecutive frames every 150 flips.
 	std::string m_vr_trace;
 	u32 m_vr_trace_flips = 0;
+	u32 m_vr_ckpt_frame = 0; // dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS): flips and draws since the last flip
+	u32 m_vr_ckpt_draw = 0;
 	u32 m_vr_trace_addr = 0;
 	u32 m_vr_trace_cam_pose = 0;
 	u32 m_vr_trace_cam_count = 0;

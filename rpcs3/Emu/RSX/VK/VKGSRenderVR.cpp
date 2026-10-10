@@ -2203,6 +2203,19 @@ void VKGSRender::vr_capture_draw(u32 sub_index, const vk::vertex_upload_info& up
 {
 	const auto& draw_call = rsx::method_registers.current_draw_clause;
 
+	// Dev: RPCS3_VR_GPU_CHECKPOINTS=1, a GPU checkpoint before each draw (VKMultiviewVR.cpp).
+	if (vk::vr_gpu_checkpoints_enabled())
+	{
+		vk::vr_gpu_checkpoint_info ckpt{ .kind = 1, .frame = m_vr_ckpt_frame, .draw = m_vr_ckpt_draw++ };
+		ckpt.fifo_pos = fifo_ctrl ? fifo_ctrl->get_pos() : 0;
+		ckpt.vp_hash = current_vertex_program.data.empty() ? 0 : program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
+		ckpt.fp_hash = current_fragment_program.ucode_hash;
+		ckpt.target = m_framebuffer_layout.color_addresses[0] ? m_framebuffer_layout.color_addresses[0] : m_framebuffer_layout.zeta_address;
+		ckpt.target_w = m_framebuffer_layout.width;
+		ckpt.target_h = m_framebuffer_layout.height;
+		vk::vr_gpu_checkpoint(*m_current_command_buffer, ckpt);
+	}
+
 	if (auto& inspector = rsx::vr::stereo_inspector::get(); inspector.capturing())
 	{
 		rsx::vr::draw_capture_input capture_in;
@@ -3965,6 +3978,24 @@ bool VKGSRender::vr_present_right_eye(const vk::present_surface_info& present_in
 // rotated by. image_to_flip2 is the right eye of generated stereo, or null.
 void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2)
 {
+	// Dev GPU checkpoints through the flip: 2 start, 5 eyes copied, 6 overlay drawn, 7 overlay copied, 8 end.
+	const auto ckpt = [&](u32 kind)
+	{
+		if (vk::vr_gpu_checkpoints_enabled())
+			vk::vr_gpu_checkpoint(*m_current_command_buffer, { .kind = kind, .frame = m_vr_ckpt_frame, .draw = m_vr_ckpt_draw, .fifo_pos = fifo_ctrl ? fifo_ctrl->get_pos() : 0 });
+	};
+	ckpt(2);
+	struct ckpt_end_t
+	{
+		VKGSRender* r;
+		decltype(ckpt)& c;
+		~ckpt_end_t()
+		{
+			c(8);
+			r->m_vr_ckpt_frame++;
+			r->m_vr_ckpt_draw = 0;
+		}
+	} ckpt_end{this, ckpt};
 	if (!vk::xr::is_running() && !vk::xr::fake_hmd())
 	{
 		// No headset session: back to the game's camera.
@@ -3986,6 +4017,7 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 	// frame on the fixed screen has no world to drag: it is published too.
 	const bool vr_video_screen = vr_video_refresh && m_vr_video_on_screen;
 	const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip, image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, m_vr_eye_width, m_vr_eye_height);
+	ckpt(5);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
 	// the desktop swapchain below; the headset gets them as a quad layer.
@@ -4023,8 +4055,10 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 			}
 		}
 		overlay_fbo->release();
+		ckpt(6);
 
 		xr_overlay = vk::xr::publish_overlay(*m_current_command_buffer, overlay_img);
+		ckpt(7);
 	}
 
 	if (xr_eyes || xr_overlay)
