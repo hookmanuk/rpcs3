@@ -58,3 +58,21 @@ PPU-34984cacd60f2ee2a380157a009122698d470056:
     Apply To Savestates: true
     Patch:
       - [ be32, 0x0035fdec, 0x38600000 ]
+
+  "Wider view (VR culling)":
+    Games:
+      "MotorStorm: Pacific Rift":
+        BCUS98155: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "MotorStorm draws only what its own camera sees (about 87 degrees across), so in the headset, terrain and sky beside a turned view were missing (black, or smeared older frames). This widens the camera horizontally by a scale (word 0x145fe00) that the VR profile sets each frame from the head pose (culling_scale_f32, tangent_x): just wide enough to cover both eyes, 1.0 on the fixed screen. The height is the game's own; the headset view keeps its framing (VR re-projects it)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0145fe00, 0x3f800000 ]  # scale (1.0), written by the VR profile; past the data segment's end (0x14506a8), same page as the frame-time word
+      - [ be32, 0x01028ad0, 0xec410132 ]  # cave: fmuls f2,f1,f4         the projection's aspect, as before
+      - [ be32, 0x01028ad4, 0x3d800146 ]  #       lis r12,0x146
+      - [ be32, 0x01028ad8, 0xc14cfe00 ]  #       lfs f10,-0x200(r12)   scale
+      - [ be32, 0x01028adc, 0xec4202b2 ]  #       fmuls f2,f2,f10       aspect x scale: wider left and right only (vertical FOV unchanged)
+      - [ be32, 0x01028ae0, 0x4e800020 ]  #       blr
+      - [ be32, 0x0033b108, 0x48ced9c9 ]  # camera update: bl cave (was fmuls f2,f1,f4, before the perspective call at 0x33b114)
