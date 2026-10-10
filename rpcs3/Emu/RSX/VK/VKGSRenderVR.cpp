@@ -1652,10 +1652,14 @@ void VKGSRender::vr_update_view()
 	const auto no_3d_mode = no_3d_profile ? no_3d_profile->screen_space_frames_without_3d_as_screen : frames_without_3d_mode::never;
 	// A frame with one of the profile's screen_frame_draws (a composed menu), or drawn while a screen_frames_when
 	// game-state word says front end, goes on the fixed screen as a whole.
-	const bool screen_frame = m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state() || rsx::vr::cinematic_frame_on_screen();
-	m_vr_screen_frame_draws = 0;
+	// A cinematic frame (profile reduced_scale_frames: Gran Turismo 5's pre-race views) follows the Cinematic Scenes
+	// setting alone: Fixed Screen, or the headset view at Full Quality. Before, the depth-of-field pass the pre-race
+	// shots share with the main menu (screen_frame_draws) could send them to the fixed screen at any setting.
 	rsx::vr::note_reduced_scale_frame(m_vr_reduced_scale_draws != 0);
 	m_vr_reduced_scale_draws = 0;
+	const bool screen_frame = rsx::vr::cinematic_frame() ? rsx::vr::cinematic_frame_on_screen() :
+		(m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state());
+	m_vr_screen_frame_draws = 0;
 	const bool no_3d = screen_frame || (no_3d_mode == frames_without_3d_mode::always ? m_vr_frames_without_camera >= 3 :
 																					   no_3d_mode == frames_without_3d_mode::automatic && m_vr_frames_2d >= 3);
 	if (static bool s_no_3d = false; no_3d != s_no_3d)

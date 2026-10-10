@@ -792,7 +792,6 @@ void fmt_class_string<vr_cinematic_scenes>::format(std::string& out, u64 arg)
 	{
 		switch (value)
 		{
-		case vr_cinematic_scenes::lower_resolution: return "Lower Resolution";
 		case vr_cinematic_scenes::fixed_screen: return "Fixed Screen";
 		case vr_cinematic_scenes::full_quality: return "Full Quality";
 		}

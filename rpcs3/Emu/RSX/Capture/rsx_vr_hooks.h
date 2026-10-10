@@ -72,6 +72,9 @@ namespace rsx::vr
 	u16 effective_resolution_scale(u16 configured_percent);
 	// VR Cinematic Scenes set to Fixed Screen, during the profile's reduced_scale_frames: the frame goes on the fixed screen.
 	bool cinematic_frame_on_screen();
+	// A frame of a scene the profile marks as cinematic (reduced_scale_frames: Gran Turismo 5's pre-race views). Such a
+	// frame follows the Cinematic Scenes setting alone (vr_update_view), whatever other screen rules match it.
+	bool cinematic_frame();
 
 	// rsx::thread::on_frame_end: stereo inspector, camera probe poll, game refresh rate, profile generator, dev hooks.
 	void on_frame_end(u32 buffer, u32 draw_calls);

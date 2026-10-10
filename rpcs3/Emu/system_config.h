@@ -269,7 +269,7 @@ struct cfg_root : cfg::node
 			cfg::_enum<vr_frame_rate> frame_rate{ this, "Frame Rate", vr_frame_rate::profile_default, true }; // the game's frame rate in VR, up to the VR profile's max_fps; the vblank follows it
 			cfg::uint<25, 1000> world_scale{ this, "World Scale", 100, true }; // % apparent size of the game world; corrects the profile's eye_baseline
 			cfg::_int<-1, 30> reprojection_margin{ this, "Reprojection Margin", -1, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges; -1 = Auto (10 below the headset's refresh rate)
-			cfg::_enum<vr_cinematic_scenes> cinematic_scenes{ this, "Cinematic Scenes", vr_cinematic_scenes::lower_resolution, true }; // scenes the VR profile marks as cinematic (GT5's pre-race views)
+			cfg::_enum<vr_cinematic_scenes> cinematic_scenes{ this, "Cinematic Scenes", vr_cinematic_scenes::fixed_screen, true }; // scenes the VR profile marks as cinematic (GT5's pre-race views)
 			cfg::_bool eye_shape{ this, "Headset Eye Shape", true, true }; // each eye rendered at the headset view's shape: the axis with more pixels per degree drops to the other's (fewer pixels, same detail; rsx_vr_eye_shape.h)
 			// Performance options a VR profile can offer (its rules tagged "option"); shown in the home menu for those games only.
 			cfg::_bool reduced_rate_reflections{ this, "Reduced-Rate Reflections", true, true }; // "reflections": reflection maps redrawn in turns

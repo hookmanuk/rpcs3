@@ -1536,7 +1536,6 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 	case emu_settings_type::VRCinematicScenes:
 		switch (static_cast<vr_cinematic_scenes>(index))
 		{
-		case vr_cinematic_scenes::lower_resolution: return tr("Lower resolution", "VR cinematic scenes");
 		case vr_cinematic_scenes::fixed_screen: return tr("Fixed screen", "VR cinematic scenes");
 		case vr_cinematic_scenes::full_quality: return tr("Full quality", "VR cinematic scenes");
 		}
