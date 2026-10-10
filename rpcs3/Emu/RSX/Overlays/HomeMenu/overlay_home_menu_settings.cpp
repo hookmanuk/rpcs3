@@ -217,6 +217,13 @@ namespace rsx
 			{
 				add_dropdown(&g_cfg.video.vr.cinematic_scenes, localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES);
 			}
+			// Performance options the game's VR profile offers (live).
+			if (const auto* profile = rsx::vr::camera_probe::get().profile())
+			{
+				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
+				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
+				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);
+			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			{

@@ -2784,7 +2784,8 @@ bool VKGSRender::vr_shared_target_skipped()
 	}
 	for (const auto& rule : profile->shared_frame_targets)
 	{
-		if (rule.width != m_framebuffer_layout.width || rule.height != m_framebuffer_layout.height || rule.frames < 2)
+		if (rule.width != m_framebuffer_layout.width || rule.height != m_framebuffer_layout.height || rule.frames < 2 ||
+			!rsx::vr::profile_option_enabled(rule.option))
 		{
 			continue;
 		}
@@ -2829,6 +2830,7 @@ bool VKGSRender::vr_skip_far_cars()
 	}();
 	const bool s_off = s_env == 0;
 	if (s_off || !profile || profile->car_draw_tiers.empty() || profile->car_body_programs.empty() ||
+		!rsx::vr::profile_option_enabled(profile->car_draw_option) ||
 		m_framebuffer_layout.width != 1280 || m_framebuffer_layout.height != 720)
 	{
 		return false;

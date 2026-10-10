@@ -1455,20 +1455,25 @@ namespace rsx::vr
 					profile->car_body_programs.push_back(hash);
 				}
 			}
+			if (const YAML::Node option = limit["option"]; option && option.IsScalar())
+			{
+				profile->car_draw_option = option.as<std::string>();
+			}
 			if (profile->car_draw_tiers.empty() || profile->car_body_programs.empty())
-				fail("car_draw_limit: expected {\"tiers\": [...], \"body_programs\": [\"<vertex ucode hash>\", ...]}");
+				fail("car_draw_limit: expected {\"tiers\": [...], \"body_programs\": [\"<vertex ucode hash>\", ...], \"option\": \"<setting>\"}");
 		}
 		if (const YAML::Node shared = child(root, "shared_frame_targets"); shared && shared.IsSequence())
 		{
 			for (const auto& node : shared)
 			{
-				const YAML::Node width = node["width"], height = node["height"], frames = node["frames"];
-				if (!width || !width.IsScalar() || !height || !height.IsScalar() || (frames && !frames.IsScalar()))
+				const YAML::Node width = node["width"], height = node["height"], frames = node["frames"], option = node["option"];
+				if (!width || !width.IsScalar() || !height || !height.IsScalar() || (frames && !frames.IsScalar()) || (option && !option.IsScalar()))
 				{
-					fail("shared_frame_targets: expected [{\"width\": <w>, \"height\": <h>, \"frames\": <n>}]");
+					fail("shared_frame_targets: expected [{\"width\": <w>, \"height\": <h>, \"frames\": <n>, \"option\": \"<setting>\"}]");
 					continue;
 				}
 				title_profile::shared_frame_target t{};
+				t.option = option ? option.as<std::string>() : std::string();
 				t.width = static_cast<u16>(std::clamp(std::atoi(width.as<std::string>().c_str()), 1, 8192));
 				t.height = static_cast<u16>(std::clamp(std::atoi(height.as<std::string>().c_str()), 1, 8192));
 				t.frames = frames ? static_cast<u32>(std::clamp(std::atoi(frames.as<std::string>().c_str()), 1, 16)) : 2u;
@@ -1596,6 +1601,39 @@ namespace rsx::vr
 		case vr_frame_rate::unlimited: return 0;
 		}
 		return umax;
+	}
+
+	bool profile_option_enabled(const std::string& option)
+	{
+		if (option.empty())
+		{
+			return true;
+		}
+		if (option == "reflections")
+		{
+			return g_cfg.video.vr.reduced_rate_reflections.get();
+		}
+		if (option == "mirror")
+		{
+			return g_cfg.video.vr.reduced_rate_mirror.get();
+		}
+		if (option == "distant_cars")
+		{
+			return g_cfg.video.vr.simpler_distant_cars.get();
+		}
+		return true;
+	}
+
+	bool profile_has_option(const title_profile& profile, std::string_view option)
+	{
+		if (profile.car_draw_option == option && !profile.car_draw_tiers.empty())
+		{
+			return true;
+		}
+		return std::any_of(profile.shared_frame_targets.begin(), profile.shared_frame_targets.end(), [&](const auto& t)
+			{
+				return t.option == option;
+			});
 	}
 
 	bool frame_rate_option_allowed(u32 option, u32 max_fps)

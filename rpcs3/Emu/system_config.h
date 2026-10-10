@@ -271,6 +271,10 @@ struct cfg_root : cfg::node
 			cfg::_int<-1, 30> reprojection_margin{ this, "Reprojection Margin", -1, true }; // degrees rendered beyond each edge of the eye view, so the headset can turn an older frame without black edges; -1 = Auto (10 below the headset's refresh rate)
 			cfg::_enum<vr_cinematic_scenes> cinematic_scenes{ this, "Cinematic Scenes", vr_cinematic_scenes::lower_resolution, true }; // scenes the VR profile marks as cinematic (GT5's pre-race views)
 			cfg::_bool eye_shape{ this, "Headset Eye Shape", true, true }; // each eye rendered at the headset view's shape: the axis with more pixels per degree drops to the other's (fewer pixels, same detail; rsx_vr_eye_shape.h)
+			// Performance options a VR profile can offer (its rules tagged "option"); shown in the home menu for those games only.
+			cfg::_bool reduced_rate_reflections{ this, "Reduced-Rate Reflections", true, true }; // "reflections": reflection maps redrawn in turns
+			cfg::_bool reduced_rate_mirror{ this, "Reduced-Rate Mirror", true, true };           // "mirror": the rear-view mirror redrawn every other frame
+			cfg::_bool simpler_distant_cars{ this, "Simpler Distant Cars", true, true };         // "distant_cars": car_draw_limit
 
 		} vr{ this };
 

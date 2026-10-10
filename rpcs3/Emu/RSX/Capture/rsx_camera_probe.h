@@ -575,6 +575,7 @@ namespace rsx::vr
 		};
 		std::vector<car_draw_tier> car_draw_tiers;
 		std::vector<u64> car_body_programs;
+		std::string car_draw_option; // "option": the VR setting that switches car_draw_limit (profile_option_enabled)
 
 		// Profile shared_frame_targets: render targets of this size are each drawn (and cleared) only every `frames`
 		// frames, in turn by target address, and keep their content in between. For passes that redraw slowly
@@ -585,6 +586,7 @@ namespace rsx::vr
 			u16 width = 0;
 			u16 height = 0;
 			u32 frames = 2;
+			std::string option; // the VR setting that switches this rule (profile_option_enabled)
 		};
 		std::vector<shared_frame_target> shared_frame_targets;
 
@@ -624,6 +626,12 @@ namespace rsx::vr
 	u32 frame_rate_option_fps(u32 option);
 	// Whether a game with this max_fps lists the option (Default always).
 	bool frame_rate_option_allowed(u32 option, u32 max_fps);
+
+	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" follow the VR settings Reduced-Rate
+	// Reflections, Reduced-Rate Mirror and Simpler Distant Cars (live). Untagged rules and unknown names are always on.
+	bool profile_option_enabled(const std::string& option);
+	// The home menu shows a setting only for games whose profile has a rule tagged with it.
+	bool profile_has_option(const title_profile& profile, std::string_view option);
 	// The highest max_fps among the title's profiles (0 = no maximum), for the settings
 	// dialog, which cannot tell which game of a collection will run.
 	u32 title_max_fps(std::string_view title_id);
