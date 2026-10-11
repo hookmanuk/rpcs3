@@ -370,6 +370,17 @@ namespace rsx::vr
 		s_dlss_motion = enabled;
 	}
 
+	bool skip_cached_pipeline(u32 vp_ctrl, u32 fp_ctrl)
+	{
+		if (!((vp_ctrl | fp_ctrl) & RSX_SHADER_CONTROL_DLSS_MOTION))
+		{
+			return false;
+		}
+		// DLSS is set at boot (the setting or RPCS3_DLSS); the cache is read after that.
+		static const bool s_dlss = std::getenv("RPCS3_DLSS") ? std::string_view(std::getenv("RPCS3_DLSS")) != "off" : g_cfg.video.vr.dlss.get() != vr_dlss_mode::off;
+		return !s_dlss;
+	}
+
 	void nudge_camera(u32 axis, s32 delta_cm)
 	{
 		auto& vr = g_cfg.video.vr;

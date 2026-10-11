@@ -57,6 +57,10 @@ namespace rsx::vr
 	// The game window's camera shortcuts: moves the VR camera offset (Video > VR > Camera X/Y/Z Offset) by delta_cm on
 	// axis 0 (x, right), 1 (y, up) or 2 (z, forward); axis 3 puts all three back to 0. Live, like the settings.
 	void nudge_camera(u32 axis, s32 delta_cm);
+	// The shader cache loader: a cached pipeline whose programs carry the DLSS motion bit, in a session without DLSS. It
+	// is left on disk for a DLSS session. (Dev builds of 2026-10-11 used that bit for depth_remap_screen: such entries
+	// are skipped rather than built as the wrong variant, which crashed MotorStorm's shader compiler.)
+	bool skip_cached_pipeline(u32 vp_ctrl, u32 fp_ctrl);
 	// rsx::thread::prefetch_vertex_program, after the ucode is analysed: whether the program is listed in the profile's
 	// screen_space.hud_exact_depth_programs or depth_remap_programs. True when that changed (both programs' control
 	// bits then need updating).

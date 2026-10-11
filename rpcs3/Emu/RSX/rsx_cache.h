@@ -9,6 +9,7 @@
 #include "Emu/cache_utils.hpp"
 #include "Emu/Memory/vm.h"
 #include "Emu/RSX/Program/RSXVertexProgram.h"
+#include "Emu/RSX/Capture/rsx_vr_hooks.h" // VR fork: skip_cached_pipeline
 #include "Emu/RSX/Program/RSXFragmentProgram.h"
 #include "Overlays/Shaders/shader_loading_dialog.h"
 
@@ -112,6 +113,8 @@ namespace rsx
 					f.read(&pdata, f.size());
 
 					auto entry = unpack(pdata);
+
+					if (rsx::vr::skip_cached_pipeline(std::get<1>(entry).ctrl, std::get<2>(entry).ctrl)) continue; // VR fork
 
 					if (std::get<1>(entry).data.empty() || !std::get<2>(entry).ucode_length)
 					{

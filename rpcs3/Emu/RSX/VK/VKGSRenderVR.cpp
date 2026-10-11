@@ -3661,7 +3661,7 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 usz VKGSRender::vr_depth_remap_size() const
 {
 	// The compiled shaders read it (vk::vr_insert_depth_remap_vertex_end); the interpreter does not.
-	return (current_vertex_program.ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 96 : 0;
+	return m_program && !m_shader_interpreter.is_interpreter(m_program) ? vk::vr_depth_remap_vec4s(current_vertex_program.ctrl) * 16 : 0;
 }
 
 void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sign) const

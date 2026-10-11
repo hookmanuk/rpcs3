@@ -25,6 +25,14 @@ namespace glsl
 
 namespace vk
 {
+	// The depth remap's vec4s after a draw's constants (and its varyings from location 17): 5 for profile
+	// depth_remap_programs (the matrix, then the ray scales and the target's size), 6 for depth_remap_screen (then the
+	// tile's rectangle). Five as before depth_remap_screen for the first: a sixth broke MotorStorm's menus and intro.
+	inline u32 vr_depth_remap_vec4s(u32 ctrl)
+	{
+		return (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) ? 6 : (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) ? 5 : 0;
+	}
+
 	class command_buffer;
 	class image;
 

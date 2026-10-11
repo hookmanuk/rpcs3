@@ -317,15 +317,16 @@ namespace vk
 	{
 		if (ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN))
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[6];\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[" << vr_depth_remap_vec4s(ctrl) << "];\n";
 		}
 		vk::dlss_insert_vertex_output(OS, ctrl); // DLSS test: motion
 	}
 
 	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots)
 	{
-		// DLSS test: motion and jitter (last: jitter moves the final position). Its block follows the depth remap's (6 vec4).
-		vk::dlss_insert_vertex_end(OS, ctrl, constant_slots + ((ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) ? 6 : 0), constant_slots != 0);
+		// DLSS test: motion and jitter (last: jitter moves the final position). Its block follows the depth remap's.
+		const u32 remap_vec4s = vr_depth_remap_vec4s(ctrl);
+		vk::dlss_insert_vertex_end(OS, ctrl, constant_slots + remap_vec4s, constant_slots != 0);
 		if (!(ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)))
 		{
 			return;
@@ -333,17 +334,18 @@ namespace vk
 		// Instanced constants come from another buffer, without the matrix: the identity (the game's own reconstruction).
 		if (ctrl & RSX_SHADER_CONTROL_INSTANCED_CONSTANTS)
 		{
-			OS << "	vr_depth_remap = vec4[6](vec4(1., 0., 0., 0.), vec4(0., 1., 0., 0.), vec4(0., 0., 1., 0.), vec4(0., 0., 0., 1.), vec4(0.), vec4(-1e9, -1e9, 1e9, 1e9));\n";
+			OS << "	vr_depth_remap = vec4[" << remap_vec4s << "](vec4(1., 0., 0., 0.), vec4(0., 1., 0., 0.), vec4(0., 0., 1., 0.), vec4(0., 0., 0., 1.), vec4(0.)" <<
+				(remap_vec4s > 5 ? ", vec4(-1e9, -1e9, 1e9, 1e9)" : "") << ");\n";
 			return;
 		}
-		OS << "	for (uint vr_i = 0; vr_i < 6; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
+		OS << "	for (uint vr_i = 0; vr_i < " << remap_vec4s << "u; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
 	}
 
 	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count)
 	{
 		if (ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN))
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[6]; // VR fork\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[" << vr_depth_remap_vec4s(ctrl) << "]; // VR fork\n";
 		}
 		vk::dlss_insert_fragment_input(OS, ctrl);              // DLSS test: motion
 		vk::dlss_insert_fragment_output(OS, ctrl, mrt_count);  // the motion attachment follows the colour attachments
