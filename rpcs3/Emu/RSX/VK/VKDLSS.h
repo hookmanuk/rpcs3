@@ -23,6 +23,7 @@
 //                                                            names the preset NGX uses.
 //   RPCS3_DLSS=motion       no DLSS: show the motion vectors (hue = direction, brightness = length, grey = none)
 //   RPCS3_DLSS=depth        no DLSS: show the depth the motion pass wrote
+//   RPCS3_DLSS=motionraw    no DLSS: motion as numbers (red/green = 128 + 4 x pixels, blue = covered), for tests
 //   RPCS3_DLSS=jitter       no DLSS: jitter only (the image should shimmer by under a pixel: proves the jitter path)
 //   RPCS3_DLSS_TARGET=<hex> the scene target's address (default: found per frame)
 //   RPCS3_DLSS_CAMERA=<slot>[,rows|cols]  camera block when the title has no VR profile (default cols)
@@ -55,6 +56,7 @@ namespace vk
 		off = 0,
 		debug_motion,
 		debug_depth,
+		debug_motion_raw,
 		jitter_only,
 		dlaa,
 		quality,
@@ -65,6 +67,10 @@ namespace vk
 
 	// RPCS3_DLSS
 	dlss_mode dlss_configured_mode();
+	// Self-test (dlss_selftest): game frames with camera draws so far, and which of them (0-based) the last presented
+	// image shows.
+	u64 dlss_drawn_frames();
+	u64 dlss_presented_frame();
 	inline bool dlss_enabled() { return dlss_configured_mode() != dlss_mode::off; }
 	// The mode runs NGX (not a debug or jitter-only mode).
 	bool dlss_uses_ngx();
@@ -114,6 +120,8 @@ namespace vk
 		vk::image* bind_framebuffer(const vk::command_buffer& cmd, u32 color_address, vk::image* color_surface,
 			u32 fbo_width, u32 fbo_height, u32 color_attachments, u32 mrt_count, bool vr_active);
 		bool motion_bound() const { return m_bound; }
+		// Whether a framebuffer whose first colour target is at this address gets the motion attachment now.
+		bool wants_motion(u32 color_address, bool vr_active) const;
 		// Before each draw into the scene target: the motion image's clear when the framebuffer stayed bound into a
 		// new frame (ends an open render pass then).
 		void before_draw(const vk::command_buffer& cmd);
@@ -125,6 +133,8 @@ namespace vk
 		// constant_ids: the program's compacted slots (empty: the full bank).
 		void write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
 			u32 clip_width, u32 clip_height, bool instanced);
+		// The block for a constant upload outside a draw: no motion written, no jitter, no history.
+		void write_neutral_block(void* dst) const;
 
 		// flip(): runs the resolve and DLSS (or a debug view) on the displayed image. Returns the image to present
 		// instead (out_w, out_h: its size), or null to present the source unchanged. emu_flip: a game frame (else a
@@ -180,6 +190,8 @@ namespace vk
 		std::unique_ptr<vk::viewable_image> m_mv, m_depth, m_debug, m_output;
 		bool m_reset_history = true;
 		u32 m_last_out_w = 0, m_last_out_h = 0;
+		vk::viewable_image* m_last_result = nullptr; // the last frame's presented replacement (m_output or m_debug)
+		u32 m_frame_camera_draws = 0;                // camera draws (any target) since the last game frame
 
 		// NGX
 		void* m_ngx_params = nullptr;  // NVSDK_NGX_Parameter*

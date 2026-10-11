@@ -936,7 +936,9 @@ bool Emulator::BootRsxCapture(const std::string& path)
 	g_cfg.video.disable_on_disk_shader_cache.set(true);
 
 	vm::init();
-	vm::reserve_map(vm::main, 0, 0x1FFF0000, vm::page_64k_size);
+	// Fork fix: from 0x10000 like the game boot path. At 0 the replay's first vm::alloc returns address 0, which it
+	// treats as failure ("Capture Replay: context alloc failed"): RSX captures stopped booting with upstream bcd8a09.
+	vm::reserve_map(vm::main, 0x10000, 0x1FFF0000, vm::page_64k_size);
 	g_fxo->init(false);
 
 	// Initialize progress dialog

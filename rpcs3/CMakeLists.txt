@@ -37,6 +37,12 @@ endif()
 # subdirectories
 add_subdirectory(Emu)
 
+# DLSS test: a headless self-test of the motion vectors (Linux/X11, no Qt): -DBUILD_DLSS_SELFTEST=ON
+option(BUILD_DLSS_SELFTEST "Build the DLSS motion vector self-test (dlss_selftest)" OFF)
+if(BUILD_DLSS_SELFTEST AND X11_FOUND)
+    add_subdirectory(dlss_selftest)
+endif()
+
 if (NOT ANDROID AND BUILD_RPCS3_GUI)
     add_subdirectory(rpcs3qt)
 endif()

@@ -5,9 +5,14 @@
 	// DLSS test (VKDLSS.h): motion vectors, jitter and DLSS at flip. Null unless RPCS3_DLSS is set.
 	std::unique_ptr<vk::dlss_context> m_dlss;
 	bool m_dlss_motion_bound = false;          // the bound framebuffer has the motion attachment
+	bool m_dlss_in_draw = false;               // end(): between load_program() and load_program_env() (a draw's own upload)
+	u32 m_dlss_refused_address = 0;            // a scene target refused this frame (MRT mismatch, no memory): not retried until the flip
 	std::vector<vk::image*> m_dlss_fbo_images; // its attachments: m_fbo_images with the motion image before depth
 	// prepare_rtts(): the motion attachment for the framebuffer just set up (key bit, attachment list, shader variants).
 	void dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images);
+	// prepare_rtts(): the bound framebuffer should gain or lose the motion attachment (the scene target changed, or a
+	// new frame starts on it): its fast paths must not keep it.
+	bool dlss_framebuffer_stale() const;
 	// end(), after load_program(): scene target detection, and a constant upload for every draw into the scene target.
 	void dlss_after_load_program();
 	// upload_transform_constants(): the motion block after the constants (and the depth remap), for programs that read it.

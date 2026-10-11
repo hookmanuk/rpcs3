@@ -33,6 +33,10 @@ void VKGSRender::dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images)
 			m_current_renderpass_key |= vk::dlss_renderpass_motion_bit;
 			m_dlss_motion_bound = true;
 		}
+		else if (m_dlss->wants_motion(address, vr_active))
+		{
+			m_dlss_refused_address = address;
+		}
 	}
 
 	if (was_bound != m_dlss_motion_bound)
@@ -42,6 +46,21 @@ void VKGSRender::dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images)
 		m_graphics_state |= rsx::pipeline_state::fragment_program_state_dirty | rsx::pipeline_state::vertex_program_state_dirty |
 			rsx::pipeline_state::pipeline_config_dirty;
 	}
+}
+
+bool VKGSRender::dlss_framebuffer_stale() const
+{
+	if (!m_dlss || m_draw_buffers.empty())
+	{
+		return false;
+	}
+	const u32 address = m_surface_info[m_draw_buffers[0]].address;
+	if (!m_dlss_motion_bound && address == m_dlss_refused_address)
+	{
+		return false;
+	}
+	const bool vr_active = m_vr_multiview || rsx::vr::camera_probe::get().render_enabled();
+	return m_dlss->wants_motion(address, vr_active) != m_dlss_motion_bound;
 }
 
 void VKGSRender::dlss_after_load_program()
@@ -68,6 +87,8 @@ void VKGSRender::dlss_after_load_program()
 	{
 		m_dlss->before_draw(*m_current_command_buffer);
 	}
+
+	m_dlss_in_draw = true; // the next constant upload is this draw's own (load_program_env)
 }
 
 usz VKGSRender::dlss_draw_block_size() const
@@ -80,6 +101,14 @@ void VKGSRender::dlss_write_draw_block(void* dst)
 {
 	if (!dlss_draw_block_size())
 	{
+		return;
+	}
+
+	if (!m_dlss_in_draw)
+	{
+		// patch_transform_constants(): the game rewrote constants between draws with this program bound. The next draw
+		// uploads again with its own block; this copy gets a neutral one and leaves the matrix history alone.
+		m_dlss->write_neutral_block(dst);
 		return;
 	}
 

@@ -2527,7 +2527,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 {
 	const bool clipped_scissor = (context == rsx::framebuffer_creation_context::context_draw);
 	vr_update_multiview_mode(); // VR fork: multiview stereo on or off with the renderer
-	if (m_current_framebuffer_context == context && !m_graphics_state.test(rsx::rtt_config_dirty) && m_draw_fbo)
+	if (m_current_framebuffer_context == context && !m_graphics_state.test(rsx::rtt_config_dirty) && m_draw_fbo && !dlss_framebuffer_stale()) // DLSS test: or the motion attachment changes
 	{
 		// Fast path
 		// Framebuffer usage has not changed, framebuffer exists and config regs have not changed
@@ -2547,7 +2547,7 @@ void VKGSRender::prepare_rtts(rsx::framebuffer_creation_context context)
 		return;
 	}
 
-	if (m_draw_fbo && m_framebuffer_layout.ignore_change)
+	if (m_draw_fbo && m_framebuffer_layout.ignore_change && !dlss_framebuffer_stale()) // DLSS test: or the motion attachment changes
 	{
 		// Nothing has changed, we're still using the same framebuffer
 		// Update flags to match current

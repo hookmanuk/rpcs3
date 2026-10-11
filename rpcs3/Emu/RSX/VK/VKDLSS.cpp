@@ -247,6 +247,11 @@ namespace vk
 					"		if (covered && len < 0.05) c = vec3(0.05);\n"
 					"		imageStore(debug_out, p, vec4(c, 1.));\n"
 					"	}\n"
+					"	else if (params.z == 3.)\n"
+					"	{\n"
+					"		// Numeric: 128 + 4 x motion (pixels) in red and green, coverage in blue (self-test decoding)\n"
+					"		imageStore(debug_out, p, vec4(clamp((128. + mv * 4.) / 255., 0., 1.), covered ? 1. : 0., 1.));\n"
+					"	}\n"
 					"	else if (params.z == 2.)\n"
 					"	{\n"
 					"		const float v = covered ? pow(clamp(1. - d, 0., 1.), 0.25) : 0.;\n"
@@ -348,6 +353,15 @@ namespace vk
 #endif
 	} // namespace
 
+	namespace
+	{
+		atomic_t<u64> s_drawn_frames{0};    // game frames that had camera draws
+		atomic_t<u64> s_presented_frame{0}; // which of them the last presented output shows
+	}
+
+	u64 dlss_drawn_frames() { return s_drawn_frames.load(); }
+	u64 dlss_presented_frame() { return s_presented_frame.load(); }
+
 	dlss_mode dlss_configured_mode()
 	{
 		static const dlss_mode s_mode = []
@@ -360,6 +374,7 @@ namespace vk
 			const std::string s = fmt::to_lower(v);
 			if (s == "motion" || s == "mv") return dlss_mode::debug_motion;
 			if (s == "depth") return dlss_mode::debug_depth;
+			if (s == "motionraw") return dlss_mode::debug_motion_raw;
 			if (s == "jitter") return dlss_mode::jitter_only;
 			if (s == "dlaa" || s == "1" || s == "on") return dlss_mode::dlaa;
 			if (s == "quality") return dlss_mode::quality;
@@ -615,7 +630,7 @@ namespace vk
 			m_disabled = true;
 		}
 
-		if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::jitter_only)
+		if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw || m_mode == dlss_mode::jitter_only)
 		{
 			m_jitter_phases = 8;
 		}
@@ -651,6 +666,7 @@ namespace vk
 			m_ngx_ready = false;
 		}
 #endif
+		m_last_result = nullptr;
 		m_motion.reset();
 		m_mv.reset();
 		m_depth.reset();
@@ -660,7 +676,7 @@ namespace vk
 
 	void dlss_context::update_jitter()
 	{
-		if (m_mode == dlss_mode::off || m_jitter_scale == 0.f || m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth)
+		if (m_mode == dlss_mode::off || m_jitter_scale == 0.f || m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw)
 		{
 			m_jitter_px[0] = m_jitter_px[1] = 0.f;
 			return;
@@ -732,14 +748,18 @@ namespace vk
 
 	void dlss_context::note_draw(u32 color_address, const u16* constant_ids, usz constant_count)
 	{
-		if (m_forced_address || !color_address || m_disabled)
+		if (!color_address || m_disabled)
 		{
 			return;
 		}
 		mat4 m;
 		if (find_camera_matrix(constant_ids, constant_count, m))
 		{
-			m_target_counts[color_address]++;
+			m_frame_camera_draws++;
+			if (!m_forced_address)
+			{
+				m_target_counts[color_address]++;
+			}
 		}
 	}
 
@@ -788,6 +808,15 @@ namespace vk
 		m_reset_history = true;
 		dlss_log.notice("Motion image %ux%u, %u samples (scene target 0x%x)", w, h, static_cast<u32>(samples), m_scene_address);
 		return true;
+	}
+
+	bool dlss_context::wants_motion(u32 color_address, bool vr_active) const
+	{
+		if (m_mode == dlss_mode::off || m_disabled || vr_active || !color_address)
+		{
+			return false;
+		}
+		return color_address == (m_forced_address ? m_forced_address : m_scene_address);
 	}
 
 	vk::image* dlss_context::bind_framebuffer(const vk::command_buffer& cmd, u32 color_address, vk::image* color_surface,
@@ -865,6 +894,13 @@ namespace vk
 		}
 	}
 
+	void dlss_context::write_neutral_block(void* dst) const
+	{
+		f32* out = static_cast<f32*>(dst);
+		std::memcpy(out, identity4, sizeof(identity4));
+		out[16] = out[17] = out[18] = out[19] = 0.f;
+	}
+
 	void dlss_context::write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
 		u32 clip_width, u32 clip_height, bool instanced)
 	{
@@ -900,7 +936,7 @@ namespace vk
 		}
 		key = mix(key, regs.index_array_address());
 		const auto& clause = regs.current_draw_clause;
-		key = mix(key, (clause.command == rsx::draw_command::inlined_array || clause.empty()) ? 0 : clause.min_index());
+		// (min_index() asserts outside the draw loop; the element count and the addresses identify the draw well enough.)
 		key = mix(key, clause.vr_total_elements());
 		key = mix(key, m_occurrences[key]++);
 
@@ -946,6 +982,14 @@ namespace vk
 			}
 		}
 
+		if (static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr; s_debug)
+		{
+			const auto prev_it = m_prev_draws.find(key);
+			dlss_log.notice("Draw key %016llx: M row0 (%.4f %.4f %.4f %.4f), previous %s, R row0 (%.4f %.4f %.4f %.4f)", key, cur.m[0], cur.m[1], cur.m[2], cur.m[3],
+				prev_it != m_prev_draws.end() ? fmt::format("(%.4f %.4f %.4f %.4f)", prev_it->second.m[0], prev_it->second.m[1], prev_it->second.m[2], prev_it->second.m[3]) : std::string("none"),
+				r[0], r[1], r[2], r[3]);
+		}
+
 		draw_record rec;
 		std::memcpy(rec.m, cur.m, sizeof(rec.m));
 		m_cur_draws[key] = rec;
@@ -955,6 +999,11 @@ namespace vk
 		const bool depth_write = regs.depth_test_enabled() && regs.depth_write_enabled();
 		const bool opaque_test = regs.depth_test_enabled() && !regs.blend_enabled_mask();
 		const f32 cover = (depth_write || opaque_test) ? 1.f : 0.f;
+
+		if (static const f32 s_test_shift = env_f32("RPCS3_DLSS_TEST_SHIFT", 0.f); s_test_shift != 0.f)
+		{
+			r[3] += s_test_shift * r[15]; // test: previous position shifted by s_test_shift in clip x (NDC at w = 1)
+		}
 
 		std::memcpy(out, r, sizeof(r));
 		out[16] = 2.f * m_jitter_px[0] / static_cast<f32>(clip_width);
@@ -970,6 +1019,7 @@ namespace vk
 			return true;
 		}
 
+		m_last_result = nullptr;
 		if (m_mv) vk::get_resource_manager()->dispose(m_mv);
 		if (m_depth) vk::get_resource_manager()->dispose(m_depth);
 		if (m_debug) vk::get_resource_manager()->dispose(m_debug);
@@ -998,6 +1048,7 @@ namespace vk
 			return true;
 		}
 
+		m_last_result = nullptr;
 		if (m_output) vk::get_resource_manager()->dispose(m_output);
 
 		// RGBA8: the present path (screenshots) expects 4 bytes per pixel.
@@ -1022,7 +1073,7 @@ namespace vk
 		m_debug->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
 		static const auto mv_sign = env_signs("RPCS3_DLSS_MV_SIGN");
-		const f32 debug_mode = m_mode == dlss_mode::debug_motion ? 1.f : (m_mode == dlss_mode::debug_depth ? 2.f : 0.f);
+		const f32 debug_mode = m_mode == dlss_mode::debug_motion ? 1.f : m_mode == dlss_mode::debug_depth ? 2.f : m_mode == dlss_mode::debug_motion_raw ? 3.f : 0.f;
 		const f32 src_w = static_cast<f32>(std::min<u32>(m_clip_width ? m_clip_width : m_motion->width(), m_motion->width()));
 		const f32 src_h = static_cast<f32>(std::min<u32>(m_clip_height ? m_clip_height : m_motion->height(), m_motion->height()));
 		const f32 constants[8] = {src_w, src_h, static_cast<f32>(width), static_cast<f32>(height), mv_sign[0], mv_sign[1], debug_mode, 0.f};
@@ -1054,17 +1105,19 @@ namespace vk
 			return nullptr;
 		}
 
-		if (!emu_flip)
+		if (!emu_flip || !m_frame_camera_draws)
 		{
-			// A UI refresh between game frames: show the last output again.
-			if (m_output && m_last_out_w && m_last_out_h && dlss_uses_ngx() && !m_reset_history)
+			// A UI refresh, or a flip without any 3D drawn since the last one (a game showing the same frame again,
+			// a capture replay's empty loop): show the last output again; history, jitter and frame count stay.
+			if (m_last_result && m_last_out_w && m_last_out_h && !m_disabled && !vr_active)
 			{
 				out_w = m_last_out_w;
 				out_h = m_last_out_h;
-				return m_output.get();
+				return m_last_result;
 			}
 			return nullptr;
 		}
+		m_frame_camera_draws = 0;
 
 		vk::viewable_image* result = nullptr;
 		const bool usable = !m_disabled && !vr_active && source && width && height && m_motion && m_scene_drawn &&
@@ -1074,11 +1127,11 @@ namespace vk
 		{
 			resolve(cmd, width, height);
 
-			if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth)
+			if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw)
 			{
 				result = m_debug.get();
-				out_w = width;
-				out_h = height;
+				out_w = m_last_out_w = width;
+				out_h = m_last_out_h = height;
 			}
 			else
 			{
@@ -1116,7 +1169,8 @@ namespace vk
 		}
 
 		// ---- The frame is over: history, scene target, statistics, next jitter ----
-		if (m_frame % 300 == 0)
+		static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr;
+		if (m_frame % 300 == 0 || s_debug)
 		{
 			dlss_log.notice("Frame %llu: scene 0x%x, camera draws %u (matched %u, unmatched %u), static reprojection %s, clip %ux%u, output %s",
 				m_frame, m_forced_address ? m_forced_address : m_scene_address, m_camera_draws, m_matched, m_unmatched,
@@ -1153,7 +1207,7 @@ namespace vk
 					best_address = address;
 				}
 			}
-			if (best_address != m_scene_address)
+			if (best_count && best_address != m_scene_address) // a frame without camera draws (menus, loading) keeps the target
 			{
 				dlss_log.notice("Scene target 0x%x (%u camera draws)", best_address, best_count);
 				m_scene_address = best_address;
@@ -1161,6 +1215,14 @@ namespace vk
 			}
 			m_target_counts.clear();
 		}
+
+		m_last_result = result;
+		if (!result)
+		{
+			m_last_out_w = m_last_out_h = 0;
+		}
+		s_presented_frame = s_drawn_frames.load();
+		s_drawn_frames++;
 
 		m_scene_drawn = false;
 		m_frame++;
