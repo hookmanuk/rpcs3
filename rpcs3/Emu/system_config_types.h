@@ -410,3 +410,25 @@ enum class vr_cinematic_scenes
 	full_quality,     // the configured Resolution Scale, in the headset view
 };
 
+// VR fork, DLSS test branch: the DLSS mode (VKDLSS.cpp; env RPCS3_DLSS overrides) and the NGX render preset it uses.
+enum class vr_dlss_mode
+{
+	off,
+	dlaa,
+	quality,
+	balanced,
+	performance,
+	ultra_performance,
+};
+
+enum class vr_dlss_model
+{
+	default_model, // NGX's choice per mode (K for DLAA, Quality and Balanced; M for Performance; L for Ultra Performance)
+	e,             // convolutional (deprecated by NVIDIA): far cheaper
+	f,
+	j,             // transformer
+	k,
+	l,
+	m,
+};
+

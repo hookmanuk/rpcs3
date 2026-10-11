@@ -258,6 +258,8 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::VRFixedScreen,              get_cfg_location(local_cfg.video.vr.fixed_screen) },
 	{ emu_settings_type::VRFrameRate,                get_cfg_location(local_cfg.video.vr.frame_rate) },
 	{ emu_settings_type::VRCinematicScenes,          get_cfg_location(local_cfg.video.vr.cinematic_scenes) },
+	{ emu_settings_type::VRDlss,                     get_cfg_location(local_cfg.video.vr.dlss) },
+	{ emu_settings_type::VRDlssModel,                get_cfg_location(local_cfg.video.vr.dlss_model) },
 	{ emu_settings_type::VRHighestDetailModels,      get_cfg_location(local_cfg.video.vr.highest_detail_models) },
 	{ emu_settings_type::VRReducedRateReflections,   get_cfg_location(local_cfg.video.vr.reduced_rate_reflections) },
 	{ emu_settings_type::VRReducedRateMirror,        get_cfg_location(local_cfg.video.vr.reduced_rate_mirror) },

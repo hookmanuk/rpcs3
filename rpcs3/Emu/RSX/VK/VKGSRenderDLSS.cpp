@@ -271,6 +271,31 @@ void VKGSRender::dlss_write_eye_blocks(u8* left, u8* right, usz block_offset)
 	m_dlss->write_draw_block(right + block_offset, ids, count, hash, clip_width, clip_height, instanced, right, 2);
 }
 
+void VKGSRender::dlss_hud_snapshot(u32 color_index)
+{
+	static const bool s_off = std::getenv("RPCS3_DLSS_HUD_IN") != nullptr; // dev: the HUD through DLSS as before
+	if (!m_dlss || s_off || color_index >= m_rtts.m_bound_render_targets.size())
+	{
+		return;
+	}
+	auto* target = m_rtts.m_bound_render_targets[color_index].second;
+	if (!target)
+	{
+		return;
+	}
+	// A copy needs the render pass closed; it is opened again for this draw.
+	const bool open = vk::is_renderpass_open(*m_current_command_buffer);
+	if (open)
+	{
+		close_render_pass();
+	}
+	m_dlss->hud_snapshot(*m_current_command_buffer, target);
+	if (open)
+	{
+		begin_render_pass();
+	}
+}
+
 // ---- Flip (vr_publish_frame) ---------------------------------------------------------------------------
 
 void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
@@ -291,11 +316,34 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	}
 	// VR multiview with a headset view: right_eye is the right eye's image, or null for a frame on the fixed screen.
 	const bool vr_view = m_vr_multiview && (vk::xr::is_running() || vk::xr::fake_hmd());
-	if (vk::viewable_image* dlss_image = m_dlss->on_flip(*m_current_command_buffer, image_to_flip, buffer_width, buffer_height,
-			static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, dlss_vr_unsupported(), out_w, out_h,
-			vr_view ? &image_to_flip2 : nullptr))
+	// The HUD outside DLSS: the image without it (taken before the frame's first HUD-box draw) in, the HUD added after.
+	vk::viewable_image* const final_left = image_to_flip;
+	vk::viewable_image* const final_right = image_to_flip2;
+	vk::viewable_image* pre_left = m_dlss->hud_pre(image_to_flip, 0);
+	vk::viewable_image* pre_right = pre_left && vr_view && image_to_flip2 ? m_dlss->hud_pre(image_to_flip, 1) : nullptr;
+	if (vr_view && image_to_flip2 && !pre_right)
 	{
+		pre_left = nullptr;
+	}
+	m_dlss->hud_flip_done();
+	vk::viewable_image* right = pre_right ? pre_right : image_to_flip2;
+	if (vk::viewable_image* dlss_image = m_dlss->on_flip(*m_current_command_buffer, pre_left ? pre_left : image_to_flip, buffer_width, buffer_height,
+			static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, dlss_vr_unsupported(), out_w, out_h,
+			vr_view ? &right : nullptr))
+	{
+		if (pre_left && m_dlss->output_fresh())
+		{
+			m_dlss->hud_composite(*m_current_command_buffer, dlss_image, final_left, 0, pre_left, buffer_width, buffer_height);
+			if (pre_right && right != pre_right)
+			{
+				m_dlss->hud_composite(*m_current_command_buffer, right, final_right, 0, pre_right, buffer_width, buffer_height);
+			}
+		}
 		image_to_flip = dlss_image;
+		if (vr_view)
+		{
+			image_to_flip2 = right;
+		}
 		buffer_width = out_w;
 		buffer_height = out_h;
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;

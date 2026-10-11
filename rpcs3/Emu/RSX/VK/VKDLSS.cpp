@@ -221,6 +221,8 @@ namespace vk
 					"layout(set=0, binding=1, rg32f) uniform writeonly image2D mv_out;\n"
 					"layout(set=0, binding=2, r32f) uniform writeonly image2D depth_out;\n"
 					"layout(set=0, binding=3, rgba8) uniform writeonly image2D debug_out;\n"
+					"layout(set=0, binding=4) uniform sampler2D prev2_color;\n"
+					"layout(set=0, binding=5) uniform sampler2D prev_mv_tex;\n"
 					"layout(push_constant) uniform pc_block\n"
 					"{\n"
 					"	vec4 sizes;  // source region w, h; output w, h\n"
@@ -321,6 +323,176 @@ namespace vk
 			}
 		};
 
+		// debug_warp: the previous input sampled through this frame's motion vectors (render pixels, this frame -> the
+		// previous), against this input. Red: what is left after the warp (wrong motion vectors light up); green: unwarped.
+		struct dlss_warp_check_pass : public compute_task
+		{
+			const vk::image_view* m_mv = nullptr;
+			const vk::image_view* m_cur = nullptr;
+			const vk::image_view* m_prev = nullptr;
+			const vk::image_view* m_out = nullptr;
+			const vk::image_view* m_prev2 = nullptr;
+			const vk::image_view* m_prev_mv = nullptr;
+			std::unique_ptr<vk::sampler> m_nearest, m_linear;
+
+			dlss_warp_check_pass()
+			{
+				m_src =
+					"#version 450\n"
+					"layout(local_size_x = 16, local_size_y = 16) in;\n"
+					"layout(set=0, binding=0) uniform sampler2D mv_tex;\n"
+					"layout(set=0, binding=1) uniform sampler2D cur_color;\n"
+					"layout(set=0, binding=2) uniform sampler2D prev_color;\n"
+					"layout(set=0, binding=3, rgba8) uniform writeonly image2D debug_out;\n"
+					"layout(push_constant) uniform pc_block { vec4 sizes; }; // w, h, gain\n"
+					"void main()\n"
+					"{\n"
+					"	const ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
+					"	if (p.x >= int(sizes.x) || p.y >= int(sizes.y)) return;\n"
+					"	const vec2 mv = texelFetch(mv_tex, p, 0).xy;\n"
+					"	const vec3 c = texelFetch(cur_color, p, 0).rgb;\n"
+					"	const vec3 q = texture(prev_color, (vec2(p) + 0.5 + mv) / sizes.xy).rgb;\n"
+					"	// Timing: red, this frame's vectors on this pair; green, on the pair before (vectors a frame late);\n"
+					"	// blue, the previous frame's vectors on this pair (vectors a frame early). RPCS3_DLSS_WARP_PLAIN=1: green unwarped.\n"
+					"	const vec3 pr = texelFetch(prev_color, p, 0).rgb;\n"
+					"	const vec3 g2 = texture(prev2_color, (vec2(p) + 0.5 + mv) / sizes.xy).rgb;\n"
+					"	const vec2 mv1 = texelFetch(prev_mv_tex, p, 0).xy;\n"
+					"	const vec3 b1 = texture(prev_color, (vec2(p) + 0.5 + mv1) / sizes.xy).rgb;\n"
+					"	const float green = sizes.w > 0.5 ? length(c - pr) : length(pr - g2);\n"
+					"	imageStore(debug_out, p, vec4(clamp(length(c - q) * sizes.z, 0., 1.), clamp(green * sizes.z, 0., 1.), clamp(length(c - b1) * sizes.z, 0., 1.), 1.));\n"
+					"}\n";
+				ssbo_count = 0;
+				use_push_constants = true;
+				push_constants_size = 16;
+				create();
+			}
+
+			std::vector<glsl::program_input> get_inputs() override
+			{
+				auto result = compute_task::get_inputs();
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "mv_tex", vk::glsl::input_type_texture, 0, 0));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "cur_color", vk::glsl::input_type_texture, 0, 1));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "prev_color", vk::glsl::input_type_texture, 0, 2));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "debug_out", vk::glsl::input_type_storage_texture, 0, 3));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "prev2_color", vk::glsl::input_type_texture, 0, 4));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "prev_mv_tex", vk::glsl::input_type_texture, 0, 5));
+				return result;
+			}
+
+			void bind_resources(const vk::command_buffer& /*cmd*/) override
+			{
+				if (!m_nearest)
+				{
+					m_nearest = std::make_unique<vk::sampler>(*vk::get_current_renderer(),
+						VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+						VK_FALSE, 0.f, 1.f, 0.f, 0.f, VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+					m_linear = std::make_unique<vk::sampler>(*vk::get_current_renderer(),
+						VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+						VK_FALSE, 0.f, 1.f, 0.f, 0.f, VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+				}
+				m_program->bind_uniform({*m_mv, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 0);
+				m_program->bind_uniform({*m_cur, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 1);
+				m_program->bind_uniform({*m_prev, *m_linear, VK_IMAGE_LAYOUT_GENERAL}, 0, 2);
+				m_program->bind_uniform({*m_out}, 0, 3);
+				m_program->bind_uniform({*m_prev2, *m_linear, VK_IMAGE_LAYOUT_GENERAL}, 0, 4);
+				m_program->bind_uniform({*m_prev_mv, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 5);
+			}
+
+			void run(const vk::command_buffer& cmd, const vk::image_view* mv, const vk::image_view* cur, const vk::image_view* prev, const vk::image_view* out,
+				const vk::image_view* prev2, const vk::image_view* prev_mv, u32 width, u32 height, f32 gain, f32 plain)
+			{
+				m_prev2 = prev2;
+				m_prev_mv = prev_mv;
+				m_mv = mv;
+				m_cur = cur;
+				m_prev = prev;
+				m_out = out;
+				if (vk::is_renderpass_open(cmd))
+				{
+					vk::end_renderpass(cmd);
+				}
+				load_program(cmd);
+				const f32 pc[4] = {static_cast<f32>(width), static_cast<f32>(height), gain, plain};
+				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 16, pc);
+				vkCmdDispatch(cmd, utils::aligned_div(width, 16u), utils::aligned_div(height, 16u), 1);
+			}
+		};
+
+		// The HUD on top of DLSS's output: out += final - pre, both sampled bilinearly over the input region.
+		struct dlss_hud_composite_pass : public compute_task
+		{
+			const vk::image_view* m_final = nullptr;
+			const vk::image_view* m_pre = nullptr;
+			const vk::image_view* m_out = nullptr;
+			std::unique_ptr<vk::sampler> m_linear;
+
+			dlss_hud_composite_pass()
+			{
+				m_src =
+					"#version 450\n"
+					"layout(local_size_x = 16, local_size_y = 16) in;\n"
+					"layout(set=0, binding=0) uniform sampler2D final_tex;\n"
+					"layout(set=0, binding=1) uniform sampler2D pre_tex;\n"
+					"layout(set=0, binding=2, rgba8) uniform image2D out_img;\n"
+					"layout(push_constant) uniform pc_block { vec4 sizes; vec4 scales; }; // out w, h; final u, v; pre u, v (region / texture)\n"
+					"void main()\n"
+					"{\n"
+					"	const ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
+					"	if (p.x >= int(sizes.x) || p.y >= int(sizes.y)) return;\n"
+					"	const vec2 uv = (vec2(p) + 0.5) / sizes.xy;\n"
+					"	const vec3 f = texture(final_tex, uv * sizes.zw).rgb;\n"
+					"	const vec3 b = texture(pre_tex, uv * scales.xy).rgb;\n"
+					"	const vec3 d = abs(f - b);\n"
+					"	if (all(lessThan(d, vec3(0.5 / 255.)))) return;\n"
+					"	// final = pre (1 - a) + hud a, so the HUD over DLSS's output is final + (1 - a) (out - pre). The HUD's\n"
+					"	// coverage a is not known: estimated from how much it changed the pixel (any clear change: all of it).\n"
+					"	const float a = clamp(max(d.r, max(d.g, d.b)) * scales.z, 0., 1.);\n"
+					"	const vec4 o = imageLoad(out_img, p);\n"
+					"	imageStore(out_img, p, vec4(clamp(f + (1. - a) * (o.rgb - b), 0., 1.), o.a));\n"
+					"}\n";
+				ssbo_count = 0;
+				use_push_constants = true;
+				push_constants_size = 32;
+				create();
+			}
+
+			std::vector<glsl::program_input> get_inputs() override
+			{
+				auto result = compute_task::get_inputs();
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "final_tex", vk::glsl::input_type_texture, 0, 0));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "pre_tex", vk::glsl::input_type_texture, 0, 1));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "out_img", vk::glsl::input_type_storage_texture, 0, 2));
+				return result;
+			}
+
+			void bind_resources(const vk::command_buffer& /*cmd*/) override
+			{
+				if (!m_linear)
+				{
+					m_linear = std::make_unique<vk::sampler>(*vk::get_current_renderer(),
+						VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+						VK_FALSE, 0.f, 1.f, 0.f, 0.f, VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+				}
+				m_program->bind_uniform({*m_final, *m_linear, VK_IMAGE_LAYOUT_GENERAL}, 0, 0);
+				m_program->bind_uniform({*m_pre, *m_linear, VK_IMAGE_LAYOUT_GENERAL}, 0, 1);
+				m_program->bind_uniform({*m_out}, 0, 2);
+			}
+
+			void run(const vk::command_buffer& cmd, const vk::image_view* final_view, const vk::image_view* pre, const vk::image_view* out, const f32 pc[8])
+			{
+				m_final = final_view;
+				m_pre = pre;
+				m_out = out;
+				if (vk::is_renderpass_open(cmd))
+				{
+					vk::end_renderpass(cmd);
+				}
+				load_program(cmd);
+				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, pc);
+				vkCmdDispatch(cmd, utils::aligned_div(static_cast<u32>(pc[0]), 16u), utils::aligned_div(static_cast<u32>(pc[1]), 16u), 1);
+			}
+		};
+
 		// The motion image drops its framebuffers when it is finally destroyed (like a render target).
 		class dlss_motion_image : public vk::viewable_image
 		{
@@ -397,8 +569,8 @@ namespace vk
 
 	dlss_mode dlss_configured_mode()
 	{
-		// RPCS3_DLSS (any mode, debug views included), else the game's (or global) setting VR / DLSS (test), read at each
-		// boot: the instance and device extensions are chosen from it.
+		// RPCS3_DLSS (any mode, debug views included; fixed for the session), else the game's (or global) setting
+		// VR / DLSS (test), which the context reads again at each flip (the settings and the home menu change it live).
 		static const char* const s_env = env("RPCS3_DLSS");
 		const auto parse = [](std::string s) -> dlss_mode
 		{
@@ -407,6 +579,7 @@ namespace vk
 			if (s == "motion" || s == "mv") return dlss_mode::debug_motion;
 			if (s == "depth") return dlss_mode::debug_depth;
 			if (s == "motionraw") return dlss_mode::debug_motion_raw;
+			if (s == "warp") return dlss_mode::debug_warp;
 			if (s == "jitter") return dlss_mode::jitter_only;
 			if (s == "dlaa" || s == "1" || s == "on") return dlss_mode::dlaa;
 			if (s == "quality") return dlss_mode::quality;
@@ -416,6 +589,24 @@ namespace vk
 			return dlss_mode::off;
 		};
 		return parse(s_env ? std::string(s_env) : g_cfg.video.vr.dlss.to_string());
+	}
+
+	bool dlss_enabled()
+	{
+#ifdef HAVE_DLSS
+		return env("RPCS3_DLSS") == nullptr || dlss_configured_mode() != dlss_mode::off;
+#else
+		return dlss_configured_mode() != dlss_mode::off;
+#endif
+	}
+
+	bool dlss_ngx_possible()
+	{
+#ifdef HAVE_DLSS
+		return env("RPCS3_DLSS") == nullptr || dlss_uses_ngx();
+#else
+		return false;
+#endif
 	}
 
 	bool dlss_uses_ngx()
@@ -438,7 +629,7 @@ namespace vk
 	void dlss_instance_extensions(std::vector<const char*>& extensions)
 	{
 #ifdef HAVE_DLSS
-		if (!dlss_uses_ngx())
+		if (!dlss_ngx_possible())
 		{
 			return;
 		}
@@ -475,7 +666,7 @@ namespace vk
 	void dlss_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
 #ifdef HAVE_DLSS
-		if (!dlss_uses_ngx())
+		if (!dlss_ngx_possible())
 		{
 			return;
 		}
@@ -517,7 +708,7 @@ namespace vk
 	void dlss_device_chain(VkPhysicalDevice pdev, VkDeviceCreateInfo& info)
 	{
 #ifdef HAVE_DLSS
-		if (!dlss_uses_ngx() || !pdev)
+		if (!dlss_ngx_possible() || !pdev)
 		{
 			return;
 		}
@@ -703,7 +894,7 @@ namespace vk
 			m_disabled = true;
 		}
 
-		if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw || m_mode == dlss_mode::jitter_only)
+		if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw || m_mode == dlss_mode::debug_warp || m_mode == dlss_mode::jitter_only)
 		{
 			m_jitter_phases = 8;
 		}
@@ -751,11 +942,45 @@ namespace vk
 		m_depth_right.reset();
 		m_debug_right.reset();
 		m_output_right.reset();
+		for (u32 e = 0; e < 2; ++e)
+		{
+			m_warp_prev[e].reset();
+			m_warp_prev2[e].reset();
+			m_warp_prev_mv[e].reset();
+			m_hud_pre[e].reset();
+		}
+		m_hud_pre_target = nullptr;
+	}
+
+	void dlss_context::refresh_mode()
+	{
+		if (env("RPCS3_DLSS"))
+		{
+			return; // fixed for the session
+		}
+		const dlss_mode mode = dlss_configured_mode();
+		if (mode == m_mode)
+		{
+			return;
+		}
+		dlss_log.notice("DLSS mode %u -> %u (setting changed)", static_cast<u32>(m_mode), static_cast<u32>(mode));
+		m_mode = mode;
+		m_reset_history = true;
+		m_jitter_phases = 8;
+		m_last_result = nullptr;
+		m_last_right = nullptr;
+		m_last_out_w = m_last_out_h = 0;
+		m_hud_pre_target = nullptr;
+		if (mode == dlss_mode::off)
+		{
+			ngx_release_features();
+		}
+		update_jitter();
 	}
 
 	void dlss_context::update_jitter()
 	{
-		if (m_mode == dlss_mode::off || m_jitter_scale == 0.f || m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw)
+		if (m_mode == dlss_mode::off || m_jitter_scale == 0.f || m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw || m_mode == dlss_mode::debug_warp)
 		{
 			m_jitter_px[0] = m_jitter_px[1] = 0.f;
 			return;
@@ -834,7 +1059,7 @@ namespace vk
 
 	void dlss_context::note_draw(u32 color_address, const u16* constant_ids, usz constant_count)
 	{
-		if (!color_address)
+		if (!color_address || m_mode == dlss_mode::off)
 		{
 			return;
 		}
@@ -1332,16 +1557,147 @@ namespace vk
 		vk::insert_global_memory_barrier(cmd);
 	}
 
+	void dlss_context::warp_check(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height, u32 eye)
+	{
+		const u32 e = eye ? 1 : 0;
+		auto& prev = m_warp_prev[e];
+		auto& prev2 = m_warp_prev2[e];
+		auto& prev_mv = m_warp_prev_mv[e];
+		vk::viewable_image* const mv_image = eye ? m_mv_right.get() : m_mv.get();
+		vk::viewable_image* const debug_image = eye ? m_debug_right.get() : m_debug.get();
+		if (!source || !mv_image || !debug_image || source->width() < width || source->height() < height)
+		{
+			return;
+		}
+		const bool fresh = !prev || prev->width() != width || prev->height() != height || prev->format() != source->format();
+		if (fresh)
+		{
+			for (auto* image : {&prev, &prev2, &prev_mv})
+			{
+				if (*image) vk::get_resource_manager()->dispose(*image);
+			}
+			const VkImageUsageFlags usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+			prev = make_image(m_device, source->format(), width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			prev2 = make_image(m_device, source->format(), width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			prev_mv = make_image(m_device, VK_FORMAT_R32G32_SFLOAT, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+		}
+		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
+		const areai rect = {0, 0, static_cast<s32>(width), static_cast<s32>(height)};
+
+		if (!fresh)
+		{
+			source->push_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			for (auto* image : {prev.get(), prev2.get(), prev_mv.get(), mv_image, debug_image})
+			{
+				image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			}
+			vk::insert_global_memory_barrier(cmd);
+			static const f32 s_plain = env_f32("RPCS3_DLSS_WARP_PLAIN", 0.f);
+			vk::get_compute_task<dlss_warp_check_pass>()->run(cmd, mv_image->get_view(identity), source->get_view(identity), prev->get_view(identity),
+				debug_image->get_view(identity), prev2->get_view(identity), prev_mv->get_view(identity), width, height, env_f32("RPCS3_DLSS_WARP_GAIN", 8.f), s_plain);
+			vk::insert_global_memory_barrier(cmd);
+			source->pop_layout(cmd);
+		}
+		// History: prev -> prev2, this input -> prev, these vectors -> prev_mv.
+		prev->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		prev2->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		vk::copy_image(cmd, prev.get(), prev2.get(), rect, rect);
+		source->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		prev->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		vk::copy_image(cmd, source, prev.get(), rect, rect);
+		source->pop_layout(cmd);
+		mv_image->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		prev_mv->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		vk::copy_image(cmd, mv_image, prev_mv.get(), rect, rect);
+		for (auto* image : {prev.get(), prev2.get(), prev_mv.get(), mv_image})
+		{
+			image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		}
+	}
+
+	void dlss_context::hud_snapshot(const vk::command_buffer& cmd, vk::viewable_image* target)
+	{
+		if (!target || target == m_hud_pre_target || target->samples() > 1 || m_mode == dlss_mode::off || m_disabled)
+		{
+			return;
+		}
+		const u32 layers = std::min<u32>(target->layers(), 2);
+		for (u32 eye = 0; eye < layers; ++eye)
+		{
+			auto& pre = m_hud_pre[eye];
+			if (!pre || pre->width() != target->width() || pre->height() != target->height() || pre->format() != target->format())
+			{
+				if (pre) vk::get_resource_manager()->dispose(pre);
+				pre = make_image(m_device, target->format(), target->width(), target->height(), VK_SAMPLE_COUNT_1_BIT,
+					VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+				if (!pre->value)
+				{
+					pre.reset();
+					return;
+				}
+			}
+		}
+
+		target->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		for (u32 eye = 0; eye < layers; ++eye)
+		{
+			auto& pre = m_hud_pre[eye];
+			pre->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			VkImageCopy copy{};
+			copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, eye, 1};
+			copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+			copy.extent = {target->width(), target->height(), 1};
+			vkCmdCopyImage(cmd, target->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, pre->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+			pre->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		}
+		target->pop_layout(cmd);
+		m_hud_pre_target = target;
+		m_hud_pre_layers = layers;
+	}
+
+	vk::viewable_image* dlss_context::hud_pre(const vk::image* flip_image, u32 eye) const
+	{
+		if (!flip_image || flip_image != m_hud_pre_target || eye >= m_hud_pre_layers)
+		{
+			return nullptr;
+		}
+		return m_hud_pre[eye].get();
+	}
+
+	void dlss_context::hud_composite(const vk::command_buffer& cmd, vk::viewable_image* out, vk::viewable_image* final_image, u32 final_layer,
+		vk::viewable_image* pre, u32 in_w, u32 in_h)
+	{
+		if (!out || !final_image || !pre || !in_w || !in_h)
+		{
+			return;
+		}
+		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
+		vk::insert_global_memory_barrier(cmd);
+		final_image->push_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		pre->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		out->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		const vk::image_view* final_view = final_image->layers() > 1 ?
+			final_image->get_layer_view(identity, VK_IMAGE_ASPECT_COLOR_BIT, final_layer) : final_image->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
+		const f32 pc[8] = {static_cast<f32>(out->width()), static_cast<f32>(out->height()),
+			static_cast<f32>(in_w) / final_image->width(), static_cast<f32>(in_h) / final_image->height(),
+			static_cast<f32>(in_w) / pre->width(), static_cast<f32>(in_h) / pre->height(), env_f32("RPCS3_DLSS_HUD_GAIN", 20.f), 0.f};
+		vk::get_compute_task<dlss_hud_composite_pass>()->run(cmd, final_view, pre->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT), out->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT), pc);
+		final_image->pop_layout(cmd);
+		vk::insert_global_memory_barrier(cmd);
+	}
+
 	vk::viewable_image* dlss_context::on_flip(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height,
 		u32 target_width, u32 target_height, bool emu_flip, bool vr_unsupported, u32& out_w, u32& out_h,
 		vk::viewable_image** right_eye)
 	{
+		m_output_fresh = false;
+		refresh_mode();
 		if (m_mode == dlss_mode::off)
 		{
 			return nullptr;
 		}
 
-		const bool debug_view = m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw;
+		const bool debug_view = m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw || m_mode == dlss_mode::debug_warp;
 		// VR multiview: both eyes are shown (right_eye), and the motion image has a layer per eye. A VR frame without
 		// the right eye is shown on the fixed screen (menus, videos, frames_without_3d_as_screen).
 		const bool vr = right_eye != nullptr;
@@ -1389,6 +1745,14 @@ namespace vk
 			{
 				resolve(cmd, width, height, 1);
 			}
+			if (m_mode == dlss_mode::debug_warp)
+			{
+				warp_check(cmd, source, width, height, 0);
+				if (stereo)
+				{
+					warp_check(cmd, *right_eye, width, height, 1);
+				}
+			}
 
 			if (debug_view)
 			{
@@ -1417,6 +1781,7 @@ namespace vk
 				{
 					result = m_output.get();
 					result_right = stereo ? m_output_right.get() : nullptr;
+					m_output_fresh = true;
 					out_w = m_last_out_w = ow;
 					out_h = m_last_out_h = oh;
 					m_reset_history = false;
@@ -1648,8 +2013,22 @@ namespace vk
 
 		auto* params = static_cast<NVSDK_NGX_Parameter*>(m_ngx_params);
 		ngx_feature& feature = m_ngx_features[eye];
+
+		// The render preset for every mode: VR / DLSS Model (test), or RPCS3_DLSS_PRESET=<letter> (310: J, K transformer;
+		// L, M lighter; E, F the old convolutional ones, deprecated). Default: NGX's choice per mode (K for DLAA, Quality,
+		// Balanced; M for Performance; L for Ultra Performance). A change makes the features again.
+		u32 letter = 0;
+		if (const char* preset = env("RPCS3_DLSS_PRESET"); preset && preset[0] >= 'A' && preset[0] <= 'O')
+		{
+			letter = static_cast<u8>(preset[0]);
+		}
+		else if (const vr_dlss_model model = g_cfg.video.vr.dlss_model; model != vr_dlss_model::default_model)
+		{
+			letter = static_cast<u8>(fmt::format("%s", model)[0]);
+		}
+
 		if (!feature.handle || feature.in[0] != in_w || feature.in[1] != in_h || feature.out[0] != out_w || feature.out[1] != out_h ||
-			feature.quality != static_cast<u32>(quality))
+			feature.quality != static_cast<u32>(quality) || feature.preset != letter)
 		{
 			if (feature.handle)
 			{
@@ -1671,6 +2050,18 @@ namespace vk
 			}
 			create.InEnableOutputSubrects = false;
 
+			// The hints stay on the shared parameters: written every time (0 asks for NGX's default again).
+			for (const char* name : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,
+					 NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
+					 NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance})
+			{
+				NVSDK_NGX_Parameter_SetUI(params, name, letter ? letter - 'A' + 1 : 0);
+			}
+			if (letter)
+			{
+				dlss_log.notice("render preset %c", static_cast<char>(letter));
+			}
+
 			NVSDK_NGX_Handle* handle = nullptr;
 			const NVSDK_NGX_Result r = NGX_VULKAN_CREATE_DLSS_EXT(cmd, 1, 1, &handle, params, &create);
 			if (NVSDK_NGX_FAILED(r) || !handle)
@@ -1686,6 +2077,7 @@ namespace vk
 			feature.out[0] = out_w;
 			feature.out[1] = out_h;
 			feature.quality = static_cast<u32>(quality);
+			feature.preset = letter;
 			feature.fresh = true;
 			dlss_log.notice("DLSS feature%s %ux%u -> %ux%u (quality %u)", eye ? " (right eye)" : "", in_w, in_h, out_w, out_h, feature.quality);
 		}

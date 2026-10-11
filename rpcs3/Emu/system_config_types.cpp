@@ -801,6 +801,45 @@ void fmt_class_string<vr_cinematic_scenes>::format(std::string& out, u64 arg)
 }
 
 template <>
+void fmt_class_string<vr_dlss_mode>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](vr_dlss_mode value)
+	{
+		switch (value)
+		{
+		case vr_dlss_mode::off: return "Off";
+		case vr_dlss_mode::dlaa: return "DLAA";
+		case vr_dlss_mode::quality: return "Quality";
+		case vr_dlss_mode::balanced: return "Balanced";
+		case vr_dlss_mode::performance: return "Performance";
+		case vr_dlss_mode::ultra_performance: return "Ultra Performance";
+		}
+
+		return unknown;
+	});
+}
+
+template <>
+void fmt_class_string<vr_dlss_model>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](vr_dlss_model value)
+	{
+		switch (value)
+		{
+		case vr_dlss_model::default_model: return "Default";
+		case vr_dlss_model::e: return "E";
+		case vr_dlss_model::f: return "F";
+		case vr_dlss_model::j: return "J";
+		case vr_dlss_model::k: return "K";
+		case vr_dlss_model::l: return "L";
+		case vr_dlss_model::m: return "M";
+		}
+
+		return unknown;
+	});
+}
+
+template <>
 void fmt_class_string<vr_frame_rate>::format(std::string& out, u64 arg)
 {
 	format_enum(out, arg, [](vr_frame_rate value)

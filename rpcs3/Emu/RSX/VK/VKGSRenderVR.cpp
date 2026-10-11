@@ -2181,6 +2181,10 @@ void VKGSRender::vr_setup_draw()
 		vr_display_buffer(*this, m_framebuffer_layout.color_addresses[vr_color_index], m_framebuffer_layout.width, m_framebuffer_layout.height))
 	{
 		const u32 target = m_framebuffer_layout.color_addresses[vr_color_index];
+		if (probe.hud_env_requested() || (probe.box_mapped() && !d.camera_draw))
+		{
+			dlss_hud_snapshot(vr_color_index); // DLSS test: the image without the HUD
+		}
 		if (std::find(m_vr_frame_covered.begin(), m_vr_frame_covered.end(), target) == m_vr_frame_covered.end())
 		{
 			// Boxed through the HUD-box constants (Killzone HD's menus): the game's own full-screen

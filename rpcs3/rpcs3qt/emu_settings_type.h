@@ -245,6 +245,8 @@ enum class emu_settings_type
 	VRFixedScreen,
 	VRFrameRate,
 	VRCinematicScenes,
+	VRDlss,                   // VR fork, DLSS test branch
+	VRDlssModel,
 	VRHighestDetailModels,    // VR fork: game options (rules tagged "option" in the VR profile)
 	VRReducedRateReflections,
 	VRReducedRateMirror,

@@ -43,6 +43,10 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	enhance_checkbox(emu_settings_type::VRFixedScreen, ui->vrFixedScreen, tooltips.settings.vr_fixed_screen);
 	m_emu_settings->EnhanceComboBox(ui->vrFrameRate, emu_settings_type::VRFrameRate);
 	m_emu_settings->EnhanceComboBox(ui->vrCinematicScenes, emu_settings_type::VRCinematicScenes);
+	m_emu_settings->EnhanceComboBox(ui->vrDlss, emu_settings_type::VRDlss);
+	subscribe_tooltip(ui->gb_vrDlss, tooltips.settings.vr_dlss);
+	m_emu_settings->EnhanceComboBox(ui->vrDlssModel, emu_settings_type::VRDlssModel);
+	subscribe_tooltip(ui->gb_vrDlssModel, tooltips.settings.vr_dlss_model);
 	subscribe_tooltip(ui->gb_vrCinematicScenes, tooltips.settings.vr_cinematic_scenes);
 	const bool cinematic = vr_profile && vr_profile->reduced_scale_percent;
 	ui->gb_vrCinematicScenes->setVisible(cinematic);

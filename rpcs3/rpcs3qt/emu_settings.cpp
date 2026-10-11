@@ -1540,6 +1540,29 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case vr_cinematic_scenes::full_quality: return tr("Full quality", "VR cinematic scenes");
 		}
 		break;
+	case emu_settings_type::VRDlss:
+		switch (static_cast<vr_dlss_mode>(index))
+		{
+		case vr_dlss_mode::off: return tr("Off", "DLSS");
+		case vr_dlss_mode::dlaa: return tr("DLAA (anti-aliasing only)", "DLSS");
+		case vr_dlss_mode::quality: return tr("Quality (1.5x upscale)", "DLSS");
+		case vr_dlss_mode::balanced: return tr("Balanced (1.72x upscale)", "DLSS");
+		case vr_dlss_mode::performance: return tr("Performance (2x upscale)", "DLSS");
+		case vr_dlss_mode::ultra_performance: return tr("Ultra Performance (3x upscale)", "DLSS");
+		}
+		break;
+	case emu_settings_type::VRDlssModel:
+		switch (static_cast<vr_dlss_model>(index))
+		{
+		case vr_dlss_model::default_model: return tr("Default (NGX's choice per mode)", "DLSS model");
+		case vr_dlss_model::e: return tr("E: convolutional, fastest", "DLSS model");
+		case vr_dlss_model::f: return tr("F: convolutional", "DLSS model");
+		case vr_dlss_model::j: return tr("J: transformer", "DLSS model");
+		case vr_dlss_model::k: return tr("K: transformer, best quality", "DLSS model");
+		case vr_dlss_model::l: return tr("L: transformer (Ultra Performance default)", "DLSS model");
+		case vr_dlss_model::m: return tr("M: transformer (Performance default)", "DLSS model");
+		}
+		break;
 	default:
 		break;
 	}

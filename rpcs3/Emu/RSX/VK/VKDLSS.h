@@ -94,6 +94,7 @@ namespace vk
 		balanced,
 		performance,
 		ultra_performance,
+		debug_warp, // RPCS3_DLSS=warp: the previous input moved by the motion vectors against this one (red), unmoved (green)
 	};
 
 	// RPCS3_DLSS
@@ -102,9 +103,13 @@ namespace vk
 	// image shows.
 	u64 dlss_drawn_frames();
 	u64 dlss_presented_frame();
-	inline bool dlss_enabled() { return dlss_configured_mode() != dlss_mode::off; }
+	// The DLSS context exists: with the SDK always (the setting changes while the game runs, Off included), else only
+	// for a mode set at boot (the debug views and the stand-in).
+	bool dlss_enabled();
 	// The mode runs NGX (not a debug or jitter-only mode).
 	bool dlss_uses_ngx();
+	// NGX may run in this session: its Vulkan extensions are enabled at boot (the setting can turn it on later).
+	bool dlss_ngx_possible();
 
 	// ---- Vulkan instance and device (vkutils/instance.cpp, vkutils/device.cpp) -----------------------------
 	void dlss_instance_extensions(std::vector<const char*>& extensions);
@@ -177,6 +182,21 @@ namespace vk
 		void note_viewport_xform(const f32* scale_offset);
 		// VR multiview: the next view-0 write_draw_block only identifies the draw (its eyes' blocks carry the motion).
 		void set_identify_only(bool v) { m_identify_only = v; }
+		// The HUD outside DLSS (VR): the display image as it was before the frame's first HUD-box draw is DLSS's input,
+		// and what the HUD draws added (the final image minus that copy) goes on top of DLSS's output. The HUD then needs
+		// no jitter and no motion vectors (it had neither: DLSS moved its still text back and forth with the jitter, and
+		// dragged it with the world's motion behind it when the head moved).
+		// hud_snapshot: before a HUD-box draw into target (a display buffer; once until the next flip).
+		void hud_snapshot(const vk::command_buffer& cmd, vk::viewable_image* target);
+		// The copy of eye 0 / 1 when flip_image is the image it was taken from, else null.
+		vk::viewable_image* hud_pre(const vk::image* flip_image, u32 eye) const;
+		// Adds final - pre (bilinear, the region in_w x in_h of both) onto out (DLSS's output for that eye).
+		void hud_composite(const vk::command_buffer& cmd, vk::viewable_image* out, vk::viewable_image* final_image, u32 final_layer,
+			vk::viewable_image* pre, u32 in_w, u32 in_h);
+		// At each flip, after the use: the next HUD draw takes a new copy.
+		void hud_flip_done() { m_hud_pre_target = nullptr; }
+		// on_flip's result was made this call (not the last output shown again, not a debug view).
+		bool output_fresh() const { return m_output_fresh; }
 		void write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
 			u32 clip_width, u32 clip_height, bool instanced, const void* constants = nullptr, u32 view = 0);
 		// The block for a constant upload outside a draw: no motion written, no jitter, no history.
@@ -248,6 +268,12 @@ namespace vk
 		// Resolve outputs (DLSS inputs) and output; *_right: the right eye's (VR multiview)
 		std::unique_ptr<vk::viewable_image> m_mv, m_depth, m_debug, m_output;
 		std::unique_ptr<vk::viewable_image> m_mv_right, m_depth_right, m_debug_right, m_output_right;
+		std::unique_ptr<vk::viewable_image> m_warp_prev[2], m_warp_prev2[2], m_warp_prev_mv[2]; // debug_warp: each eye's inputs and motion before
+		std::unique_ptr<vk::viewable_image> m_hud_pre[2]; // hud_snapshot's copies (eye 0, 1)
+		const vk::image* m_hud_pre_target = nullptr;      // the image they were taken from, until the flip
+		u32 m_hud_pre_layers = 0;
+		bool m_output_fresh = false;
+		void warp_check(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height, u32 eye);
 		bool m_reset_history = true;
 		s32 m_last_stereo = -1;                      // the last game frame's: 1 both eyes (VR multiview), 0 one image
 		u32 m_last_out_w = 0, m_last_out_h = 0;
@@ -261,6 +287,7 @@ namespace vk
 			void* handle = nullptr; // NVSDK_NGX_Handle*
 			u32 in[2]{}, out[2]{};
 			u32 quality = 0;
+			u32 preset = 0;     // render preset letter (0: NGX's default)
 			bool fresh = false; // created since its last evaluation: no history yet
 		};
 		void* m_ngx_params = nullptr;  // NVSDK_NGX_Parameter*
@@ -268,6 +295,9 @@ namespace vk
 		bool m_ngx_ready = false;
 
 		void update_jitter();
+		// At each flip: the configured mode and model (the settings or the home menu changed them).
+		void refresh_mode();
+		u32 m_preset_letter = 0; // the model's render preset letter (0: NGX's default), as the features were made
 		// constants: as write_draw_block's (null: the registers).
 		bool find_camera_matrix(const u16* ids, usz count, mat4& out, const void* constants = nullptr) const;
 		bool ensure_motion_image(const vk::command_buffer& cmd, vk::image* color_surface);
