@@ -278,6 +278,7 @@ struct cfg_root : cfg::node
 			cfg::_bool highest_detail_models{ this, "Highest Detail Models", true, true };       // VR fork: "highest_detail": option_f32 (MotorStorm's LOD)
 			cfg::_bool simpler_vehicles{ this, "Simpler Other Vehicles", true, true };           // VR fork: "simpler_vehicles": option_f32
 			cfg::_bool fewer_shadows{ this, "Fewer Shadows", true, true };                       // VR fork: "fewer_shadows": option_f32
+			cfg::string dlss{ this, "DLSS (test)", "Off" }; // VR fork, DLSS test branch: Off, DLAA, Quality, Balanced, Performance, Ultra Performance (env RPCS3_DLSS overrides)
 
 		} vr{ this };
 

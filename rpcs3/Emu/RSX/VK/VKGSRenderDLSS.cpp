@@ -141,6 +141,24 @@ void VKGSRender::dlss_draw_setup()
 
 	dlss_note_draw();
 
+	// VR multiview: each eye's constants are uploaded again in vr_setup_draw with that eye's motion block, so the shaders
+	// never read a view-0 block. Only identify the draw here (its key and camera matrix, for the eyes' histories).
+	if ((current_vertex_program.ctrl & RSX_SHADER_CONTROL_VR_MULTIVIEW) && dlss_draw_block_size() &&
+		!rsx::method_registers.current_draw_clause.is_trivial_instanced_draw)
+	{
+		alignas(16) u8 unused[vk::dlss_draw_block_size];
+		m_dlss->set_identify_only(true);
+		m_dlss_uploading = true;
+		dlss_write_draw_block(unused);
+		m_dlss_uploading = false;
+		m_dlss->set_identify_only(false);
+		if (m_dlss_motion_bound)
+		{
+			m_dlss->before_draw(*m_current_command_buffer);
+		}
+		return;
+	}
+
 	// Each draw's motion block differs (its own matrix history): the draw's constants again, with its block, in place of
 	// load_program_env()'s upload (which has a neutral block, or is an earlier draw's when the constants did not change).
 	if (dlss_draw_block_size() && m_vs_binding_table->cbuf_location != umax &&
@@ -229,6 +247,9 @@ void VKGSRender::dlss_write_draw_block(void* dst)
 	const bool full_bank = m_vertex_prog->has_indexed_constants;
 	m_dlss->write_draw_block(dst, full_bank ? nullptr : m_vertex_prog->constant_ids.data(), full_bank ? 0 : m_vertex_prog->constant_ids.size(),
 		vr_vertex_program_hash(), clip_width, clip_height, rsx::method_registers.current_draw_clause.is_trivial_instanced_draw);
+	alignas(16) f32 scale_offset[24];
+	m_draw_processor.fill_scale_offset_data(scale_offset, false);
+	m_dlss->note_viewport_xform(scale_offset);
 }
 
 void VKGSRender::dlss_write_eye_blocks(u8* left, u8* right, usz block_offset)

@@ -17,6 +17,7 @@
 #include "Emu/RSX/rsx_methods.h"
 #include "Emu/RSX/Capture/rsx_camera_probe.h"
 #include "Emu/RSX/Capture/rsx_vr_hooks.h" // RSX_SHADER_CONTROL_DLSS_MOTION
+#include "Emu/system_config.h"
 #include "Utilities/File.h"
 #include "Utilities/StrFmt.h"
 
@@ -223,7 +224,9 @@ namespace vk
 					"layout(push_constant) uniform pc_block\n"
 					"{\n"
 					"	vec4 sizes;  // source region w, h; output w, h\n"
-					"	vec4 params; // mv sign x, y; debug mode (1 motion, 2 depth); unused\n"
+					"	vec4 params; // mv sign x, y; debug mode (1 motion, 2 depth); 1: the camera's motion below is valid\n"
+					"	vec4 vp;     // the scene's viewport transform: x scale, x offset, y scale, y offset\n"
+					"	vec4 r0, r1, r2, r3; // the camera's R (rows), game clip space: this frame -> the previous frame\n"
 					"};\n"
 					"vec3 hue(float h)\n"
 					"{\n"
@@ -237,14 +240,23 @@ namespace vk
 					"	const ivec2 sp = clamp(ivec2(uv * sizes.xy), ivec2(0), ivec2(sizes.xy) - 1);\n"
 					"	const vec4 m = texelFetch(motion_src, sp, 0);\n"
 					"	const bool covered = m.w > 0.5;\n"
-					"	const vec2 mv = covered ? m.xy * sizes.zw * params.xy : vec2(0.);\n"
+					"	// Not covered (the sky, drawn without depth): the camera's motion at the far plane (VR head turns move it).\n"
+					"	vec2 cam = vec2(0.);\n"
+					"	if (!covered && params.w > 0.5)\n"
+					"	{\n"
+					"		const vec2 ndc = (vec2(sp) + 0.5) / sizes.xy * 2. - 1.;\n"
+					"		const vec4 g = vec4((ndc.x - vp.y) / vp.x, (ndc.y - vp.w) / vp.z, 1., 1.);\n"
+					"		const vec4 pg = vec4(dot(r0, g), dot(r1, g), dot(r2, g), dot(r3, g));\n"
+					"		if (pg.w > 1e-6) cam = (vec2(vp.x * pg.x / pg.w + vp.y, vp.z * pg.y / pg.w + vp.w) - ndc) * 0.5;\n"
+					"	}\n"
+					"	const vec2 mv = (covered ? m.xy : cam) * sizes.zw * params.xy;\n"
 					"	const float d = covered ? 1. - m.z : 1.;\n"
 					"	imageStore(mv_out, p, vec4(mv, 0., 0.));\n"
 					"	imageStore(depth_out, p, vec4(d));\n"
 					"	if (params.z == 1.)\n"
 					"	{\n"
 					"		const float len = length(mv);\n"
-					"		vec3 c = covered ? hue(atan(mv.y, mv.x) / 6.2831853 + 0.5) * clamp(len / 16., 0.15, 1.) : vec3(0.25);\n"
+					"		vec3 c = covered ? hue(atan(mv.y, mv.x) / 6.2831853 + 0.5) * clamp(len / 16., 0.15, 1.) : len > 0.05 ? hue(atan(mv.y, mv.x) / 6.2831853 + 0.5) * clamp(len / 16., 0.15, 1.) * 0.6 : vec3(0.25);\n"
 					"		if (covered && len < 0.05) c = vec3(0.05);\n"
 					"		imageStore(debug_out, p, vec4(c, 1.));\n"
 					"	}\n"
@@ -261,7 +273,7 @@ namespace vk
 					"}\n";
 				ssbo_count = 0;
 				use_push_constants = true;
-				push_constants_size = 32;
+				push_constants_size = 112;
 				create();
 			}
 
@@ -291,7 +303,7 @@ namespace vk
 			}
 
 			void run(const vk::command_buffer& cmd, const vk::image_view* src, const vk::image_view* mv, const vk::image_view* depth, const vk::image_view* debug,
-				const f32 constants[8])
+				const f32 constants[28])
 			{
 				m_in = src;
 				m_mv = mv;
@@ -304,7 +316,7 @@ namespace vk
 				}
 
 				load_program(cmd);
-				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, constants);
+				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 112, constants);
 				vkCmdDispatch(cmd, utils::aligned_div(static_cast<u32>(constants[2]), 16u), utils::aligned_div(static_cast<u32>(constants[3]), 16u), 1);
 			}
 		};
@@ -385,14 +397,13 @@ namespace vk
 
 	dlss_mode dlss_configured_mode()
 	{
-		static const dlss_mode s_mode = []
+		// RPCS3_DLSS (any mode, debug views included), else the game's (or global) setting VR / DLSS (test), read at each
+		// boot: the instance and device extensions are chosen from it.
+		static const char* const s_env = env("RPCS3_DLSS");
+		const auto parse = [](std::string s) -> dlss_mode
 		{
-			const char* v = env("RPCS3_DLSS");
-			if (!v)
-			{
-				return dlss_mode::off;
-			}
-			const std::string s = fmt::to_lower(v);
+			s = fmt::to_lower(s);
+			std::erase(s, ' ');
 			if (s == "motion" || s == "mv") return dlss_mode::debug_motion;
 			if (s == "depth") return dlss_mode::debug_depth;
 			if (s == "motionraw") return dlss_mode::debug_motion_raw;
@@ -401,10 +412,10 @@ namespace vk
 			if (s == "quality") return dlss_mode::quality;
 			if (s == "balanced") return dlss_mode::balanced;
 			if (s == "performance") return dlss_mode::performance;
-			if (s == "ultra" || s == "ultra_performance") return dlss_mode::ultra_performance;
+			if (s == "ultra" || s == "ultra_performance" || s == "ultraperformance") return dlss_mode::ultra_performance;
 			return dlss_mode::off;
-		}();
-		return s_mode;
+		};
+		return parse(s_env ? std::string(s_env) : g_cfg.video.vr.dlss.to_string());
 	}
 
 	bool dlss_uses_ngx()
@@ -698,7 +709,7 @@ namespace vk
 		}
 		update_jitter();
 
-		dlss_log.notice("DLSS test: mode %u (RPCS3_DLSS), scene target %s", static_cast<u32>(m_mode),
+		dlss_log.notice("DLSS test: mode %u (RPCS3_DLSS or VR / DLSS (test)), scene target %s", static_cast<u32>(m_mode),
 			m_forced_address ? fmt::format("0x%x", m_forced_address) : std::string("found per frame"));
 #ifndef HAVE_DLSS
 		if (dlss_uses_ngx())
@@ -970,6 +981,42 @@ namespace vk
 		}
 	}
 
+	void dlss_context::note_viewport_xform(const f32* so)
+	{
+		// scale_offset_mat as uploaded: the shader's vec4 * mat4 takes float 4k + j as output k's coefficient of input j.
+		if (m_draw_key && so && so[0] != 0.f && so[5] != 0.f)
+		{
+			m_viewport_xform[0] = so[0];
+			m_viewport_xform[1] = so[3];
+			m_viewport_xform[2] = so[5];
+			m_viewport_xform[3] = so[7];
+			m_viewport_valid = true;
+		}
+	}
+
+	bool dlss_context::best_reprojection(u32 view, mat4& out) const
+	{
+		u32 best = 0;
+		for (const auto& [m, n] : m_reproject_votes[std::min(view, 2u)])
+		{
+			if (n > best)
+			{
+				best = n;
+				out = m;
+			}
+		}
+		if (best >= 3)
+		{
+			return true;
+		}
+		if (m_static_valid[std::min(view, 2u)])
+		{
+			out = m_static_reproject[std::min(view, 2u)];
+			return true;
+		}
+		return false;
+	}
+
 	void dlss_context::write_neutral_block(void* dst) const
 	{
 		f32* out = static_cast<f32*>(dst);
@@ -1015,7 +1062,7 @@ namespace vk
 		m_clip_height = clip_height;
 
 		const auto& regs = rsx::method_registers;
-		u64 key = 0;
+		u64 key = 0, key_alt = 0;
 		if (view == 0)
 		{
 			m_camera_draws++;
@@ -1035,25 +1082,43 @@ namespace vk
 			key = mix(key, clause.vr_total_elements());
 			key = mix(key, m_occurrences[key]++);
 			m_draw_key = key;
+			// Without the addresses: games that build their geometry each frame into a ring buffer (EDGE on the SPUs:
+			// Sonic & All-Stars Racing Transformed) move every draw's vertices every frame, so the full key never
+			// repeats. Program, element count and repeat number pair most draws with their previous frame's; static
+			// geometry shares the camera's matrix, so a wrong pairing among those changes nothing.
+			key_alt = mix(mix(0x84222325cbf29ce4ull, vp_hash), clause.vr_total_elements());
+			key_alt = mix(key_alt, m_occurrences[key_alt]++);
+			m_draw_key_alt = key_alt;
+			if (m_identify_only)
+			{
+				m_eyes_only = true; // statistics from the left eye
+				return; // VR multiview: no view-0 history; the eyes' blocks follow
+			}
 		}
 		else
 		{
 			// An eye of the draw whose view-0 block was just written: its own history.
 			key = mix(m_draw_key, 0x5eed0000ull + view);
+			key_alt = mix(m_draw_key_alt, 0x5eed0000ull + view);
 		}
 
 		f32 r[16];
 		std::memcpy(r, identity4, sizeof(r));
 		bool have_r = false;
 
-		if (const auto found = m_prev_draws.find(key); found != m_prev_draws.end())
+		auto found = m_prev_draws.find(key);
+		if (found == m_prev_draws.end())
+		{
+			found = m_prev_draws.find(key_alt);
+		}
+		if (found != m_prev_draws.end())
 		{
 			f32 inv[16];
 			if (invert4(cur.m, inv))
 			{
 				mul4(found->second.m, inv, r);
 				have_r = true;
-				m_matched += view == 0;
+				m_matched += view == (m_eyes_only ? 1u : 0u);
 
 				// Votes for the camera-only reprojection (the same for every static object).
 				auto& votes = m_reproject_votes[view];
@@ -1078,7 +1143,7 @@ namespace vk
 
 		if (!have_r)
 		{
-			m_unmatched += view == 0;
+			m_unmatched += view == (m_eyes_only ? 1u : 0u);
 			if (m_static_valid[view])
 			{
 				std::memcpy(r, m_static_reproject[view].m, sizeof(r));
@@ -1107,6 +1172,7 @@ namespace vk
 		draw_record rec;
 		std::memcpy(rec.m, cur.m, sizeof(rec.m));
 		m_cur_draws[key] = rec;
+		m_cur_draws[key_alt] = rec;
 
 		// Coverage: opaque surfaces (depth writes) and unblended depth-tested ones (the sky). Blended draws without depth
 		// writes (particles, glass) keep the motion of what is behind them.
@@ -1236,7 +1302,14 @@ namespace vk
 		const f32 debug_mode = m_mode == dlss_mode::debug_motion ? 1.f : m_mode == dlss_mode::debug_depth ? 2.f : m_mode == dlss_mode::debug_motion_raw ? 3.f : 0.f;
 		const f32 src_w = static_cast<f32>(std::min<u32>(m_clip_width ? m_clip_width : m_motion->width(), m_motion->width()));
 		const f32 src_h = static_cast<f32>(std::min<u32>(m_clip_height ? m_clip_height : m_motion->height(), m_motion->height()));
-		const f32 constants[8] = {src_w, src_h, static_cast<f32>(width), static_cast<f32>(height), mv_sign[0], mv_sign[1], debug_mode, 0.f};
+		f32 constants[28] = {src_w, src_h, static_cast<f32>(width), static_cast<f32>(height), mv_sign[0], mv_sign[1], debug_mode, 0.f,
+			m_viewport_xform[0], m_viewport_xform[1], m_viewport_xform[2], m_viewport_xform[3]};
+		// The camera's motion for pixels no draw covered: this frame's R of the eye (VR: views 1 and 2), or the flat one.
+		if (mat4 r; m_viewport_valid && best_reprojection(m_motion->layers() > 1 ? eye + 1 : 0, r))
+		{
+			std::memcpy(constants + 12, r.m, sizeof(r.m));
+			constants[7] = 1.f;
+		}
 
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const vk::image_view* mv = mv_image->get_view(identity);
@@ -1370,7 +1443,7 @@ namespace vk
 		{
 			dlss_log.notice("Frame %llu: scene 0x%x, camera draws %u (matched %u, unmatched %u; eyes %u + %u), static reprojection %s, clip %ux%u, output %s",
 				m_frame, m_forced_address ? m_forced_address : m_scene_address, m_camera_draws, m_matched, m_unmatched, m_view_draws[1], m_view_draws[2],
-				m_static_valid[0] ? "found" : "none", m_clip_width, m_clip_height, result ? (result_right ? "replaced (both eyes)" : "replaced") : "unchanged");
+				m_static_valid[m_eyes_only ? 1 : 0] ? "found" : "none", m_clip_width, m_clip_height, result ? (result_right ? "replaced (both eyes)" : "replaced") : "unchanged");
 		}
 
 		m_prev_draws.swap(m_cur_draws);

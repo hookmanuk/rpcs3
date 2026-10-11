@@ -52,6 +52,7 @@
 #include "util/types.hpp"
 #include "VulkanAPI.h"
 #include "Utilities/geometry.h"
+#include "../Common/unordered_map.hpp"
 
 #include <array>
 #include <memory>
@@ -136,7 +137,7 @@ namespace vk
 	constexpr u32 dlss_draw_block_slots = 5;
 	constexpr usz dlss_draw_block_size = dlss_draw_block_slots * 16;
 	void dlss_insert_vertex_output(std::ostream& OS, u32 ctrl);
-	// block_slot: the block's first slot (the program's constant slots, plus the depth remap's 5 when present).
+	// block_slot: the block's first slot (the program's constant slots, plus the depth remap's 6 when present).
 	void dlss_insert_vertex_end(std::ostream& OS, u32 ctrl, u32 block_slot, bool has_constants);
 	void dlss_insert_fragment_input(std::ostream& OS, u32 ctrl);
 	void dlss_insert_fragment_output(std::ostream& OS, u32 ctrl, u32 location);
@@ -171,6 +172,11 @@ namespace vk
 		// bank). view 0: upload_transform_constants() (the game's constants, read from the registers); it starts a new
 		// draw. Views 1 and 2 (VR multiview, bind_vr_eye_constants_pair): the same draw's left and right eye, whose
 		// constants are in `constants` (laid out as the upload: compacted, or the full bank).
+		// After a view-0 block: the draw's viewport transform (scale_offset_mat, 16 floats as uploaded), kept when the draw
+		// had a camera matrix. The resolve gives pixels no draw covered (the sky) the camera's motion through it.
+		void note_viewport_xform(const f32* scale_offset);
+		// VR multiview: the next view-0 write_draw_block only identifies the draw (its eyes' blocks carry the motion).
+		void set_identify_only(bool v) { m_identify_only = v; }
 		void write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
 			u32 clip_width, u32 clip_height, bool instanced, const void* constants = nullptr, u32 view = 0);
 		// The block for a constant upload outside a draw: no motion written, no jitter, no history.
@@ -217,14 +223,20 @@ namespace vk
 		u64 m_frame = 0; // game frames (emu flips)
 
 		// Per-draw history
-		std::unordered_map<u64, draw_record> m_prev_draws, m_cur_draws;
-		std::unordered_map<u64, u32> m_occurrences;
+		rsx::unordered_map<u64, draw_record> m_prev_draws, m_cur_draws; // dense: no allocation per insert (~10k a frame in GT5)
+		rsx::unordered_map<u64, u32> m_occurrences;
+		bool m_identify_only = false; // VR multiview: the view-0 call only identifies the draw for its eyes' blocks
+		bool m_eyes_only = false;     // this frame's camera draws were identified only (VR multiview): statistics from the left eye
 		// Per view (0 the game's constants, 1 and 2 the eyes):
 		std::array<mat4, 3> m_static_reproject{};   // the most common R of the previous frame (unmatched draws)
+		f32 m_viewport_xform[4]{1.f, 0.f, 1.f, 0.f}; // the scene draws' viewport transform: x scale, x offset, y scale, y offset
+		bool m_viewport_valid = false;
+		bool best_reprojection(u32 view, mat4& out) const; // this frame's most common R so far (the camera's motion)
 		std::array<bool, 3> m_static_valid{};
 		std::array<std::vector<std::pair<mat4, u32>>, 3> m_reproject_votes;
 		std::array<u32, 3> m_view_draws{};          // camera draws this frame (the self-test's draw index)
 		u64 m_draw_key = 0;                         // the current draw's identity (view 0), for its eyes' blocks
+		u64 m_draw_key_alt = 0;                     // the same without the vertex and index addresses (ring-buffered geometry)
 		u32 m_matched = 0, m_unmatched = 0, m_camera_draws = 0;
 		std::vector<dlss_test_draw> m_test_draws;   // this frame's (dlss_test_record)
 
