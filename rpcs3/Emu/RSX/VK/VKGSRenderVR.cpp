@@ -4815,7 +4815,9 @@ void VKGSRender::vr_after_render_pass_bound(u32 sub_index, const vk::vertex_uplo
 	// binds the pipeline, descriptors and push constants, then begins a new render pass instance when the pass changed (a
 	// new target, or a pass ended for a clear or a copy): all of that is undefined in it, and the command buffer's bind
 	// cache kept the next draws from binding again (validation: no pipeline bound). Bind everything again inside it.
-	if (m_vr_multiview && vk::get_renderpass_view_mask(m_current_renderpass_key))
+	// Only with DLSS on (the motion attachment's passes, where the self-test found it): without DLSS every game renders as
+	// it did before the DLSS work was merged (2026-10-11).
+	if (m_dlss && m_vr_multiview && vk::get_renderpass_view_mask(m_current_renderpass_key))
 	{
 		VkRenderPass pass = VK_NULL_HANDLE;
 		VkFramebuffer fbo = VK_NULL_HANDLE;
