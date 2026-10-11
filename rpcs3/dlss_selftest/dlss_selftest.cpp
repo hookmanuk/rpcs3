@@ -166,7 +166,8 @@ namespace
 	}
 
 	// DLSS_SELFTEST_VR=1: VR multiview with the fake headset (RPCS3_VR_FAKE_HMD), the replay titled DLSST0001 with a
-	// VR profile written by the test (camera block c[0], column vectors). The screenshots hold both eyes side by side;
+	// VR profile written by the test (camera block c[0], column vectors; frames without draws, which the replayer makes
+	// between replays, stay in the headset view). The screenshots hold both eyes side by side;
 	// each eye's expected motion comes from that eye's matrices as the renderer recorded them (dlss_test_record).
 	const bool g_vr = std::getenv("DLSS_SELFTEST_VR") != nullptr;
 	constexpr const char* vr_title_id = "DLSST0001";
@@ -557,6 +558,33 @@ namespace
 			stbi_write_png(path.c_str(), static_cast<int>(w), static_cast<int>(h), 4, data.data(), static_cast<int>(w * 4));
 			selftest_log.success("Screenshot %s (%ux%u)", path, w, h);
 
+			// A frame the replay did not draw whole (the capture replayer can flip early, or replay a draw with reset
+			// registers), or whose draws had no previous frame to match: its motion is not the scene's. Listed, not checked.
+			{
+				const auto draws = vk::dlss_test_presented_draws();
+				const u32 view_first = g_vr ? 1 : 0, view_last = g_vr ? 2 : 0;
+				std::string reason;
+				for (u32 view = view_first; view <= view_last; ++view)
+				{
+					u32 count = 0, matched = 0;
+					for (const auto& d : draws)
+					{
+						count += d.view == view;
+						matched += d.view == view && d.matched;
+					}
+					if (count != 3 || matched != 3)
+					{
+						reason += fmt::format(" view %u: %u camera draws, %u matched;", view, count, matched);
+					}
+				}
+				if (!reason.empty())
+				{
+					selftest_log.warning("Frame %u not checked:%s", frame, reason);
+					fs::write_file(g_out_dir + "/expected.txt", fs::create + fs::write + fs::append, fmt::format("# frame %u not checked:%s\n", frame, reason));
+					return;
+				}
+			}
+
 			if (g_vr)
 			{
 				write_vr_expected(frame, w, h);
@@ -582,11 +610,7 @@ namespace
 		static void write_vr_expected(u32 frame, u32 w, u32 h)
 		{
 			const auto draws = vk::dlss_test_presented_draws();
-			const u32 eye_w = w / 2;
-			if (w < h * 2)
-			{
-				selftest_log.error("Frame %u: the screenshot (%ux%u) does not hold two eyes side by side", frame, w, h);
-			}
+			const u32 eye_w = w / 2; // the eyes side by side (headset-shaped: narrower than the game's picture)
 			std::string text;
 			for (u32 eye = 0; eye < 2; ++eye)
 			{
@@ -691,6 +715,8 @@ int main(int argc, char** argv)
 
 	XInitThreads();
 
+	vk::dlss_test_record(true); // the draws of each presented frame (incomplete replays are not checked)
+
 	if (g_vr)
 	{
 		// The test title's VR profile, next to the executable as the game profiles are.
@@ -704,12 +730,12 @@ int main(int argc, char** argv)
   "camera_blocks": [0],
   "output_aspect_tolerance": 0.02,
   "camera_position": { "eye_baseline": 0.064 },
-  "stereo": { "formula": "clip_x_shear", "per_eye_separation": 0.02, "convergence": 7.0, "eye_offset": "baseline" }
+  "stereo": { "formula": "clip_x_shear", "per_eye_separation": 0.02, "convergence": 7.0, "eye_offset": "baseline" },
+  "screen_space": { "frames_without_3d_as_screen": "false" }
 }
 )"));
 		::setenv("RPCS3_REPLAY_TITLE_ID", vr_title_id, 1);
 		::setenv("RPCS3_VR_FAKE_HMD", "90", 0);
-		vk::dlss_test_record(true);
 	}
 
 	static auto log_file = logs::make_file_listener(g_out_dir + "/RPCS3.log", 512ull * 1024 * 1024);

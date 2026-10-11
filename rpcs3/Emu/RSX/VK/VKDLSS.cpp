@@ -1094,6 +1094,7 @@ namespace vk
 			std::memcpy(t.cur, cur.m, sizeof(t.cur));
 			const auto prev_it = m_prev_draws.find(key);
 			std::memcpy(t.prev, prev_it != m_prev_draws.end() ? prev_it->second.m : cur.m, sizeof(t.prev));
+			t.matched = prev_it != m_prev_draws.end();
 			m_test_draws.push_back(t);
 		}
 		m_view_draws[view]++;

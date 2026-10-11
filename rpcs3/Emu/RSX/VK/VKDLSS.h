@@ -68,6 +68,7 @@ namespace vk
 		u32 index;       // the n-th camera draw of this view in the frame
 		f32 cur[16];     // clip = M * v (row-major, column vectors)
 		f32 prev[16];    // the same draw's M in the previous frame (or cur when it had none)
+		bool matched;    // the draw was found in the previous frame
 	};
 	void dlss_test_record(bool enable);
 	std::vector<dlss_test_draw> dlss_test_presented_draws();
