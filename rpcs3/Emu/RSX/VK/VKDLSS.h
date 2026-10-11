@@ -1,9 +1,8 @@
 #pragma once
 
 // DLSS test (fork): motion vectors and sub-pixel jitter for the game's own 3D scene, and NVIDIA DLSS (NGX, Vulkan) run
-// on the displayed image at flip. Flat (2D) rendering, and VR multiview for the motion vectors and their debug views
-// (each eye its own matrix history and motion layer; DLSS itself in VR is not done yet). The two-draw VR stereo (no
-// multiview) is not supported: nothing here is used then.
+// on the displayed image at flip. Flat (2D) rendering, and VR multiview (each eye its own matrix history, motion layer
+// and DLSS feature). The two-draw VR stereo (no multiview) is not supported: nothing here is used then.
 //
 // How it works
 // - The scene target is the colour target that took the most perspective camera draws in the last frame (camera
@@ -21,12 +20,18 @@
 // - VR multiview: the motion image has the render targets' two layers (one per eye). Each eye's constants (the
 //   game's, transformed for that eye by the VR camera code) carry their own block, R_eye = M_eye_prev * M_eye_cur^-1
 //   with a matrix history per eye; the vertex shader reads its view's block like the rest of its constants. At
-//   flip each layer is resolved on its own, and the debug views replace both eyes.
+//   flip each layer is resolved on its own, and each eye goes through its own DLSS feature (its own history) into its
+//   own output, which the headset is given in place of the eye image (or the debug views replace both eyes). A
+//   switch between the headset view and the fixed screen (menus, videos) starts the history again.
 //
 // Settings (environment, read once):
-//   RPCS3_DLSS=off|dlaa|quality|balanced|performance|ultra   DLSS mode (off by default). Output size: the window area,
-//                                                            render size: the game's (Resolution Scale); the mode only
-//                                                            names the preset NGX uses.
+//   RPCS3_DLSS=off|dlaa|quality|balanced|performance|ultra   DLSS mode (off by default). Render size: the game's
+//                                                            (Resolution Scale). Output size, flat: the window area
+//                                                            (the mode only names the preset NGX uses). VR: there is no
+//                                                            window, each eye is upscaled by the mode's own ratio (DLAA
+//                                                            1, quality 1.5, balanced 1.72, performance 2, ultra 3):
+//                                                            lower Resolution Scale by as much to keep the eye size.
+//   RPCS3_DLSS_VR_SCALE=<f>  VR: the eyes' upscale ratio instead of the mode's (1 to 3; DLAA too)
 //   RPCS3_DLSS=motion       no DLSS: show the motion vectors (hue = direction, brightness = length, grey = none)
 //   RPCS3_DLSS=depth        no DLSS: show the depth the motion pass wrote
 //   RPCS3_DLSS=motionraw    no DLSS: motion as numbers (red/green = 128 + 4 x pixels, blue = covered), for tests
@@ -40,6 +45,9 @@
 //   RPCS3_DLSS_DEPTH_INVERTED=1               the game's depth is reversed (1 near, 0 far)
 //   RPCS3_DLSS_MOTION_16F=1                   RGBA16F motion image (default RGBA32F where the sample count allows)
 //   RPCS3_DLSS_DEBUG=1                        per-draw and per-flip log lines (draw keys, matrices, skipped draws)
+//   RPCS3_DLSS_STANDIN=1                      tests without an NVIDIA GPU: a bilinear upscale of the colour takes
+//                                             NGX's place (everything around it, the per-eye outputs, sizes and
+//                                             presentation, runs as with DLSS)
 
 #include "util/types.hpp"
 #include "VulkanAPI.h"
@@ -170,8 +178,9 @@ namespace vk
 
 		// flip(): runs the resolve and DLSS (or a debug view) on the displayed image. Returns the image to present
 		// instead (out_w, out_h: its size), or null to present the source unchanged. emu_flip: a game frame (else a
-		// UI refresh, which shows the last output again). right_eye (VR multiview): the right eye's image, replaced
-		// in place by its debug view (DLSS itself is not run in VR yet).
+		// UI refresh, which shows the last output again). right_eye (VR multiview, null otherwise): the right eye's
+		// image (layer 0 of source is the left eye's), replaced in place by its DLSS output or debug view; both eyes
+		// are replaced or neither. *right_eye null: a VR frame shown flat (the fixed screen).
 		vk::viewable_image* on_flip(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height,
 			u32 target_width, u32 target_height, bool emu_flip, bool vr_unsupported, u32& out_w, u32& out_h,
 			vk::viewable_image** right_eye = nullptr);
@@ -226,19 +235,25 @@ namespace vk
 
 		// Resolve outputs (DLSS inputs) and output; *_right: the right eye's (VR multiview)
 		std::unique_ptr<vk::viewable_image> m_mv, m_depth, m_debug, m_output;
-		std::unique_ptr<vk::viewable_image> m_mv_right, m_depth_right, m_debug_right;
+		std::unique_ptr<vk::viewable_image> m_mv_right, m_depth_right, m_debug_right, m_output_right;
 		bool m_reset_history = true;
+		s32 m_last_stereo = -1;                      // the last game frame's: 1 both eyes (VR multiview), 0 one image
 		u32 m_last_out_w = 0, m_last_out_h = 0;
 		vk::viewable_image* m_last_result = nullptr; // the last frame's presented replacement (m_output or m_debug)
 		vk::viewable_image* m_last_right = nullptr;  // and the right eye's (VR multiview debug views)
 		u32 m_frame_camera_draws = 0;                // camera draws (any target) since the last game frame
 
-		// NGX
+		// NGX: a feature per eye (index 0 also the flat image's); each keeps its own history
+		struct ngx_feature
+		{
+			void* handle = nullptr; // NVSDK_NGX_Handle*
+			u32 in[2]{}, out[2]{};
+			u32 quality = 0;
+			bool fresh = false; // created since its last evaluation: no history yet
+		};
 		void* m_ngx_params = nullptr;  // NVSDK_NGX_Parameter*
-		void* m_ngx_feature = nullptr; // NVSDK_NGX_Handle*
+		std::array<ngx_feature, 2> m_ngx_features{};
 		bool m_ngx_ready = false;
-		u32 m_feature_in[2]{}, m_feature_out[2]{};
-		u32 m_feature_quality = 0;
 
 		void update_jitter();
 		// constants: as write_draw_block's (null: the registers).
@@ -246,10 +261,15 @@ namespace vk
 		bool ensure_motion_image(const vk::command_buffer& cmd, vk::image* color_surface);
 		bool clear_if_new_frame(const vk::command_buffer& cmd); // true when it cleared
 		bool ensure_resolve_images(u32 width, u32 height, bool stereo);
-		bool ensure_output_image(u32 width, u32 height);
+		bool ensure_output_images(u32 width, u32 height, bool stereo);
+		// VR: the eyes' upscale ratio (RPCS3_DLSS_VR_SCALE, else the mode's).
+		f32 vr_output_scale() const;
 		void resolve(const vk::command_buffer& cmd, u32 width, u32 height, u32 eye); // eye: the motion image's layer
 		bool ngx_init();
-		bool ngx_evaluate(const vk::command_buffer& cmd, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h);
-		void ngx_release_feature();
+		// eye: the feature, resolve images and output to use (0 also for the flat image).
+		bool ngx_evaluate(const vk::command_buffer& cmd, u32 eye, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h);
+		// RPCS3_DLSS_STANDIN: the colour's bilinear upscale into the eye's output, in NGX's place.
+		bool standin_evaluate(const vk::command_buffer& cmd, u32 eye, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h);
+		void ngx_release_features();
 	};
 }

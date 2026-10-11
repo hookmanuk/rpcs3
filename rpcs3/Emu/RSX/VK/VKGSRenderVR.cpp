@@ -4034,7 +4034,14 @@ bool VKGSRender::vr_present_right_eye(const vk::present_surface_info& present_in
 void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
 	vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height)
 {
+	const vk::viewable_image* const source = image_to_flip;
 	dlss_on_flip(info, avconfig, image_to_flip, image_to_flip2, generated_stereo, buffer_width, buffer_height); // DLSS test
+	if (image_to_flip != source)
+	{
+		// The eyes through DLSS: the headset's eye buffers take the output's size.
+		m_vr_eye_width = buffer_width;
+		m_vr_eye_height = buffer_height;
+	}
 	vr_publish_frame(info, image_to_flip, generated_stereo ? image_to_flip2 : nullptr);
 }
 

@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "VKGSRender.h"
 #include "VKDLSS.h"
+#include "VKOpenXR.h"
 
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_hooks.h"
@@ -267,9 +268,11 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	{
 		rsx_log.notice("DLSS debug: flip buffer %u, %ux%u, emu_flip %d, draw calls %u, image %p", info.buffer, buffer_width, buffer_height, info.emu_flip, info.stats.draw_calls, static_cast<void*>(image_to_flip));
 	}
+	// VR multiview with a headset view: right_eye is the right eye's image, or null for a frame on the fixed screen.
+	const bool vr_view = m_vr_multiview && (vk::xr::is_running() || vk::xr::fake_hmd());
 	if (vk::viewable_image* dlss_image = m_dlss->on_flip(*m_current_command_buffer, image_to_flip, buffer_width, buffer_height,
 			static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, dlss_vr_unsupported(), out_w, out_h,
-			generated_stereo ? &image_to_flip2 : nullptr))
+			vr_view ? &image_to_flip2 : nullptr))
 	{
 		image_to_flip = dlss_image;
 		buffer_width = out_w;

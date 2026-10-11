@@ -703,7 +703,8 @@ namespace vk
 #ifndef HAVE_DLSS
 		if (dlss_uses_ngx())
 		{
-			dlss_log.error("This build has no DLSS SDK (HAVE_DLSS): motion vectors and jitter run, the image is shown without DLSS");
+			dlss_log.error("This build has no DLSS SDK (HAVE_DLSS): motion vectors and jitter run, the image is shown without DLSS%s",
+				env("RPCS3_DLSS_STANDIN") ? " (RPCS3_DLSS_STANDIN: upscaled)" : "");
 		}
 #endif
 	}
@@ -715,7 +716,7 @@ namespace vk
 
 	void dlss_context::destroy()
 	{
-		ngx_release_feature();
+		ngx_release_features();
 #ifdef HAVE_DLSS
 		if (m_ngx_params)
 		{
@@ -735,6 +736,10 @@ namespace vk
 		m_depth.reset();
 		m_debug.reset();
 		m_output.reset();
+		m_mv_right.reset();
+		m_depth_right.reset();
+		m_debug_right.reset();
+		m_output_right.reset();
 	}
 
 	void dlss_context::update_jitter()
@@ -1157,27 +1162,62 @@ namespace vk
 		return true;
 	}
 
-	bool dlss_context::ensure_output_image(u32 width, u32 height)
+	bool dlss_context::ensure_output_images(u32 width, u32 height, bool stereo)
 	{
-		if (m_output && m_output->width() == width && m_output->height() == height)
+		if (m_output && m_output->width() == width && m_output->height() == height && (!stereo || m_output_right))
 		{
 			return true;
 		}
 
 		m_last_result = nullptr;
 		m_last_right = nullptr;
-		if (m_output) vk::get_resource_manager()->dispose(m_output);
-
-		// RGBA8: the present path (screenshots) expects 4 bytes per pixel.
-		m_output = make_image(m_device, VK_FORMAT_R8G8B8A8_UNORM, width, height, VK_SAMPLE_COUNT_1_BIT,
-			VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-		if (!m_output->value)
+		for (auto* image : {&m_output, &m_output_right})
 		{
+			if (*image) vk::get_resource_manager()->dispose(*image);
+		}
+
+		// RGBA8: the present path (screenshots) expects 4 bytes per pixel. TRANSFER_SRC: presented, copied for
+		// screenshots and into the headset's eye buffers. TRANSFER_DST: RPCS3_DLSS_STANDIN's blit.
+		const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		bool ok = true;
+		for (u32 eye = 0; eye < (stereo ? 2u : 1u); ++eye)
+		{
+			auto& output = eye ? m_output_right : m_output;
+			output = make_image(m_device, VK_FORMAT_R8G8B8A8_UNORM, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			if (!output->value)
+			{
+				ok = false;
+				break;
+			}
+			output->set_debug_name(eye ? "DLSS output (right eye)" : "DLSS output");
+		}
+
+		if (!ok)
+		{
+			dlss_log.error("Out of memory for the DLSS output (%ux%u%s)", width, height, stereo ? ", two eyes" : "");
 			m_output.reset();
+			m_output_right.reset();
 			return false;
 		}
-		m_output->set_debug_name("DLSS output");
 		return true;
+	}
+
+	f32 dlss_context::vr_output_scale() const
+	{
+		if (const f32 forced = env_f32("RPCS3_DLSS_VR_SCALE", 0.f); forced > 0.f)
+		{
+			return std::clamp(forced, 1.f, 3.f);
+		}
+
+		// The render scale each mode stands for (NGX's own: 1/1.5, 0.58, 0.5, 1/3 per axis), as an upscale.
+		switch (m_mode)
+		{
+		case dlss_mode::quality: return 1.5f;
+		case dlss_mode::balanced: return 1.72f;
+		case dlss_mode::performance: return 2.f;
+		case dlss_mode::ultra_performance: return 3.f;
+		default: return 1.f;
+		}
 	}
 
 	void dlss_context::resolve(const vk::command_buffer& cmd, u32 width, u32 height, u32 eye)
@@ -1229,8 +1269,10 @@ namespace vk
 		}
 
 		const bool debug_view = m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw;
-		// VR multiview: both eyes are shown (right_eye), and the motion image has a layer per eye.
-		const bool stereo = right_eye && *right_eye;
+		// VR multiview: both eyes are shown (right_eye), and the motion image has a layer per eye. A VR frame without
+		// the right eye is shown on the fixed screen (menus, videos, frames_without_3d_as_screen).
+		const bool vr = right_eye != nullptr;
+		const bool stereo = vr && *right_eye;
 
 		if (!emu_flip || !m_frame_camera_draws)
 		{
@@ -1250,21 +1292,24 @@ namespace vk
 		}
 		m_frame_camera_draws = 0;
 
+		// The headset view and the fixed screen show different cameras (the VR one, the game's own): a switch between
+		// them is a cut for the history.
+		if (const s32 stereo_now = stereo ? 1 : 0; m_last_stereo != stereo_now)
+		{
+			if (m_last_stereo >= 0)
+			{
+				dlss_log.notice("%s: DLSS history starts again", stereo ? "Headset view" : "One image (fixed screen or flat)");
+			}
+			m_last_stereo = stereo_now;
+			m_reset_history = true;
+		}
+
 		vk::viewable_image* result = nullptr;
 		vk::viewable_image* result_right = nullptr;
 		const bool usable = !m_disabled && !vr_unsupported && source && width && height && m_motion && m_scene_drawn &&
 			m_motion_cleared_frame == m_frame && (!stereo || m_motion->layers() == 2);
 
-		if (usable && stereo && !debug_view)
-		{
-			// DLSS for the headset (an evaluation per eye, into the eye images OpenXR takes) is the next step.
-			static bool s_reported = false;
-			if (!std::exchange(s_reported, true))
-			{
-				dlss_log.warning("VR multiview: motion vectors are made per eye, but DLSS itself does not run in VR yet (the motion and depth views do)");
-			}
-		}
-		else if (usable && m_mode != dlss_mode::jitter_only && ensure_resolve_images(width, height, stereo))
+		if (usable && m_mode != dlss_mode::jitter_only && ensure_resolve_images(width, height, stereo))
 		{
 			resolve(cmd, width, height, 0);
 			if (stereo)
@@ -1281,9 +1326,11 @@ namespace vk
 			}
 			else
 			{
-				// Output at the window's size for this image (upscale up to 3x, never down: DLAA then).
-				f32 scale = std::min(static_cast<f32>(target_width) / static_cast<f32>(width), static_cast<f32>(target_height) / static_cast<f32>(height));
-				if (m_mode == dlss_mode::dlaa || !std::isfinite(scale))
+				// Flat: output at the window's size for this image (upscale up to 3x, never down: DLAA then). VR: no
+				// window (the headset's eye buffers take the eyes' size), the mode's ratio.
+				f32 scale = vr ? vr_output_scale() :
+					std::min(static_cast<f32>(target_width) / static_cast<f32>(width), static_cast<f32>(target_height) / static_cast<f32>(height));
+				if ((m_mode == dlss_mode::dlaa && !vr) || !std::isfinite(scale))
 				{
 					scale = 1.f;
 				}
@@ -1291,9 +1338,12 @@ namespace vk
 				const u32 ow = static_cast<u32>(std::lround(width * scale));
 				const u32 oh = static_cast<u32>(std::lround(height * scale));
 
-				if (ensure_output_image(ow, oh) && ngx_evaluate(cmd, source, width, height, ow, oh))
+				// Both eyes or neither (the headset takes the pair).
+				if (ensure_output_images(ow, oh, stereo) && ngx_evaluate(cmd, 0, source, width, height, ow, oh) &&
+					(!stereo || ngx_evaluate(cmd, 1, *right_eye, width, height, ow, oh)))
 				{
 					result = m_output.get();
+					result_right = stereo ? m_output_right.get() : nullptr;
 					out_w = m_last_out_w = ow;
 					out_h = m_last_out_h = oh;
 					m_reset_history = false;
@@ -1450,20 +1500,63 @@ namespace vk
 #endif
 	}
 
-	void dlss_context::ngx_release_feature()
+	void dlss_context::ngx_release_features()
 	{
 #ifdef HAVE_DLSS
-		if (m_ngx_feature)
+		if (std::any_of(m_ngx_features.begin(), m_ngx_features.end(), [](const ngx_feature& f) { return f.handle != nullptr; }))
 		{
 			vkDeviceWaitIdle(m_device);
-			NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(m_ngx_feature));
-			m_ngx_feature = nullptr;
+			for (auto& f : m_ngx_features)
+			{
+				if (f.handle)
+				{
+					NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(f.handle));
+				}
+				f = {};
+			}
 		}
 #endif
 	}
 
-	bool dlss_context::ngx_evaluate(const vk::command_buffer& cmd, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h)
+	bool dlss_context::standin_evaluate(const vk::command_buffer& cmd, u32 eye, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h)
 	{
+		vk::viewable_image* const output = eye ? m_output_right.get() : m_output.get();
+		if (!output || !source)
+		{
+			return false;
+		}
+
+		static bool s_reported = false;
+		if (!std::exchange(s_reported, true))
+		{
+			dlss_log.warning("RPCS3_DLSS_STANDIN: a bilinear upscale stands in for DLSS (%ux%u -> %ux%u)", in_w, in_h, out_w, out_h);
+		}
+
+		// Layer 0 of the source: the left eye of a multiview surface, the only layer otherwise.
+		source->push_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		output->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+		VkImageBlit blit{};
+		blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+		blit.srcOffsets[1] = {static_cast<s32>(std::min(in_w, source->width())), static_cast<s32>(std::min(in_h, source->height())), 1};
+		blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+		blit.dstOffsets[1] = {static_cast<s32>(out_w), static_cast<s32>(out_h), 1};
+		vkCmdBlitImage(cmd, source->value, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, output->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+		source->pop_layout(cmd);
+		output->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		vk::insert_global_memory_barrier(cmd);
+		return true;
+	}
+
+	bool dlss_context::ngx_evaluate(const vk::command_buffer& cmd, u32 eye, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h)
+	{
+		static const bool s_standin = env("RPCS3_DLSS_STANDIN") != nullptr;
+		if (s_standin)
+		{
+			return standin_evaluate(cmd, eye, source, in_w, in_h, out_w, out_h);
+		}
+
 #ifdef HAVE_DLSS
 		if (!ngx_init())
 		{
@@ -1481,10 +1574,16 @@ namespace vk
 		}
 
 		auto* params = static_cast<NVSDK_NGX_Parameter*>(m_ngx_params);
-		if (!m_ngx_feature || m_feature_in[0] != in_w || m_feature_in[1] != in_h || m_feature_out[0] != out_w || m_feature_out[1] != out_h ||
-			m_feature_quality != static_cast<u32>(quality))
+		ngx_feature& feature = m_ngx_features[eye];
+		if (!feature.handle || feature.in[0] != in_w || feature.in[1] != in_h || feature.out[0] != out_w || feature.out[1] != out_h ||
+			feature.quality != static_cast<u32>(quality))
 		{
-			ngx_release_feature();
+			if (feature.handle)
+			{
+				vkDeviceWaitIdle(m_device);
+				NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(feature.handle));
+				feature = {};
+			}
 
 			NVSDK_NGX_DLSS_Create_Params create{};
 			create.Feature.InWidth = in_w;
@@ -1508,33 +1607,37 @@ namespace vk
 				return false;
 			}
 
-			m_ngx_feature = handle;
-			m_feature_in[0] = in_w;
-			m_feature_in[1] = in_h;
-			m_feature_out[0] = out_w;
-			m_feature_out[1] = out_h;
-			m_feature_quality = static_cast<u32>(quality);
-			m_reset_history = true;
-			dlss_log.notice("DLSS feature %ux%u -> %ux%u (quality %u)", in_w, in_h, out_w, out_h, m_feature_quality);
+			feature.handle = handle;
+			feature.in[0] = in_w;
+			feature.in[1] = in_h;
+			feature.out[0] = out_w;
+			feature.out[1] = out_h;
+			feature.quality = static_cast<u32>(quality);
+			feature.fresh = true;
+			dlss_log.notice("DLSS feature%s %ux%u -> %ux%u (quality %u)", eye ? " (right eye)" : "", in_w, in_h, out_w, out_h, feature.quality);
 		}
+
+		vk::viewable_image* const mv_image = eye ? m_mv_right.get() : m_mv.get();
+		vk::viewable_image* const depth_image = eye ? m_depth_right.get() : m_depth.get();
+		vk::viewable_image* const output_image = eye ? m_output_right.get() : m_output.get();
 
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
 		source->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		m_mv->change_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		m_depth->change_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		m_output->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		mv_image->change_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		depth_image->change_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		output_image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
 		const vk::image_view* color_view = source->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
-		const vk::image_view* mv_view = m_mv->get_view(identity);
-		const vk::image_view* depth_view = m_depth->get_view(identity);
-		const vk::image_view* out_view = m_output->get_view(identity);
+		const vk::image_view* mv_view = mv_image->get_view(identity);
+		const vk::image_view* depth_view = depth_image->get_view(identity);
+		const vk::image_view* out_view = output_image->get_view(identity);
 
 		NVSDK_NGX_Resource_VK color = NVSDK_NGX_Create_ImageView_Resource_VK(color_view->value, source->value, range, color_view->info.format, source->width(), source->height(), false);
-		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, m_mv->value, range, VK_FORMAT_R32G32_SFLOAT, m_mv->width(), m_mv->height(), false);
-		NVSDK_NGX_Resource_VK depth = NVSDK_NGX_Create_ImageView_Resource_VK(depth_view->value, m_depth->value, range, VK_FORMAT_R32_SFLOAT, m_depth->width(), m_depth->height(), false);
-		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, m_output->value, range, m_output->format(), m_output->width(), m_output->height(), true);
+		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, mv_image->value, range, VK_FORMAT_R32G32_SFLOAT, mv_image->width(), mv_image->height(), false);
+		NVSDK_NGX_Resource_VK depth = NVSDK_NGX_Create_ImageView_Resource_VK(depth_view->value, depth_image->value, range, VK_FORMAT_R32_SFLOAT, depth_image->width(), depth_image->height(), false);
+		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, output_image->value, range, output_image->format(), output_image->width(), output_image->height(), true);
 
 		// Jitter in render pixels: the scene's jitter scaled from its viewport to the displayed image.
 		static const auto jitter_sign = env_signs("RPCS3_DLSS_JITTER_SIGN");
@@ -1550,7 +1653,8 @@ namespace vk
 		eval.InJitterOffsetX = m_jitter_px[0] * sx * jitter_sign[0];
 		eval.InJitterOffsetY = m_jitter_px[1] * sy * jitter_sign[1];
 		eval.InRenderSubrectDimensions = {in_w, in_h};
-		eval.InReset = m_reset_history ? 1 : 0;
+		eval.InReset = (m_reset_history || feature.fresh) ? 1 : 0;
+		feature.fresh = false;
 		eval.InMVScaleX = 1.f;
 		eval.InMVScaleY = 1.f;
 		eval.InColorSubrectBase = {0, 0};
@@ -1560,7 +1664,7 @@ namespace vk
 		eval.InPreExposure = 1.f;
 		eval.InExposureScale = 1.f;
 
-		const NVSDK_NGX_Result r = NGX_VULKAN_EVALUATE_DLSS_EXT(cmd, static_cast<NVSDK_NGX_Handle*>(m_ngx_feature), params, &eval);
+		const NVSDK_NGX_Result r = NGX_VULKAN_EVALUATE_DLSS_EXT(cmd, static_cast<NVSDK_NGX_Handle*>(feature.handle), params, &eval);
 		source->pop_layout(cmd);
 
 		// NGX recorded its own pipeline and descriptor state; make the results visible to the present passes.
@@ -1578,6 +1682,7 @@ namespace vk
 		return true;
 #else
 		static_cast<void>(cmd);
+		static_cast<void>(eye);
 		static_cast<void>(source);
 		static_cast<void>(in_w);
 		static_cast<void>(in_h);
