@@ -20,7 +20,7 @@
   "game_frame_time_f32": ["0x184680c", "0x184acc0"],
 
   "matrix_layout": "column_vectors",
-  "camera_blocks": [0],
+  "camera_blocks": [0, 4],
   "output_aspect_tolerance": 0.08,
 
   "camera_position": {

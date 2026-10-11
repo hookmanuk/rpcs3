@@ -1113,6 +1113,31 @@ namespace rsx::vr
 		{
 			profile->depth_remap_xyw = xyw == "true";
 		}
+		if (const YAML::Node screen = child(root, "depth_remap_screen"); screen && screen.IsMap())
+		{
+			check_keys(screen, " in depth_remap_screen", {"programs", "depth_programs", "ray_texcoord", "uv_texcoord", "tile_margin"});
+			for (const char* key : {"programs", "depth_programs"})
+			{
+				if (const YAML::Node programs = child(screen, key); programs && programs.IsSequence())
+				{
+					for (const auto& program : programs)
+					{
+						const std::string text = program.as<std::string>();
+						char* end = nullptr;
+						const u64 hash = std::strtoull(text.c_str(), &end, 16);
+						if (text.empty() || !end || *end)
+							fail("depth_remap_screen: '" + text + "' is not a hex program hash");
+						(std::string_view(key) == "programs" ? profile->depth_remap_screen_programs : profile->depth_remap_screen_depth_programs).push_back(hash);
+					}
+				}
+			}
+			if (std::string tc; read(screen, "ray_texcoord", tc, false))
+				profile->depth_remap_screen_ray_texcoord = std::clamp(std::atoi(tc.c_str()), -1, 9);
+			if (std::string tc; read(screen, "uv_texcoord", tc, false))
+				profile->depth_remap_screen_uv_texcoord = std::clamp(std::atoi(tc.c_str()), -1, 9);
+			read(screen, "tile_margin", profile->depth_remap_screen_tile_margin, false);
+			profile->depth_remap_screen_tile_margin = std::clamp(profile->depth_remap_screen_tile_margin, 0.f, 4.f);
+		}
 		read(root, "max_fps", profile->max_fps, false);
 		read(root, "default_fps", profile->default_fps, false);
 		read(root, "vblanks_per_frame", profile->vblanks_per_frame, false);
@@ -1528,6 +1553,24 @@ namespace rsx::vr
 				profile->shared_frame_targets.push_back(t);
 			}
 		}
+		if (const YAML::Node culls = child(root, "small_draw_cull"); culls && culls.IsSequence())
+		{
+			for (const auto& node : culls)
+			{
+				const YAML::Node width = node["width"], height = node["height"], max_vertices = node["max_vertices"], option = node["option"];
+				if (!width || !width.IsScalar() || !height || !height.IsScalar() || !max_vertices || !max_vertices.IsScalar() || (option && !option.IsScalar()))
+				{
+					fail("small_draw_cull: expected [{\"width\": <w>, \"height\": <h>, \"max_vertices\": <n>, \"option\": \"<setting>\"}]");
+					continue;
+				}
+				title_profile::small_draw_cull c{};
+				c.option = option ? option.as<std::string>() : std::string();
+				c.width = static_cast<u16>(std::clamp(std::atoi(width.as<std::string>().c_str()), 1, 8192));
+				c.height = static_cast<u16>(std::clamp(std::atoi(height.as<std::string>().c_str()), 1, 8192));
+				c.max_vertices = static_cast<u32>(std::clamp(std::atoi(max_vertices.as<std::string>().c_str()), 0, 1 << 20));
+				profile->small_draw_culls.push_back(c);
+			}
+		}
 		if (const YAML::Node min_scalable = child(root, "min_scalable_dimension"); min_scalable && min_scalable.IsScalar())
 		{
 			profile->min_scalable_dimension = static_cast<u16>(std::clamp(std::atoi(min_scalable.as<std::string>().c_str()), 0, 4096));
@@ -1540,7 +1583,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1613,7 +1656,7 @@ namespace rsx::vr
 	bool depth_remap_programs_listed()
 	{
 		const auto* profile = camera_probe::get().profile();
-		return profile && !profile->depth_remap_programs.empty();
+		return profile && (!profile->depth_remap_programs.empty() || !profile->depth_remap_screen_programs.empty() || !profile->depth_remap_screen_depth_programs.empty());
 	}
 
 	bool depth_remap_program(u64 vertex_ucode_hash)
@@ -1624,6 +1667,28 @@ namespace rsx::vr
 			return false;
 		}
 		const auto& list = profile->depth_remap_programs;
+		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end() || depth_remap_screen_program(vertex_ucode_hash);
+	}
+
+	bool depth_remap_screen_program(u64 vertex_ucode_hash)
+	{
+		const auto* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return false;
+		}
+		const auto& list = profile->depth_remap_screen_programs;
+		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
+	}
+
+	bool depth_remap_game_view_program(u64 vertex_ucode_hash)
+	{
+		const auto* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return false;
+		}
+		const auto& list = profile->depth_remap_screen_depth_programs;
 		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
 	}
 
@@ -4314,6 +4379,35 @@ namespace rsx::vr
 		return true;
 	}
 
+	bool camera_probe::screen_depth_remap(f32 eye_sign) const
+	{
+		const u32 eye = eye_sign < 0.f ? 0 : 1;
+		if (!m_scene_block_valid[eye])
+		{
+			return false;
+		}
+		f32* scene_rows[4];
+		for (u32 r = 0; r < 4; ++r)
+		{
+			scene_rows[r] = m_scene_eye_block[eye][r];
+		}
+		store_depth_remap(m_scene_game_block[eye], scene_rows);
+		// Dev (probe why=<this program>): the scene blocks the remap is built from and the result, a few times.
+		if (static u32 s_logged = 0; m_why_program && m_why_program == m_draw_program && s_logged < 4)
+		{
+			s_logged++;
+			const auto& g = m_scene_game_block[eye];
+			const auto& e = m_scene_eye_block[eye];
+			const auto& t = m_depth_remap;
+			vr_probe_log.notice("VR why %016llx screen remap eye %u scene game (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g) eye (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g) remap (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g) vz %g %g",
+				m_why_program, eye, g[0][0], g[0][1], g[0][2], g[0][3], g[1][0], g[1][1], g[1][2], g[1][3], g[2][0], g[2][1], g[2][2], g[2][3], g[3][0], g[3][1], g[3][2], g[3][3],
+				e[0][0], e[0][1], e[0][2], e[0][3], e[1][0], e[1][1], e[1][2], e[1][3], e[2][0], e[2][1], e[2][2], e[2][3], e[3][0], e[3][1], e[3][2], e[3][3],
+				t[0][0], t[0][1], t[0][2], t[0][3], t[1][0], t[1][1], t[1][2], t[1][3], t[2][0], t[2][1], t[2][2], t[2][3], t[3][0], t[3][1], t[3][2], t[3][3],
+				rsx::method_registers.viewport_scale_z(), rsx::method_registers.viewport_offset_z());
+		}
+		return m_depth_remap_valid;
+	}
+
 	bool camera_probe::depth_remap_matrix(f32 (&out)[4][4]) const
 	{
 		if (!m_depth_remap_valid)
@@ -4328,7 +4422,12 @@ namespace rsx::vr
 	{
 		const title_profile* p = profile();
 		const u32 eye = eye_sign < 0.f ? 0 : 1;
-		if (!p || !m_vr_last_block_valid[eye] || (program_hash == scene_draw_program ? !scene_draws_by_clip_space() : std::find(p->screen_space_preprojected_programs.begin(), p->screen_space_preprojected_programs.end(), program_hash) == p->screen_space_preprojected_programs.end()))
+		// Profile depth_remap_screen: through the scene camera's blocks, as its depth remap (the latest camera block can be
+		// a shadow volume's, whose non-uniform scale distorts the eye offset: the tiles landed off their pixels).
+		const bool screen = program_hash != scene_draw_program && depth_remap_screen_program(program_hash) && m_scene_block_valid[eye];
+		const auto& last_block = screen ? m_scene_game_block[eye] : m_vr_last_block[eye];
+		const auto& last_eye_block = screen ? m_scene_eye_block[eye] : m_vr_last_eye_block[eye];
+		if (!p || !(screen || m_vr_last_block_valid[eye]) || (program_hash == scene_draw_program ? !scene_draws_by_clip_space() : std::find(p->screen_space_preprojected_programs.begin(), p->screen_space_preprojected_programs.end(), program_hash) == p->screen_space_preprojected_programs.end() && !screen))
 		{
 			return false;
 		}
@@ -4337,8 +4436,8 @@ namespace rsx::vr
 		if (static u32 s_logged = 0; m_why_program == program_hash && s_logged < 4)
 		{
 			s_logged++;
-			const auto& g = m_vr_last_block[eye];
-			const auto& e = m_vr_last_eye_block[eye];
+			const auto& g = last_block;
+			const auto& e = last_eye_block;
 			vr_probe_log.notice("VR why %016llx eye %u game block (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g) eye block (%g %g %g %g | %g %g %g %g | %g %g %g %g | %g %g %g %g)",
 				program_hash, eye, g[0][0], g[0][1], g[0][2], g[0][3], g[1][0], g[1][1], g[1][2], g[1][3], g[2][0], g[2][1], g[2][2], g[2][3], g[3][0], g[3][1], g[3][2], g[3][3],
 				e[0][0], e[0][1], e[0][2], e[0][3], e[1][0], e[1][1], e[1][2], e[1][3], e[2][0], e[2][1], e[2][2], e[2][3], e[3][0], e[3][1], e[3][2], e[3][3]);
@@ -4353,7 +4452,7 @@ namespace rsx::vr
 		{
 			for (u32 c = 0; c < 4; ++c)
 			{
-				a[r][c] = m_vr_last_block[eye][r][c];
+				a[r][c] = last_block[r][c];
 				a[r][c + 4] = r == c ? 1.0 : 0.0;
 			}
 		}
@@ -4393,7 +4492,7 @@ namespace rsx::vr
 				f64 sum = 0.0;
 				for (u32 k = 0; k < 4; ++k)
 				{
-					sum += a[r][k + 4] * m_vr_last_eye_block[eye][k][c];
+					sum += a[r][k + 4] * last_eye_block[k][c];
 				}
 				m[r][c] = static_cast<f32>(sum);
 			}

@@ -57,6 +57,11 @@ namespace vk::xr
 	// True while the headset session is running (the frame thread is presenting).
 	bool is_running();
 
+	// vkDeviceWaitIdle needs every queue externally synchronized: hold the OpenXR queue too (its own queue is guarded
+	// by the frame thread's queue lock, not RPCS3's global submit lock). No-op without an own queue.
+	void lock_own_queue();
+	void unlock_own_queue();
+
 	// RSX thread, at each guest flip: record copies of the generated eyes into a
 	// free eye buffer inside RPCS3's command buffer. right may equal left. If this
 	// returns true, submit the command buffer, then call commit_eyes().

@@ -97,7 +97,7 @@ namespace vk
 				raw->current_layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 				src_stage, dst_stage,
 				src_access, dst_access,
-				{ raw->aspect(), 0, 1, 0, 1 });
+				{ raw->aspect(), 0, 1, 0, raw->layers() }); // VR fork: every layer (multiview); layer 0 alone left layer 1 in the loop layout, untracked
 
 			raw->current_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			break;
@@ -1128,7 +1128,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 				VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 				VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 				VK_ACCESS_INPUT_ATTACHMENT_READ_BIT,
-				{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+				{ VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, m_fbo_images[i]->layers() }, // VR fork: every layer (multiview)
 				true,
 				VK_DEPENDENCY_BY_REGION_BIT
 			);

@@ -390,7 +390,9 @@ namespace vk::xr
 			{
 				if (eye.handle)
 				{
+					lock_queue(); // the runtime may use the queue here (a device-wide wait must exclude it)
 					g_xr.xrDestroySwapchain(eye.handle);
+					unlock_queue();
 				}
 				eye = {};
 			}
@@ -444,7 +446,10 @@ namespace vk::xr
 			info.arraySize = 1;
 			info.mipCount = 1;
 
-			if (!check(g_xr.xrCreateSwapchain(g_xr.session, &info, &chain.handle), "xrCreateSwapchain"))
+			lock_queue(); // the runtime may use the queue here (a device-wide wait must exclude it)
+			const XrResult created = g_xr.xrCreateSwapchain(g_xr.session, &info, &chain.handle);
+			unlock_queue();
+			if (!check(created, "xrCreateSwapchain"))
 			{
 				chain.handle = XR_NULL_HANDLE;
 				if (static u32 s_n = 0; s_n++ < 4) xr_log.error("Eye swapchain %ux%u (VkFormat %d) was refused.", width, height, static_cast<s32>(format));
@@ -463,7 +468,9 @@ namespace vk::xr
 		{
 			if (g_xr.overlay_chain.handle)
 			{
+				lock_queue(); // the runtime may use the queue here (a device-wide wait must exclude it)
 				g_xr.xrDestroySwapchain(g_xr.overlay_chain.handle);
+				unlock_queue();
 			}
 			g_xr.overlay_chain = {};
 			g_xr.overlay_chain_w = g_xr.overlay_chain_h = 0;
@@ -1418,6 +1425,22 @@ namespace vk::xr
 		g_xr.reset();
 		g_xr.loader = loader;
 		g_xr.gipa = gipa;
+	}
+
+	void lock_own_queue()
+	{
+		if (g_xr.own_queue)
+		{
+			g_xr.queue_mutex.lock();
+		}
+	}
+
+	void unlock_own_queue()
+	{
+		if (g_xr.own_queue)
+		{
+			g_xr.queue_mutex.unlock();
+		}
 	}
 
 	bool is_running()

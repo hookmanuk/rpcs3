@@ -3,6 +3,7 @@
   "title_id": "BLUS30839",
   "app_version": "01.00",
   "name": "Sonic & All-Stars Racing Transformed™",
+  "min_scalable_dimension": 20,
   "max_fps": 0,
   "default_fps": 0,
 
@@ -15,6 +16,8 @@
   "depth_remap_volume_programs": ["2fe8ebfb47d877be"],
   "depth_remap_ray_texcoord": 1,
   "depth_remap_xyw": true,
+  "reproject_older_frames": true,
+  "depth_remap_screen": { "programs": ["8761ccb6b94bd151"], "depth_programs": ["3f4215b47aae1a90"], "ray_texcoord": 0, "uv_texcoord": 1, "tile_margin": 0.25 },
   "camera_blocks": [138, 4, 0],
   "fragment_constant_overrides": [
     { "program": "ad9998b4d5599447", "constant": 5, "value": [0, 0, 0, 0] },

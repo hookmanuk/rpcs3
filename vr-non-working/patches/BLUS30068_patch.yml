@@ -44,3 +44,29 @@ PPU-cf7bf795662e7da4af16f0131ac7c3bef86776ce:
       - [ be32, 0x004d715c, 0x4e800020 ] # blr
       - [ bef32, 0x004d7180, "Scale" ]
       - [ bef32, 0x004d7184, 2.61799 ]   # 150 degrees (radians)
+  "Draw distance (VR performance)":
+    Games:
+      "SEGA Rally Revo":
+        BLUS30068: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Shortens the cameras' far distance by the chosen scale where the game builds the projection from the camera record (0x174608, all camera modes). The game drops scenery beyond it: at the Canyon start ~1,300 of ~5,500 draws a frame (distant objects behind the canyon walls or too small to see) with no visible change; the RSX thread is the limit there in VR. 1.0 keeps the game's distance. The code is in the unused tail of the code segment's last page (0x4d7160), next to Wider view's."
+    Configurable Values:
+      "Scale":
+        Type: double_enum
+        Value: 0.35
+        Allowed Values:
+          "1.0 (the game's)": 1.0
+          "0.5": 0.5
+          "0.35 (recommended)": 0.35
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x0017463c, 0x48362b25 ] # bl 0x4d7160 (was lfs f4, 4(r11): the far distance)
+      # far distance x Scale; r12 and f0 are free up to the perspective call (0x174644)
+      - [ be32, 0x004d7160, 0xc08b0004 ] # lfs f4, 4(r11)
+      - [ be32, 0x004d7164, 0x3d80004d ] # lis r12, 0x4d
+      - [ be32, 0x004d7168, 0xc00c7188 ] # lfs f0, 0x7188(r12)   Scale
+      - [ be32, 0x004d716c, 0xec840032 ] # fmuls f4, f4, f0
+      - [ be32, 0x004d7170, 0x4e800020 ] # blr
+      - [ bef32, 0x004d7188, "Scale" ]

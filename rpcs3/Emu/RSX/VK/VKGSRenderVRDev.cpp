@@ -407,6 +407,22 @@ VKGSRender::vr_readback_scope::vr_readback_scope(VKGSRender* renderer, const vk:
 			if (std::find(r->m_vr_readback_ranges.begin(), r->m_vr_readback_ranges.end(), range) == r->m_vr_readback_ranges.end() && r->m_vr_readback_ranges.size() < 64)
 			{
 				r->m_vr_readback_ranges.push_back(range);
+				// Profile hint: a small render target the guest reads back is filtered down from its scaled image, which
+				// corrupts packed values (Sonic's lighting tiles read a 20x12 min/max depth: lights landed in the wrong
+				// tiles at 450%). Logged once per section size.
+				const u16 w = section->get_width(), h = section->get_height();
+				const auto& scaling = r->resolution_scaling_config;
+				if (section->get_context() == rsx::texture_upload_context::framebuffer_storage && std::max(w, h) <= 64 &&
+					std::max(w, h) > scaling.min_scalable_dimension && (scaling.scale_percent != 100 || scaling.percent_y() != 100))
+				{
+					static std::set<u32> s_hinted;
+					if (s_hinted.size() < 8 && s_hinted.insert((u32{w} << 16) | h).second)
+					{
+						rsx_log.warning("VR hint: the game reads back a %ux%u render target (0x%x) that is resolution-scaled; its readback is "
+							"filtered. If an effect looks wrong only at high Resolution Scales (tiles, missing lights), the profile's "
+							"min_scalable_dimension >= %u keeps it native.", w, h, range.start, std::max(w, h));
+					}
+				}
 			}
 		}
 	}

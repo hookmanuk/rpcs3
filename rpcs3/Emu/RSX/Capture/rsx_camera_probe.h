@@ -202,6 +202,20 @@ namespace rsx::vr
 		// lookup coordinate) instead of its clip position; a pass that also reads its window position (wpos) gets it
 		// moved by the same remap. Ratchet & Clank's character-shadow projector.
 		bool depth_remap_uv = false;
+		// depth_remap_screen: screen-space passes without a camera block that light the scene from the depth buffer in
+		// screen tiles (Sonic's tiled cave lights 8761ccb6b94bd151: one quad per tile, the tile's lights as constants). In
+		// the headset each eye pixel's depth is taken to the game camera (the scene camera's eye transform undone), the ray
+		// texture coordinate becomes the game camera's ray to that point and the uv one the eye pixel's, each tile's quad
+		// is drawn through the head rotation (widened by tile_margin of its size, border tiles reaching past the game's
+		// screen edge) and keeps only the pixels whose point lies in its tile in the game's view.
+		std::vector<u64> depth_remap_screen_programs;
+		// depth_programs: the first level of the depth pyramid the game reads back to give each tile its lights (Sonic's
+		// 3f4215b47aae1a90). In the headset its depth reads at a game uv take the eye's depth in that direction (the head
+		// rotation undone) as the game camera's depth, so the tiles' depth ranges are the game view's.
+		std::vector<u64> depth_remap_screen_depth_programs;
+		s32 depth_remap_screen_ray_texcoord = -1;
+		s32 depth_remap_screen_uv_texcoord = -1;
+		f32 depth_remap_screen_tile_margin = 0.25f;
 		f32 output_aspect_tolerance = 0.f; // camera views share the output aspect
 		// Aspect of the render targets that hold camera views, when it is not the
 		// output's: MGS4 renders its scene anamorphically into 1024x768 and stretches
@@ -615,6 +629,17 @@ namespace rsx::vr
 			std::string option; // the VR setting that switches this rule (profile_option_enabled)
 		};
 		std::vector<shared_frame_target> shared_frame_targets;
+		// Profile small_draw_cull: draws of at most max_vertices vertices into render targets of this size are skipped.
+		// For a pass that redraws the scene into a small map where small pieces cannot be seen: SEGA Rally's two 512x512
+		// car reflection maps (one a frame, ~1,370 draws at the race start, ~890 of them 48 vertices or fewer).
+		struct small_draw_cull
+		{
+			u16 width = 0;
+			u16 height = 0;
+			u32 max_vertices = 0;
+			std::string option; // the VR setting that switches this rule (profile_option_enabled)
+		};
+		std::vector<small_draw_cull> small_draw_culls;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;
@@ -838,6 +863,9 @@ namespace rsx::vr
 		// (NDC x, NDC y, window depth, 1) to the game's, homogeneous (row vector times matrix: 4 rows). False when no
 		// camera block of the draw took an eye transform (the identity then applies).
 		bool depth_remap_matrix(f32 (&out)[4][4]) const;
+		// Profile depth_remap_screen: the same matrix for a draw without a camera block, from the latest scene camera
+		// draw's game and eye matrices for this eye. False before the eye has a scene camera draw.
+		bool screen_depth_remap(f32 eye_sign) const;
 		// The game camera's projection x and y scales (P00, P11), for depth_remap_ray_texcoord. False when unknown.
 		bool game_projection_scale(f32& x, f32& y) const;
 		// The profile's clip_space_scene_draws, unless the probe file overrides it (scene=0/1).

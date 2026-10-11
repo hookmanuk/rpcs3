@@ -74,10 +74,10 @@ namespace vk
 			return s;
 		}
 
-		// The varyings after the RSX's (0-15) and the VR fork's (16 exact depth, 17-21 depth remap).
-		constexpr int dlss_cur_location = 22;
-		constexpr int dlss_prev_location = 23;
-		constexpr int dlss_cover_location = 24;
+		// The varyings after the RSX's (0-15) and the VR fork's (16 exact depth, 17-22 depth remap).
+		constexpr int dlss_cur_location = 23; // after the depth remap's 6 (17 to 22)
+		constexpr int dlss_prev_location = 24;
+		constexpr int dlss_cover_location = 25;
 
 		f32 halton(u32 index, u32 base)
 		{
