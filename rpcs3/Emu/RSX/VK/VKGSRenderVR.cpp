@@ -3288,6 +3288,22 @@ u16 VKGSRender::vr_resolution_scale(u16 configured_percent) const
 	return rsx::vr::effective_resolution_scale(configured_percent);
 }
 
+// reinitialize_swapchain(): vkDeviceWaitIdle needs every queue externally synchronized. The global submit lock covers
+// RPCS3's queue; the OpenXR frame thread submits to its own queue under its own lock. Holding only the first, a
+// swapchain rebuild during a load (the shader interpreter preload flips) crashed inside the driver now and then (a null
+// write in vkDeviceWaitIdle while the frame thread was submitting; GT5 ~1 load in 8, Sonic once).
+void VKGSRender::vr_lock_queues()
+{
+	vk::acquire_global_submit_lock();
+	vk::xr::lock_own_queue();
+}
+
+void VKGSRender::vr_unlock_queues()
+{
+	vk::xr::unlock_own_queue();
+	vk::release_global_submit_lock();
+}
+
 // VKGSRender(): Gate 6: OpenXR must be initialised before the Vulkan instance so the runtime's
 // required extensions can be enabled on it. Only for the armed stereo title; everything else
 // never touches the OpenXR runtime.

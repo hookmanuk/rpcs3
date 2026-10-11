@@ -88,6 +88,8 @@
 	// logged for 6 consecutive frames every 150 flips.
 	std::string m_vr_trace;
 	u32 m_vr_trace_flips = 0;
+	void vr_lock_queues();   // reinitialize_swapchain(), around vkDeviceWaitIdle: every queue (RPCS3's and OpenXR's)
+	void vr_unlock_queues();
 	u32 m_vr_ckpt_frame = 0; // dev GPU checkpoints (RPCS3_VR_GPU_CHECKPOINTS): flips and draws since the last flip
 	u32 m_vr_ckpt_draw = 0;
 	u32 m_vr_clear_flip = umax; // profile clear_view_targets: the flip the list below belongs to

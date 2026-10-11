@@ -82,9 +82,9 @@ bool VKGSRender::reinitialize_swapchain()
 
 	// Drain all the queues. The OpenXR frame thread may be submitting, and
 	// vkDeviceWaitIdle requires every queue to be externally synchronized.
-	vk::acquire_global_submit_lock(); // VR fork
+	vr_lock_queues(); // VR fork: RPCS3's and the OpenXR queue
 	vkDeviceWaitIdle(*m_device);
-	vk::release_global_submit_lock();
+	vr_unlock_queues(); // VR fork
 
 	// Clean the FBO caches
 	for (u32 i = 0; i < m_swapchain->get_swap_image_count(); ++i)
