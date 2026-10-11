@@ -8,7 +8,9 @@
 #include "VulkanAPI.h"
 #include "Emu/RSX/Common/simple_array.hpp"
 #include "Emu/RSX/Capture/rsx_vr_hooks.h" // rsx::vr::multiview_active(), RSX_SHADER_CONTROL_VR_MULTIVIEW
+#include "VKDLSS.h" // DLSS test: its hooks reach the upstream files through this header's
 
+#include <array>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -117,7 +119,8 @@ namespace vk
 	void vr_insert_exact_depth_vertex_output(std::ostream& OS, u32 ctrl);
 	void vr_insert_exact_depth_vertex_end(std::ostream& OS, u32 ctrl); // after apply_zclip_xform; needs vr_pre_xform
 	void vr_insert_exact_depth_fragment_input(std::ostream& OS, u32 ctrl);
-	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl);
+	// Also the DLSS test's motion output (VKDLSS.h) and its attachment's write mask.
+	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl, std::array<u32, 4>& output_color_masks, u32 mrt_count);
 
 	// Depth remap (RSX_SHADER_CONTROL_VR_DEPTH_REMAP, profile depth_remap_programs): the vertex shader passes the
 	// eye-to-game matrix that follows the program's vertex constants (constant_slots: the slots the CPU fills, 512 for
@@ -127,7 +130,11 @@ namespace vk
 	// depth texture read as colour (in_register_mask: the decompiler's inputs read, bit 4 tc0; depth_mask: those textures).
 	void vr_insert_depth_remap_vertex_output(std::ostream& OS, u32 ctrl);
 	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots);
-	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl);
+	// Also the DLSS test's motion input and output (after the mrt_count colour outputs).
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count);
+	// Shader interpreter pipelines: a viewport and scissor per view in multiview; the DLSS test's motion attachment
+	// left alone (the interpreter does not write it).
+	void vr_interpreter_pipeline_state(pipeline_props& props, VkPipelineViewportStateCreateInfo& vp);
 	void vr_insert_depth_remap_fragment_start(std::ostream& OS, u32 ctrl, u32 in_register_mask, u32 depth_mask);
 
 	// Shader interpreter (VKShaderInterpreter.cpp), with COMPILER_OPT_VR_MULTIVIEW in compiler_options.
@@ -147,6 +154,7 @@ namespace vk
 	void vr_gpu_checkpoints_instance_extensions(std::vector<const char*>& extensions);
 	void vr_gpu_checkpoints_messenger(VkInstance instance);
 	// create(): the extensions (supported ones only) and, before vkCreateDevice, the diagnostics config in the chain.
+	// These and vr_gpu_checkpoints_instance_extensions also add what the DLSS test's NGX needs (VKDLSS.h).
 	void vr_gpu_checkpoints_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions);
 	void vr_gpu_checkpoints_chain(VkDeviceCreateInfo& info);
 	struct vr_gpu_checkpoint_info

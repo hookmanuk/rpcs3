@@ -3213,6 +3213,8 @@ bool VKGSRender::vr_skip_draw()
 // end(), after the program environment is loaded.
 void VKGSRender::vr_before_draw_setup()
 {
+	dlss_draw_setup(); // DLSS test: the draw's constants with its motion block (VKGSRenderDLSS.cpp)
+
 	if (vk::xr::is_running() && m_vr_applied_pose && rsx::method_registers.blend_enabled() && vr_reprojects_older_frames())
 	{
 		vr_realign_blend_targets();
@@ -3285,6 +3287,8 @@ std::string VKGSRender::vr_select_adapter(std::vector<vk::physical_device>& gpus
 // runtime gets a spare queue of that family when there is one.
 void VKGSRender::vr_init_after_device()
 {
+	dlss_init(); // DLSS test (RPCS3_DLSS)
+
 	if (vk::xr::is_prepared())
 	{
 		const VkQueue xr_queue = m_device->get_xr_queue();
@@ -3343,6 +3347,8 @@ void VKGSRender::vr_destroy_before_wait()
 // ~VKGSRender(): everything VR owns on the device (called before the surface cache is destroyed).
 void VKGSRender::vr_destroy_resources()
 {
+	dlss_destroy(); // DLSS test
+
 	if (m_vr_right_draw_fbo)
 	{
 		m_vr_right_draw_fbo->release();
@@ -4018,6 +4024,13 @@ bool VKGSRender::vr_present_right_eye(const vk::present_surface_info& present_in
 // headset's clock (that stalled guest command processing and dropped frames in busy scenes); it
 // records a copy into a free eye buffer, submits, and tags the pair with the pose its draws were
 // rotated by. image_to_flip2 is the right eye of generated stereo, or null.
+void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
+	vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height)
+{
+	dlss_on_flip(info, avconfig, image_to_flip, image_to_flip2, generated_stereo, buffer_width, buffer_height); // DLSS test
+	vr_publish_frame(info, image_to_flip, generated_stereo ? image_to_flip2 : nullptr);
+}
+
 void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2)
 {
 	// Dev GPU checkpoints through the flip: 2 start, 5 eyes copied, 6 overlay drawn, 7 overlay copied, 8 end.
@@ -4299,6 +4312,8 @@ void VKGSRender::vr_mv_on_before_end_renderpass(const vk::command_buffer& cmd)
 // are cleared, as after any other cache invalidation).
 void VKGSRender::vr_update_multiview_mode()
 {
+	dlss_check_framebuffer(); // DLSS test: the bound framebuffer gains or loses the motion attachment
+
 	const bool want = m_vr_multiview_supported && rsx::vr::camera_probe::get().render_enabled();
 	if (want == m_vr_multiview)
 	{

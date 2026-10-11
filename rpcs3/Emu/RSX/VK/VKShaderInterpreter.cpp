@@ -85,7 +85,7 @@ namespace vk
 			m_vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 			m_vp.viewportCount = 1;
 			m_vp.scissorCount = 1;
-			m_vp.viewportCount = m_vp.scissorCount = (vk::get_renderpass_view_mask(m_properties.renderpass_key) == 1) ? 2 : 1; // VR fork: multiview, one per view
+			vk::vr_interpreter_pipeline_state(m_properties, m_vp); // VR fork: multiview, one viewport per view (DLSS test: no motion writes)
 
 			m_ms = m_properties.state.ms;
 			ensure(m_ms.rasterizationSamples == VkSampleCountFlagBits((m_properties.renderpass_key >> 16) & 0xF)); // "Multisample state mismatch!"

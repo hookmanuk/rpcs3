@@ -99,7 +99,8 @@ namespace vk
 	// ---- Vulkan instance and device (vkutils/instance.cpp, vkutils/device.cpp) -----------------------------
 	void dlss_instance_extensions(std::vector<const char*>& extensions);
 	void dlss_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions);
-	void dlss_device_features(VkPhysicalDevice pdev, VkPhysicalDeviceVulkan12Features& features);
+	// Before vkCreateDevice: the features NGX needs, set in the create info's chain.
+	void dlss_device_chain(VkPhysicalDevice pdev, VkDeviceCreateInfo& info);
 
 	// ---- Render passes (VKRenderPass.cpp) -------------------------------------------------------------------
 	// Key bit 44: the pass has the motion attachment after the colour attachments (before depth).
@@ -108,13 +109,17 @@ namespace vk
 	// 1 - z, which half floats keep precise near the far plane).
 	VkFormat dlss_motion_format(u32 samples);
 	inline bool dlss_renderpass_has_motion(u64 key) { return !!(key & dlss_renderpass_motion_bit); }
+	// get_renderpass(), after the colour attachments: the motion attachment when the key has its bit (renderpass_key_blob
+	// uses bits 0-43, the VR fork's multiview view mask 42-43).
+	void dlss_add_motion_attachment(u64 renderpass_key, VkSampleCountFlagBits samples, std::vector<VkAttachmentDescription>& attachments,
+		std::vector<VkAttachmentReference>& references, u32& attachment_count);
 
 	// ---- Pipelines (VKGSRender::load_program) -----------------------------------------------------------------
 	// A pass with the motion attachment: one more blend attachment, written as src * src.a + dst * (1 - src.a), so
 	// a draw whose coverage (alpha) is 0 leaves it as it was.
 	void dlss_apply_pipeline_props(pipeline_props& props, u32 color_attachments);
 	// The shader interpreter does not write the motion output: its pipelines leave the attachment alone.
-	pipeline_props dlss_interpreter_props(const pipeline_props& props);
+	void dlss_interpreter_props(pipeline_props& props);
 
 	// ---- Shader generation (VKVertexProgram.cpp, VKFragmentProgram.cpp) ---------------------------------------
 	// The per-draw block after the vertex constants (and after the VR depth remap matrix when present): R (4 rows),

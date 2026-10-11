@@ -2,30 +2,44 @@
 	// VKGSRender.h (private section), so that upstream's header changes by two lines.
 	// Definitions: VKGSRenderVR.cpp (rendering) and VKGSRenderVRDev.cpp (development tools).
 
-	// DLSS test (VKDLSS.h): motion vectors, jitter and DLSS at flip. Null unless RPCS3_DLSS is set.
+	// DLSS test (VKDLSS.h, VKGSRenderDLSS.cpp): motion vectors, jitter and DLSS at flip. Null unless RPCS3_DLSS is set.
+	// Reached from upstream code through the VR hooks (vr_init_after_device, vr_destroy_resources,
+	// vr_update_multiview_mode, vr_renderpass_key, vr_framebuffer_images, vr_before_draw_setup, the constants tail,
+	// vr_publish_frame) and the shader hooks of VKMultiviewVR.cpp.
 	std::unique_ptr<vk::dlss_context> m_dlss;
 	bool m_dlss_motion_bound = false;          // the bound framebuffer has the motion attachment
-	bool m_dlss_in_draw = false;               // end(): from load_program() to the last sub-draw (the draw's own uploads)
+	bool m_dlss_uploading = false;             // dlss_draw_setup(): the draw's own constant upload
 	u32 m_dlss_refused_address = 0;            // a scene target refused this frame (MRT mismatch, no memory): not retried until the flip
 	std::vector<vk::image*> m_dlss_fbo_images; // its attachments: m_fbo_images with the motion image before depth
-	// prepare_rtts(): the motion attachment for the framebuffer just set up (key bit, attachment list, shader variants).
-	void dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images);
-	// prepare_rtts(): the bound framebuffer should gain or lose the motion attachment (the scene target changed, or a
-	// new frame starts on it): its fast paths must not keep it.
+	void dlss_init();
+	void dlss_destroy();
+	// prepare_rtts(): the render pass key (multiview view mask, the motion attachment) and the framebuffer's images.
+	u64 vr_renderpass_key(const std::vector<u8>& input_attachments);
+	std::vector<vk::image*>& vr_framebuffer_images();
+	// prepare_rtts() (vr_update_multiview_mode): drops the bound framebuffer when it gains or loses the motion attachment
+	// (the scene target changed, or a new frame starts on it), so the fast paths do not keep it.
+	void dlss_check_framebuffer();
+	// The motion attachment for the framebuffer just set up (key bit, attachment list, shader variants).
+	void dlss_prepare_framebuffer();
 	bool dlss_framebuffer_stale() const;
 	// Scene target detection: a draw (or sub-draw) into the bound framebuffer.
 	void dlss_note_draw();
-	// end(), after load_program(): scene target detection, and a constant upload for every draw into the scene target.
-	void dlss_after_load_program();
-	// upload_transform_constants(): the motion block after the constants (and the depth remap), for programs that read it.
+	// The draw's own constant upload, or a sub-draw's (merged draws): blocks with motion, else neutral ones.
+	bool dlss_in_draw() const;
+	// end(), after load_program_env() (vr_before_draw_setup): scene target detection, the draw's constants with its block.
+	void dlss_draw_setup();
+	// upload_transform_constants(): what follows the constants: the depth remap matrix, then the motion block.
+	usz vr_constants_tail_size() const;
+	void vr_write_constants_tail(u8* dst);
 	usz dlss_draw_block_size() const;
 	void dlss_write_draw_block(void* dst);
 	// bind_vr_eye_constants_pair() (VR multiview): each eye's block, from that eye's constants, block_offset bytes in.
 	void dlss_write_eye_blocks(u8* left, u8* right, usz block_offset);
 	// VR stereo without multiview: no motion (the two-draw stereo is not supported).
 	bool dlss_vr_unsupported() const;
-	// load_program(): the pipeline the shader interpreter gets (it does not write the motion output).
-	vk::pipeline_props dlss_interpreter_pipeline() const;
+	// flip() (vr_publish_frame): the displayed image (both eyes in VR multiview) through DLSS or a debug view.
+	void dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
+		vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height);
 
 	vk::surface_cache m_vr_right_rtts;
 	vk::framebuffer_holder* m_vr_right_draw_fbo = nullptr;
@@ -442,6 +456,9 @@
 	void vr_flip_begin(const rsx::display_flip_info_t& info); // pending batch, RPCS3_VR_RTDUMP, GPU profiler
 	bool vr_present_right_eye(const vk::present_surface_info& present_info, const rsx::avconf& avconfig, u32 buffer_width, u32 buffer_height, vk::viewable_image* image_to_flip, vk::viewable_image*& image_to_flip2);
 	void vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2);
+	// flip(): the DLSS test's image replacement first (dlss_on_flip), then the frame for the headset.
+	void vr_publish_frame(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
+		vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height);
 	bool vr_capturable(vk::viewable_image* image_to_flip, u32 buffer_width, u32 buffer_height);
 	bool vr_side_by_side_shot(vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2, u32 buffer_width, u32 buffer_height);
 	void vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>& calibration_src, u32 buffer_width, u32 buffer_height);

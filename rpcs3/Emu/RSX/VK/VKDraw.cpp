@@ -1336,8 +1336,6 @@ void VKGSRender::end()
 		return;
 	}
 
-	dlss_after_load_program(); // DLSS test
-
 	// Load program execution environment
 	load_program_env();
 	m_frame_stats.setup_time += m_profiler.duration();
@@ -1430,7 +1428,6 @@ void VKGSRender::end()
 		}
 	}
 	while (draw_call.next());
-	m_dlss_in_draw = false; // DLSS test
 
 	if (m_current_command_buffer->flags & vk::command_buffer::cb_has_conditional_render)
 	{

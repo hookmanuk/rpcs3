@@ -932,20 +932,11 @@ bool Emulator::BootRsxCapture(const std::string& path)
 	m_sfo_dir.clear();
 	m_ar.reset();
 
-	// Fork: RPCS3_REPLAY_TITLE_ID gives the replay a title, so a capture replays with that title's VR profile
-	// (vr_profiles/<TITLE_ID>.json): VR stereo, multiview and the DLSS test's camera blocks.
-	if (const char* replay_title = std::getenv("RPCS3_REPLAY_TITLE_ID"); replay_title && *replay_title)
-	{
-		m_title_id = replay_title;
-	}
-
 	Init();
 	g_cfg.video.disable_on_disk_shader_cache.set(true);
 
 	vm::init();
-	// Fork fix: from 0x10000 like the game boot path. At 0 the replay's first vm::alloc returns address 0, which it
-	// treats as failure ("Capture Replay: context alloc failed"): RSX captures stopped booting with upstream bcd8a09.
-	vm::reserve_map(vm::main, 0x10000, 0x1FFF0000, vm::page_64k_size);
+	vm::reserve_map(vm::main, 0x10000, 0x1FFF0000, vm::page_64k_size); // Fork fix: from 0x10000 as the game boot (at 0 the replay's first vm::alloc returned 0: "context alloc failed")
 	g_fxo->init(false);
 
 	// Initialize progress dialog

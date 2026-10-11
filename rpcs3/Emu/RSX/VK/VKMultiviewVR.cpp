@@ -2,6 +2,7 @@
 #include "VKMultiviewVR.h"
 
 #include "VKHelpers.h"
+#include "VKPipelineCompiler.h" // vr_interpreter_pipeline_state: pipeline_props
 #include "VKProgramPipeline.h"
 #include "vkutils/descriptors.h"
 #include "vkutils/device.h"
@@ -318,10 +319,13 @@ namespace vk
 		{
 			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[5];\n";
 		}
+		vk::dlss_insert_vertex_output(OS, ctrl); // DLSS test: motion
 	}
 
 	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots)
 	{
+		// DLSS test: motion and jitter (last: jitter moves the final position). Its block follows the depth remap's.
+		vk::dlss_insert_vertex_end(OS, ctrl, constant_slots + ((ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) ? 5 : 0), constant_slots != 0);
 		if (!(ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP))
 		{
 			return;
@@ -335,12 +339,14 @@ namespace vk
 		OS << "	for (uint vr_i = 0; vr_i < 5; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
 	}
 
-	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl)
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count)
 	{
 		if (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP)
 		{
 			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[5]; // VR fork\n";
 		}
+		vk::dlss_insert_fragment_input(OS, ctrl);              // DLSS test: motion
+		vk::dlss_insert_fragment_output(OS, ctrl, mrt_count);  // the motion attachment follows the colour attachments
 	}
 
 	void vr_insert_depth_remap_fragment_start(std::ostream& OS, u32 ctrl, u32 in_register_mask, u32 depth_mask)
@@ -444,11 +450,24 @@ namespace vk
 		}
 	}
 
-	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl)
+	void vr_interpreter_pipeline_state(pipeline_props& props, VkPipelineViewportStateCreateInfo& vp)
+	{
+		vp.viewportCount = vp.scissorCount = (vk::get_renderpass_view_mask(props.renderpass_key) == 1) ? 2 : 1;
+		vk::dlss_interpreter_props(props);
+	}
+
+	void vr_insert_exact_depth_fragment_end(std::ostream& OS, u32 ctrl, std::array<u32, 4>& output_color_masks, u32 mrt_count)
 	{
 		if (ctrl & RSX_SHADER_CONTROL_VR_EXACT_DEPTH)
 		{
 			OS << "	gl_FragDepth = vr_exact_depth.y != 0. ? clamp(vr_exact_depth.x / vr_exact_depth.y, 0., 1.) : gl_FragCoord.z;\n\n";
+		}
+		// DLSS test: motion. Its attachment is written (validate_pipeline_properties masks the attachments a program
+		// does not write; insertOutputs has run).
+		vk::dlss_insert_fragment_end(OS, ctrl);
+		if ((ctrl & RSX_SHADER_CONTROL_DLSS_MOTION) && mrt_count < output_color_masks.size())
+		{
+			output_color_masks[mrt_count] = umax;
 		}
 	}
 
@@ -681,6 +700,7 @@ namespace vk
 
 	void vr_gpu_checkpoints_instance_extensions(std::vector<const char*>& extensions)
 	{
+		vk::dlss_instance_extensions(extensions); // DLSS test: NGX's instance extensions (RPCS3_DLSS)
 		if (!vr_gpu_checkpoints_enabled())
 		{
 			return;
@@ -725,8 +745,12 @@ namespace vk
 		return s_on;
 	}
 
+	static VkPhysicalDevice s_device_pdev = VK_NULL_HANDLE; // the device being created (vr_gpu_checkpoints_chain)
+
 	void vr_gpu_checkpoints_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
+		s_device_pdev = pdev;
+		vk::dlss_device_extensions(pdev, extensions); // DLSS test: NGX's device extensions (RPCS3_DLSS)
 		if (!vr_gpu_checkpoints_enabled())
 		{
 			return;
@@ -747,6 +771,7 @@ namespace vk
 
 	void vr_gpu_checkpoints_chain(VkDeviceCreateInfo& info)
 	{
+		vk::dlss_device_chain(s_device_pdev, info); // DLSS test: the features NGX needs (RPCS3_DLSS)
 		if (!vr_gpu_checkpoints_enabled())
 		{
 			return;

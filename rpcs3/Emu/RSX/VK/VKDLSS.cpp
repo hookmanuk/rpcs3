@@ -485,7 +485,7 @@ namespace vk
 		{
 			if (std::strcmp(de[i], "VK_EXT_buffer_device_address") == 0)
 			{
-				// Vulkan 1.2's bufferDeviceAddress (dlss_device_features) replaces it; both together are invalid.
+				// Vulkan 1.2's bufferDeviceAddress (dlss_device_chain) replaces it; both together are invalid.
 				continue;
 			}
 			if (extension_listed(supported, de[i]))
@@ -503,25 +503,29 @@ namespace vk
 #endif
 	}
 
-	void dlss_device_features(VkPhysicalDevice pdev, VkPhysicalDeviceVulkan12Features& features)
+	void dlss_device_chain(VkPhysicalDevice pdev, VkDeviceCreateInfo& info)
 	{
 #ifdef HAVE_DLSS
-		if (!dlss_uses_ngx())
+		if (!dlss_uses_ngx() || !pdev)
 		{
 			return;
 		}
 
-		// NGX's Vulkan path uses buffer device addresses.
+		// NGX's Vulkan path uses buffer device addresses: Vulkan 1.2's feature, in the chain's 1.2 features (RPCS3 always
+		// chains them).
 		VkPhysicalDeviceVulkan12Features supported{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 		VkPhysicalDeviceFeatures2 f2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &supported};
 		vkGetPhysicalDeviceFeatures2(pdev, &f2);
-		if (supported.bufferDeviceAddress)
+		for (auto* next = static_cast<VkBaseOutStructure*>(const_cast<void*>(info.pNext)); next; next = next->pNext)
 		{
-			features.bufferDeviceAddress = VK_TRUE;
+			if (next->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES && supported.bufferDeviceAddress)
+			{
+				reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(next)->bufferDeviceAddress = VK_TRUE;
+			}
 		}
 #else
 		static_cast<void>(pdev);
-		static_cast<void>(features);
+		static_cast<void>(info);
 #endif
 	}
 
@@ -547,14 +551,33 @@ namespace vk
 		a.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 	}
 
-	pipeline_props dlss_interpreter_props(const pipeline_props& props)
+	void dlss_add_motion_attachment(u64 renderpass_key, VkSampleCountFlagBits samples, std::vector<VkAttachmentDescription>& attachments,
+		std::vector<VkAttachmentReference>& references, u32& attachment_count)
 	{
-		pipeline_props result = props;
-		if (dlss_renderpass_has_motion(result.renderpass_key) && result.state.cs.attachmentCount > 0)
+		if (!dlss_renderpass_has_motion(renderpass_key))
 		{
-			result.state.att_state[result.state.cs.attachmentCount - 1].colorWriteMask = 0;
+			return;
 		}
-		return result;
+
+		VkAttachmentDescription motion = {};
+		motion.format = dlss_motion_format(samples);
+		motion.samples = samples;
+		motion.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		motion.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		motion.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		motion.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		motion.initialLayout = VK_IMAGE_LAYOUT_GENERAL;
+		motion.finalLayout = VK_IMAGE_LAYOUT_GENERAL;
+		attachments.push_back(motion);
+		references.push_back({attachment_count++, VK_IMAGE_LAYOUT_GENERAL});
+	}
+
+	void dlss_interpreter_props(pipeline_props& props)
+	{
+		if (dlss_renderpass_has_motion(props.renderpass_key) && props.state.cs.attachmentCount > 0)
+		{
+			props.state.att_state[props.state.cs.attachmentCount - 1].colorWriteMask = 0;
+		}
 	}
 
 	// ---- Shader generation ----------------------------------------------------------------------------------

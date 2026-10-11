@@ -138,6 +138,18 @@ namespace rsx::vr
 #endif
 		}
 
+		// The title whose VR profile applies: the running game's; a capture replay has none, RPCS3_REPLAY_TITLE_ID names
+		// one (the DLSS self-test, or a game's capture replayed with its profile).
+		std::string vr_title_id()
+		{
+			if (std::string title = Emu.GetTitleID(); !title.empty())
+			{
+				return title;
+			}
+			static const std::string s_replay_title = read_env("RPCS3_REPLAY_TITLE_ID");
+			return s_replay_title;
+		}
+
 		// The directly read slots of the current full-bank program (full_bank_direct_slots), or none.
 		struct direct_slot_filter
 		{
@@ -2414,7 +2426,7 @@ namespace rsx::vr
 
 	const title_profile* camera_probe::profile_slow() const
 	{
-		const std::string& title = Emu.GetTitleID();
+		const std::string title = vr_title_id();
 		const std::string& boot = Emu.GetBoot();
 		std::lock_guard lock(m_profile_mutex);
 		// Called several times per draw: only rebuild the key when the title or boot path changed
@@ -2532,7 +2544,7 @@ namespace rsx::vr
 
 		// Do not allocate/replay right-eye resources for unrelated titles merely
 		// because the development default is armed.
-		if (!m_title.empty() && Emu.GetTitleID() != m_title)
+		if (!m_title.empty() && vr_title_id() != m_title)
 		{
 			return false;
 		}
@@ -2587,7 +2599,7 @@ namespace rsx::vr
 		if (const u64 now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); s_profile_reload && now_ms - m_profile_file_check_ms >= 500)
 		{
 			m_profile_file_check_ms = now_ms;
-			if (const std::string title = Emu.GetTitleID(); !title.empty())
+			if (const std::string title = vr_title_id(); !title.empty())
 			{
 				const std::string dir = fs::get_executable_dir() + "vr_profiles/";
 				u64 stamp = 1;
@@ -4539,7 +4551,7 @@ namespace rsx::vr
 
 		// Title gate (title=). Unset, experiments run on whatever is booted, so an
 		// unprofiled game can be investigated with explicit base= and cam=.
-		if (!m_title.empty() && Emu.GetTitleID() != m_title)
+		if (!m_title.empty() && vr_title_id() != m_title)
 		{
 			return;
 		}
