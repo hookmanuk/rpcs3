@@ -402,7 +402,13 @@
 	// vertex constants (64 for a listed program's compiled shaders, else 0), and their fill: the eye's, as the probe
 	// recorded it for the eye just transformed, or the identity (eye false, or no camera block transformed).
 	usz vr_depth_remap_size() const;
-	void vr_write_depth_remap(void* dst, usz size, bool eye) const;
+	void vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sign = 0.f) const;
+	// Profile depth_remap_screen: the current draw's tile quad (attribute 0, game NDC x0, y0, x1, y1), read before
+	// its eye constants; the quad is drawn through the head rotation and the shader keeps the tile's points.
+	void vr_read_screen_tile();
+	bool vr_screen_tile_matrix(f32 (&pre)[4][4]) const;
+	f32 m_vr_screen_tile[4]{};
+	bool m_vr_screen_tile_valid = false;
 
 	// prepare_rtts()
 	bool vr_before_prepare_rtts(); // early readback copies; true if any was recorded

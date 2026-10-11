@@ -940,6 +940,7 @@ namespace rsx::vr
 		std::map<u32, u32> bound_blocks;        // camera block -> draws that bind it (the first listed block a draw reads)
 		u32 scene_draws = 0, scene_covered = 0; // depth-tested, no post-processing input
 		std::map<u64, u32> depth_reading_programs; // camera draws reading a depth buffer as colour, by vertex ucode
+		std::map<u64, u32> screen_depth_programs;  // the same without a camera block (screen passes), by vertex ucode
 		// Matrices of draws that read the depth buffer as colour: deferred light and shadow volumes. A box drawn in camera
 		// space at a fixed depth with one of them (and its stencil pass, which shares the matrix but reads nothing) is part
 		// of the lighting, not a 3D HUD (Sonic & All-Stars Racing Transformed's shadow cascades took depth_offset_projection,
@@ -990,6 +991,10 @@ namespace rsx::vr
 			if (!cam)
 			{
 				prog.second++;
+				if (s->textures & texture_depth_as_colour)
+				{
+					screen_depth_programs[s->ucode]++;
+				}
 				continue;
 			}
 			prog.first++;
@@ -1751,6 +1756,15 @@ namespace rsx::vr
 				"If its lighting or shadows slide over the scene as the head turns, list it in depth_remap_programs (Asura's Wrath); "
 				"if its fragment program scales a view-ray texture coordinate by the depth, also depth_remap_ray_texcoord (and depth_remap_xyw "
 				"for an (x, y, w) clip position), as for Sonic's shadow cascades.", ucode, count);
+		}
+		// Not written either: a tiled lighting pass needs its texture coordinates named, and most such passes are
+		// full-screen post-processing that is right as it is.
+		for (const auto& [ucode, count] : screen_depth_programs)
+		{
+			vr_gen_log.notice("Program %016llx: %u draws without a camera block read the depth buffer as colour (a screen pass). If it draws "
+				"one quad per screen tile with that tile's lights (stripes or hard blocks of light that follow the head or differ between "
+				"the eyes), list it in depth_remap_screen.programs with its ray_texcoord and uv_texcoord, and the first level of the depth "
+				"pyramid the game reads back for the tiles in depth_programs, as for Sonic's cave lights.", ucode, count);
 		}
 		if (hud_block != umax || bare_projection || depth_offset_projection || offaspect_projection || passthrough_hud)
 		{

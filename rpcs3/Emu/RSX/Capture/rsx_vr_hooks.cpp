@@ -323,8 +323,9 @@ namespace rsx::reports
 // The fork's RSX_SHADER_CONTROL_VR_* bits must stay clear of upstream's program control bits (gcm_enums.h) and of each
 // other. After a merge from upstream, add any new RSX_SHADER_CONTROL_* bit here.
 static_assert((RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_EXACT_DEPTH) == 0 && (RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0 &&
-	(RSX_SHADER_CONTROL_VR_EXACT_DEPTH & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0, "VR fork: two VR control bits overlap");
-static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
+	(RSX_SHADER_CONTROL_VR_EXACT_DEPTH & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0 &&
+	((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) == 0, "VR fork: two VR control bits overlap");
+static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
 													 RSX_SHADER_CONTROL_USED_REGS_MASK | RSX_SHADER_CONTROL_USES_KIL | RSX_SHADER_CONTROL_UNKNOWN0 | RSX_SHADER_CONTROL_UNKNOWN1 |
 													 RSX_SHADER_CONTROL_FLAT_SHADING | RSX_SHADER_CONTROL_ATTRIBUTE_INTERPOLATION | RSX_SHADER_CONTROL_INSTANCED_CONSTANTS |
 													 RSX_SHADER_CONTROL_INTERPRETER_MODEL | RSX_SHADER_CONTROL_8BIT_FRAMEBUFFER | RSX_SHADER_CONTROL_SRGB_FRAMEBUFFER |
@@ -343,6 +344,8 @@ namespace rsx::vr
 	// program reads. RSX thread only; cleared on boot.
 	static bool s_exact_depth = false;
 	static bool s_depth_remap = false;
+	static bool s_depth_remap_screen = false;
+	static bool s_depth_remap_game_view = false;
 	static std::unordered_map<u64, u8> s_program_bits_by_fingerprint;
 
 	void on_boot()
@@ -356,11 +359,22 @@ namespace rsx::vr
 		ctrl = multiview_active() ? (ctrl | RSX_SHADER_CONTROL_VR_MULTIVIEW) : (ctrl & ~RSX_SHADER_CONTROL_VR_MULTIVIEW);
 		ctrl = s_exact_depth ? (ctrl | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) : (ctrl & ~RSX_SHADER_CONTROL_VR_EXACT_DEPTH);
 		ctrl = s_depth_remap ? (ctrl | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) : (ctrl & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP);
+		ctrl = s_depth_remap_screen || s_depth_remap_game_view ? (ctrl | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) : (ctrl & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN);
 	}
 
 	bool depth_remap_active()
 	{
 		return s_depth_remap;
+	}
+
+	bool depth_remap_screen_active()
+	{
+		return s_depth_remap_screen || s_depth_remap_game_view;
+	}
+
+	bool depth_remap_tiles_active()
+	{
+		return s_depth_remap_screen;
 	}
 
 	namespace
@@ -489,11 +503,11 @@ namespace rsx::vr
 			const auto decide = [&]()
 			{
 				const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(program);
-				return static_cast<u8>((exact_depth_program(hash) ? 1 : 0) | (depth_remap_program(hash) ? 2 : 0));
+				return static_cast<u8>((exact_depth_program(hash) ? 1 : 0) | (depth_remap_program(hash) ? 2 : 0) | (depth_remap_screen_program(hash) ? 4 : 0) | (depth_remap_game_view_program(hash) ? 8 : 0));
 			};
 			if (const auto found = s_program_bits_by_fingerprint.find(fingerprint); found != s_program_bits_by_fingerprint.end())
 			{
-				bits = (found->second & 2) ? decide() : found->second;
+				bits = (found->second & (2 | 8)) ? decide() : found->second;
 			}
 			else
 			{
@@ -507,9 +521,13 @@ namespace rsx::vr
 		}
 		const bool exact = (bits & 1) != 0;
 		const bool remap = (bits & 2) != 0;
-		const bool changed = exact != s_exact_depth || remap != s_depth_remap;
+		const bool screen = (bits & 4) != 0;
+		const bool game_view = (bits & 8) != 0;
+		const bool changed = exact != s_exact_depth || remap != s_depth_remap || screen != s_depth_remap_screen || game_view != s_depth_remap_game_view;
 		s_exact_depth = exact;
 		s_depth_remap = remap;
+		s_depth_remap_screen = screen;
+		s_depth_remap_game_view = game_view;
 		return changed;
 	}
 

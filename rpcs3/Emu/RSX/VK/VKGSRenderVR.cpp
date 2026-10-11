@@ -780,6 +780,10 @@ u64 VKGSRender::vr_vertex_program_hash()
 
 u64 VKGSRender::vr_preprojected_program()
 {
+	if (rsx::vr::depth_remap_tiles_active())
+	{
+		return vr_vertex_program_hash(); // profile depth_remap_screen: the tile quads follow the head
+	}
 	const auto* profile = rsx::vr::camera_probe::get().profile();
 	if (!profile || profile->screen_space_preprojected_programs.empty())
 	{
@@ -805,6 +809,15 @@ bool VKGSRender::vr_hud_box_matrix(f32 eye_sign, u64 preprojected_program, f32 c
 							   !rsx::vr::camera_probe::get().map_vr_passthrough_hud(box, eye_sign, aspect))
 	{
 		return false;
+	}
+	if (f32 pre[4][4]; preprojected_program && vr_screen_tile_matrix(pre))
+	{
+		// Profile depth_remap_screen: the tile's own placement first (box = pre * box).
+		f32 out[4][4];
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				out[r][c] = pre[r][0] * box[0][c] + pre[r][1] * box[1][c] + pre[r][2] * box[2][c] + pre[r][3] * box[3][c];
+		std::memcpy(box, out, sizeof(box));
 	}
 
 	// The guest's viewport matrix V (vec4 k = output k's coefficients over x, y, z, w),
@@ -1284,7 +1297,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	}
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 														   m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
-	vr_write_depth_remap(scratch.data() + size, remap_size, true);
+	vr_write_depth_remap(scratch.data() + size, remap_size, true, eye_sign);
 	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
@@ -1979,7 +1992,7 @@ void VKGSRender::vr_setup_draw()
 			}
 		}
 		probe.set_draw_into_display_buffer(display_target);
-		if (const auto* profile = probe.profile(); profile && (!profile->screen_space_hud_block_programs.empty() || !profile->depth_remap_programs.empty()))
+		if (const auto* profile = probe.profile(); profile && (!profile->screen_space_hud_block_programs.empty() || !profile->depth_remap_programs.empty() || !profile->depth_remap_screen_programs.empty()))
 		{
 			probe.set_draw_program(vr_vertex_program_hash());
 		}
@@ -1990,6 +2003,7 @@ void VKGSRender::vr_setup_draw()
 								  rsx::method_registers.depth_func() != rsx::comparison_function::always);
 	}
 	probe.clear_hud_env_request();
+	vr_read_screen_tile();
 	const auto vr_left_t0 = d.render && m_gpuprof_enabled > 0 ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 	d.camera_draw = d.mv ? bind_vr_eye_constants_pair(m_xform_constants_data_size) : (d.render && bind_vr_eye_constants(-1.f, d.guest_constants_source_offset, m_xform_constants_data_size));
 	if (vr_left_t0 != std::chrono::steady_clock::time_point{})
@@ -2118,10 +2132,13 @@ void VKGSRender::vr_setup_draw()
 	const auto vr_untested = [&]()
 	{
 		const auto* profile = probe.profile();
-		return profile && std::find(profile->screen_space_preprojected_untested.begin(), profile->screen_space_preprojected_untested.end(), vr_listed) !=
-		                      profile->screen_space_preprojected_untested.end();
+		return rsx::vr::depth_remap_tiles_active() ||
+		       (profile && std::find(profile->screen_space_preprojected_untested.begin(), profile->screen_space_preprojected_untested.end(), vr_listed) !=
+		                      profile->screen_space_preprojected_untested.end());
 	};
-	u64 vr_preprojected = vr_listed && !vr_hud && (rsx::method_registers.depth_test_enabled() || vr_untested()) && vr_in_scene ? vr_listed : 0;
+	// Profile depth_remap_screen: the lighting passes draw into an accumulation target of their own.
+	u64 vr_preprojected = vr_listed && !vr_hud && (rsx::method_registers.depth_test_enabled() || vr_untested()) &&
+	                      (vr_in_scene || (rsx::vr::depth_remap_tiles_active() && m_vr_screen_tile_valid)) ? vr_listed : 0;
 	// Profile clip_space_scene_draws: every other depth-tested scene draw that is no camera draw
 	// (its matrix folded with an object's, in another slot or layout, skinned from the whole bank)
 	// takes the same eye transform, B^-1 * B_eye of the latest camera draw: the object part cancels.
@@ -3585,19 +3602,25 @@ void VKGSRender::fill_vertex_env_tail(char* buf, f32 vr_keep_depth)
 usz VKGSRender::vr_depth_remap_size() const
 {
 	// The compiled shaders read it (vk::vr_insert_depth_remap_vertex_end); the interpreter does not.
-	return (current_vertex_program.ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 80 : 0;
+	return (current_vertex_program.ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) && m_program && !m_shader_interpreter.is_interpreter(m_program) ? 96 : 0;
 }
 
-void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye) const
+void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sign) const
 {
 	if (!size)
 	{
 		return;
 	}
+	// Profile depth_remap_screen: the pass has no camera block; its remap is the scene camera's for this eye.
+	if (eye && eye_sign != 0.f && rsx::vr::depth_remap_screen_active())
+	{
+		rsx::vr::camera_probe::get().screen_depth_remap(eye_sign);
+	}
 	// The matrix, then (1 / the game projection's x scale, 1 / its y scale, the render target's host width, height): the
 	// ray variant (profile depth_remap_ray_texcoord) builds the game camera's ray from the remapped position and reads
 	// the depth texel under the pixel at the depth texture's own size. Zero scales = no eye transform (keep the game's ray).
-	f32 m[5][4] = {{1.f, 0.f, 0.f, 0.f}, {0.f, 1.f, 0.f, 0.f}, {0.f, 0.f, 1.f, 0.f}, {0.f, 0.f, 0.f, 1.f}, {}};
+	// Then the screen-tile variant's tile rectangle in the game's NDC (x0, y0, x1, y1; open: no tile).
+	f32 m[6][4] = {{1.f, 0.f, 0.f, 0.f}, {0.f, 1.f, 0.f, 0.f}, {0.f, 0.f, 1.f, 0.f}, {0.f, 0.f, 0.f, 1.f}, {}, {-1e9f, -1e9f, 1e9f, 1e9f}};
 	f32 px = 0.f, py = 0.f;
 	if (eye && rsx::vr::camera_probe::get().depth_remap_matrix(reinterpret_cast<f32(&)[4][4]>(m)) &&
 		rsx::vr::camera_probe::get().game_projection_scale(px, py))
@@ -3615,7 +3638,100 @@ void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye) const
 	}
 	m[4][2] = m_draw_fbo ? static_cast<f32>(m_draw_fbo->width()) : 0.f;
 	m[4][3] = m_draw_fbo ? static_cast<f32>(m_draw_fbo->height()) : 0.f;
+	if (eye && m_vr_screen_tile_valid && rsx::vr::depth_remap_tiles_active())
+	{
+		// A side on the game's screen edge stays open: the eye sees past it (wider FOV, head turned), and the game
+		// lights what lies beyond with the border tile's lights.
+		m[5][0] = m_vr_screen_tile[0] <= -0.99f ? -1e9f : m_vr_screen_tile[0];
+		m[5][1] = m_vr_screen_tile[1] <= -0.99f ? -1e9f : m_vr_screen_tile[1];
+		m[5][2] = m_vr_screen_tile[2] >= 0.99f ? 1e9f : m_vr_screen_tile[2];
+		m[5][3] = m_vr_screen_tile[3] >= 0.99f ? 1e9f : m_vr_screen_tile[3];
+	}
 	std::memcpy(dst, m, std::min(size, sizeof(m)));
+}
+
+void VKGSRender::vr_read_screen_tile()
+{
+	m_vr_screen_tile_valid = false;
+	if (!m_vr_draw.render || !rsx::vr::depth_remap_tiles_active())
+	{
+		return;
+	}
+	// The quad's corners: attribute 0 as floats (x, y, ...), w taken as 1 (Sonic's tiles: NDC, z 0, w 1).
+	const auto& pos = rsx::method_registers.vertex_arrays_info[0];
+	const auto& clause = rsx::method_registers.current_draw_clause;
+	if (pos.size() < 2 || pos.type() != rsx::vertex_base_type::f || !pos.stride() || clause.command == rsx::draw_command::inlined_array)
+	{
+		return;
+	}
+	const u32 base = rsx::get_address(rsx::get_vertex_offset_from_base(rsx::method_registers.vertex_data_base_offset(), pos.offset() & 0x7fffffff), pos.offset() >> 31);
+	const bool indexed = clause.command == rsx::draw_command::indexed;
+	const bool u32_indices = rsx::method_registers.index_type() == rsx::index_array_type::u32;
+	const u32 index_base = indexed ? rsx::get_address(rsx::method_registers.index_array_address(), rsx::method_registers.index_array_location()) : 0;
+	const u32 first = clause.min_index();
+	const u32 count = std::min<u32>(clause.get_elements_count(), 6);
+	f32 lo[2] = {1e30f, 1e30f}, hi[2] = {-1e30f, -1e30f};
+	for (u32 v = 0; v < count; ++v)
+	{
+		u32 index = first + v;
+		if (indexed)
+		{
+			const u32 ia = index_base + (first + v) * (u32_indices ? 4 : 2);
+			if (!vm::check_addr(ia, vm::page_readable, u32_indices ? 4 : 2))
+				return;
+			index = u32_indices ? static_cast<u32>(vm::read32(ia)) : static_cast<u32>(vm::read16(ia));
+		}
+		const u32 a = base + (index + rsx::method_registers.vertex_data_base_index()) * pos.stride();
+		if (!vm::check_addr(a, vm::page_readable, 8))
+			return;
+		for (u32 c = 0; c < 2; ++c)
+		{
+			const f32 f = std::bit_cast<f32>(static_cast<u32>(vm::read32(a + c * 4)));
+			lo[c] = std::min(lo[c], f);
+			hi[c] = std::max(hi[c], f);
+		}
+	}
+	if (count < 3 || !(hi[0] > lo[0]) || !(hi[1] > lo[1]))
+	{
+		return;
+	}
+	m_vr_screen_tile[0] = lo[0];
+	m_vr_screen_tile[1] = lo[1];
+	m_vr_screen_tile[2] = hi[0];
+	m_vr_screen_tile[3] = hi[1];
+	m_vr_screen_tile_valid = true;
+}
+
+bool VKGSRender::vr_screen_tile_matrix(f32 (&pre)[4][4]) const
+{
+	if (!m_vr_screen_tile_valid || !rsx::vr::depth_remap_tiles_active())
+	{
+		return false;
+	}
+	// Row vectors (v' = v * pre) before the camera's eye map: the tile widened by the margin (a point near the eye
+	// can show in the eye a little off the tile's direction), a side on the screen edge pushed far out (the eye sees
+	// past the game's screen), and moved to the far end of the depth range so that the eye map turns it as the head
+	// does without the eye's offset (the shader keeps only the tile's own points).
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	const f32 margin = profile ? profile->depth_remap_screen_tile_margin : 0.25f;
+	f32 a[2], b[2];
+	for (u32 c = 0; c < 2; ++c)
+	{
+		const f32 lo = m_vr_screen_tile[c], hi = m_vr_screen_tile[c + 2];
+		const f32 size = hi - lo;
+		const f32 new_lo = lo <= -0.99f ? -8.f : lo - margin * size;
+		const f32 new_hi = hi >= 0.99f ? 8.f : hi + margin * size;
+		a[c] = (new_hi - new_lo) / size;
+		b[c] = new_lo - a[c] * lo;
+	}
+	std::memset(pre, 0, sizeof(pre));
+	pre[0][0] = a[0];
+	pre[1][1] = a[1];
+	pre[3][0] = b[0];
+	pre[3][1] = b[1];
+	pre[3][2] = 0.999f;
+	pre[3][3] = 1.f;
+	return true;
 }
 
 // prepare_rtts(): surfaces the game reads back (see below) are copied as soon as they are left. The right eye's
@@ -4508,11 +4624,11 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		// When the two eyes classify the draw differently (a rule that came true during the left eye's apply, such as
 		// the projection becoming known, must not leave the eyes apart) both are redone from the game's constants.
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
-		vr_write_depth_remap(scratch.data() + size, remap_size, true);
+		vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
 		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 		probe.clear_box_mapped();
 		const bool right_world = probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
-		vr_write_depth_remap(scratch.data() + stride + size, remap_size, true);
+		vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
 		bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		if (right_world != classified_world)
 		{
@@ -4525,12 +4641,12 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 			fill_guest(scratch.data());
 			probe.clear_box_mapped();
 			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
-			vr_write_depth_remap(scratch.data() + size, remap_size, true);
+			vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
 			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 			probe.clear_box_mapped();
 			fill_guest(scratch.data() + stride);
 			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
-			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true);
+			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
 			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		}
 		if (!left_box)
