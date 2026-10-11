@@ -129,8 +129,11 @@ namespace vk
 		}
 	}
 
+	bool vr_retire_unused_framebuffers(); // VR fork: VKGSRenderVR.cpp
+
 	void remove_unused_framebuffers()
 	{
+		if (vr_retire_unused_framebuffers()) return; // VR fork: idle framebuffers freed once the GPU is done with them
 		// Remove stale framebuffers. Ref counted to prevent use-after-free
 		remove_framebuffers_with_filter([](const auto& fbo)
 		{

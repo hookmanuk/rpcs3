@@ -14,6 +14,7 @@
 #include "VKRenderPass.h"
 #include "VKResourceManager.h"
 #include "VKDMA.h"
+#include "VKFramebuffer.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/scratch.h"
 
@@ -126,6 +127,40 @@ namespace vk
 			rsx_log.notice("VR: temporary image pool limit %u MB (GPU memory %u MB).", limit >> 20, vram >> 20);
 		}
 		return limit;
+	}
+
+	// Framebuffer cache (VKFramebuffer.cpp).
+	extern std::unordered_map<u64, std::vector<std::unique_ptr<vk::framebuffer_holder>>> g_framebuffers_cache;
+	extern shared_mutex g_framebuffers_mutex;
+
+	// remove_unused_framebuffers() (each frame end): a framebuffer idle for two frame ends goes to the resource manager,
+	// which frees it once everything submitted so far has finished, instead of being destroyed at once. Upstream counts on
+	// the GPU being at most two frames behind; in VR the GPU is the bottleneck and up to a swapchain's worth of frames
+	// queue, so framebuffers (and the image views they own) were destroyed while queued render passes still used them
+	// (validation: "vkDestroyFramebuffer(): ... currently in use by VkCommandBuffer", multiview stereo).
+	bool vr_retire_unused_framebuffers()
+	{
+		// Dev: RPCS3_VR_FBO_RETIRE=0 destroys them at once (upstream).
+		static const bool s_off = []() { const char* v = std::getenv("RPCS3_VR_FBO_RETIRE"); return v && v[0] == '0'; }();
+		if (s_off)
+		{
+			return false;
+		}
+		std::lock_guard lock(g_framebuffers_mutex);
+		for (auto it = g_framebuffers_cache.begin(); it != g_framebuffers_cache.end();)
+		{
+			auto& list = it->second;
+			for (auto& fbo : list)
+			{
+				if (fbo->unused_check_count() >= 2)
+				{
+					vk::get_resource_manager()->dispose(fbo);
+				}
+			}
+			std::erase_if(list, [](const auto& fbo) { return !fbo; });
+			it = list.empty() ? g_framebuffers_cache.erase(it) : std::next(it);
+		}
+		return true;
 	}
 
 	void vr_complete_late_readbacks()
