@@ -63,6 +63,14 @@ measured yet.
 | God of War II | BCES00800 | Headset refresh rate | 120 Hz |
 | Dante's Inferno | BLUS30405 | Headset refresh rate | 120 Hz |
 | Asura's Wrath | BLUS30721 | Headset refresh rate | 120 Hz |
+| Dragon Age: Origins | BLUS30415 | Headset refresh rate | 120 Hz |
+| Ratchet & Clank | BCUS98282 | Headset refresh rate | 90 Hz |
+| Ratchet & Clank 2: Going Commando | BCUS98282 | Headset refresh rate | 120 Hz |
+| Ratchet & Clank 3: Up Your Arsenal | BCUS98282 | Headset refresh rate | 90 Hz |
+| Gran Turismo 5 | BCUS98114 | Headset refresh rate | 90 Hz in races (busy starts dip) |
+| Sonic & All-Stars Racing Transformed | BLUS30839 | Headset refresh rate | 90 Hz |
+| SEGA Rally Revo | BLUS30068 | Headset refresh rate | 72 Hz (90 on the track) |
+| MotorStorm: Pacific Rift | BCUS98155 | 72 FPS | 72 Hz |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -240,6 +248,81 @@ measured yet.
 - **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing (Episode 1 space battle).
 - **Known issues:** in the palace, the golden disc above the throne can turn black depending on where you look.
 
+### 15. Dragon Age: Origins (BLUS30415, US disc): headset refresh rate
+
+- **Frame rate:** runs at real-time speed at any rate; no frame-rate patch needed.
+- **VR patch (on by default):** *Wider view (VR culling)* (Scale 2.0) widens the game camera's view so the edges
+  of the headset view are drawn.
+- **In the headset:** the HUD and menus sit on a fixed screen in front of you. The sun rays are hidden in VR.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing (castle, forest, combat).
+
+### 16. Ratchet & Clank (BCUS98282, Ratchet & Clank Collection, US disc 01.00): headset refresh rate
+
+- **Frame rate:** runs at real-time speed at the headset rate (the VR profile sets the game's frame timing; no
+  patch). Cutscenes drop to 60 FPS, as the game plays them.
+- **In the headset:** the HUD and menus stay in front of you; the character's shadow follows them in both eyes.
+- **Recommended settings:** `Resolution Scale` 300% held 90 FPS in testing.
+
+### 17. Ratchet & Clank 2: Going Commando (BCUS98282, Ratchet & Clank Collection, US disc 01.00): headset refresh rate
+
+- **Frame rate:** as Ratchet & Clank: real-time at the headset rate, cutscenes and the flights between planets at
+  60 FPS.
+- **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
+- **Known issues:** the opening video is stretched vertically.
+
+### 18. Ratchet & Clank 3: Up Your Arsenal (BCUS98282, Ratchet & Clank Collection, US disc 01.00): headset refresh rate
+
+- **Frame rate:** as Ratchet & Clank: real-time at the headset rate; the new-game opening and cutscenes at 60 FPS.
+- **Recommended settings:** `Resolution Scale` 300% held 90 FPS in testing.
+
+### 19. Gran Turismo 5 (BCUS98114, XL Edition, US disc 01.00): headset refresh rate
+
+- **Frame rate:** the patch *Pre-race at full frame rate* is on by default and the game runs at the headset rate.
+  Disc version 01.00 only (the frame-rate entry does not match the 02.11 update).
+- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head.
+  *VR: No camera jitter* is off by default.
+- **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
+  reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
+  Fixed Screen (default, fastest) or Full Quality around you.
+- **Recommended settings:** `Resolution Scale` 400% held 90 FPS in races in testing; race starts with the pack
+  ahead dip. `RSX FIFO Fetch Accuracy` Fast saves a little more.
+- **Known issues:** savestates load paused only with a pad connected; the car paint can turn multicoloured after
+  some savestate loads.
+
+### 20. Sonic & All-Stars Racing Transformed (BLUS30839, US disc 01.00): headset refresh rate
+
+- **Frame rate:** the patch *Unlocked frame rate (follows Vblank Rate)* is on by default: real-time speed at any
+  rate.
+- **VR patches (on by default):** *Wider view (VR culling)* (Scale 3.0: the track and sky fill the headset's view),
+  *Disable mesh trimming (VR)* and *Disable camera shake (VR)*.
+- **Recommended settings:** `Resolution Scale` 450%: the game's 16:9 frame covers the headset's taller view, so
+  it needs more resolution up and down. 500% is the limit at 90 FPS in testing.
+- **Known issues:** a savestate made with the home menu open loads onto the game's pause menu.
+
+### 21. SEGA Rally Revo (BLUS30068, US disc 01.00): headset refresh rate
+
+- **Frame rate:** the patch *Unlocked frame rate (follows Vblank Rate)* is on by default: real-time speed at any
+  rate.
+- **VR patches (on by default):** *Wider view (VR culling)*, and *Draw distance (VR performance)* (0.35: distant
+  scenery is drawn a little later, which keeps race starts fast).
+- **Recommended settings:** `Resolution Scale` 300%: 90 FPS on the track; a race start runs about 82 for its first
+  10 seconds. `Multithreaded RSX` on helps.
+- **Known issues:** savestates need `Compatible Savestate Mode` and `Disable SPU GETLLAR Spin Optimization`
+  (savestates only).
+
+### 22. MotorStorm: Pacific Rift (BCUS98155, US disc 01.00): 72 FPS
+
+- **Required settings:** Video > `Write Color Buffers` on (right-click the game > Create Custom Configuration).
+  Without it the picture is overexposed (the game reads its exposure back from the screen).
+- **Frame rate:** the patch *Unlocked frame rate (VR)* is on by default (with *Disable Dynamic Resolution Scaling
+  (VR)* and *Disable Motion Blur (VR)*). 72 FPS is the rate the game holds in the headset; 90 averages about 87.
+- **VR patches (on by default):** *Wider view (VR culling)*, *Disable camera shake (VR)* (the boost shake) and
+  *Model detail (VR options)*.
+- **Game options (home menu, VR page):** *Highest Detail Models*, *Simpler Other Vehicles* and *Fewer Shadows*
+  (all on; the last two take a busy race start from the 40s to the 70s).
+- **Recommended settings:** `Resolution Scale` 300%.
+- **Known issues:** tree shadows look stepped at a distance (the game's own shadow resolution).
+
 ---
 
 
@@ -249,7 +332,7 @@ Defaults, all changeable per game:
 |---|---|---|
 | Frame Rate | the game's own (table above) | The game's frame rate in the headset: 30, 45, 60, 72, 75, 80, 90, 120, 144 or Unlimited (the headset's refresh rate). Until you choose one, each game runs its own default (ICO and Shadow of the Colossus share a configuration but keep their own). Only rates up to what the game works at are offered (ICO: 30). The PS3's display clock follows it; the Vblank Rate setting applies again without a headset. |
 | HUD Fixed In Front | on | HUD and menus stay in front of you instead of following your head. |
-| HUD Depth | Auto | How far away the HUD and menus appear (1-10 m). Auto: the game's own distance from its VR profile (Killzone HD: 4 m), otherwise 2 m. |
+| HUD Depth | Auto | How far away the HUD and menus appear (1-30 m). Auto: the game's own distance from its VR profile (Killzone HD: 4 m), otherwise 2 m. |
 | Reprojection Margin | Auto | Renders beyond the edges of the view so the headset can turn older frames without black borders. Auto: 10 degrees when the game runs below the headset's refresh rate, 0 otherwise. |
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
@@ -281,23 +364,17 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | inFamous | BCUS98119 | - | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
 | Split/Second | BLUS30300 | - | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
 | God of War III | BCUS98111 | - | Early experimental profile. Not tested in a headset. |
-| MotorStorm: Pacific Rift | BCUS98155 | - | Frame-rate patch reaches 90 FPS flat at real-time speed, but stereo drops to ~50-70 FPS at a race start with the pack in view (the emulator's per-draw work; needs multiview). Needs `Write Color Buffers` on. |
 | Dragon's Dogma: Dark Arisen | BLUS31155 | below 72 (~68, prologue) | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. Only the prologue has been tested; the open world is untested. Graphics errors in the headset: some text is cut off and a phantom layer appears when you turn your head. |
-| Ratchet & Clank Collection | BCUS98282 | below 72 in heavy scenes (R&C 1 ~67, R&C 3 ~70) | All three games run at real-time speed at the headset rate (the profiles set their frame-time values; no patch). Heavy scenes do not hold 72 Hz at 4K per eye yet. Ratchet & Clank 1's pause-menu frames turn with your head. Not tested in a headset. |
 | The Darkness | BLUS30035 | below 72 (~53 in gameplay) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
 | Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
 | Jak and Daxter Collection | BCUS98281 | Jak II 72 Hz; Jak 1 60 (frame-locked); Jak 3 ~57 | Jak II: the VR build's patch *Frame rate follows VR (Jak II)* (on by default) keeps it at real-time speed at the headset rate. Jak 1 steps a fixed 1/60 s per frame (it runs fast above 60), so its profile holds it at 60 FPS and the headset reprojects. Jak 1's lens flares are hidden in VR. Jak 3 is too slow (~57 FPS at 72 Hz) and has no profile. Checked on the desktop and in a simulated headset only. |
 | Anarchy Reigns | BLUS30632 | 90 Hz | Patch *Frame rate follows VR* (fork, `BLUS30632_patch.yml`, replaces the community *60 FPS*: turn that off): real-time at 90 FPS (Vblank 180, the profile's `vblanks_per_frame 2`). Training > Practice tested on the desktop: stereo, rotation audit and the boxed HUD are right. Campaign and online modes not checked; not tested in a headset. |
-| Gran Turismo 5 | BCUS98114 | 90 Hz (race start) | Work in progress: some menu clipping when you lean back; frame drops at some race starts. Frame-rate patch *Frame rate follows VR*. |
 | Puppeteer | BCUS98227 | 72 Hz | No patch needed: runs at real-time speed at the headset rate (the profile sets the game's frame time). The game post-processes each frame on the SPUs, which only ever sees the left eye: in VR the profile reads the frame from before that step, so its anti-aliasing is skipped. The stage looks small in the headset (the game's narrow theatre camera). Not tested in a headset. |
 | Killzone 2 | BCUS98116 | - | Needs `Write Color Buffers` and `Read Color Buffers` on. Runs at 45 FPS by default (stereo reaches about 60). Not tested in a headset. |
 | Kingdom Hearts HD 1.5 ReMIX | BLUS31212 | 120 Hz | Kingdom Hearts Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
 | Kingdom Hearts HD 2.5 ReMIX | BLUS31460 | 72 Hz | Kingdom Hearts II Final Mix only. The VR build's patch *Unlocked frame rate (VR)* (on by default) keeps the game at real-time speed at the headset rate. Not tested in a headset. |
-| Sonic & All-Stars Racing Transformed | BLUS30839 | 90 Hz (120 with Wider view off) | The VR build's patches *Unlocked frame rate (follows Vblank Rate)* (real-time at any rate) and *Wider view (VR culling)* (Scale 3.0: the track and sky fill the headset's view) are on by default. Distant soft shadows can differ between the eyes. Not tested in a headset. |
 | Dynasty Warriors: GUNDAM | BLUS30058 | 120 Hz | The VR build's patches *Frame rate follows VR* (keeps battles at real-time speed above 60) and *Wider view (VR culling)* are on by default. Official Mode battles checked; space missions and cutscenes not. Not tested in a headset. |
 | X-Men Origins: Wolverine | BLUS30268 | 72 Hz | The VR build's patch *Unlocked frame rate (VR)* (on by default) removes the game's 62 FPS cap; the profile runs it at 72 (Vblank 144). For flat 60 FPS also enable *Present every vblank (flat 60 FPS)*. **Parked:** in a headset the image looks low resolution and it runs below 72 FPS. |
-| SEGA Rally Revo | BLUS30068 | 72 Hz | The VR build's patches *Unlocked frame rate (follows Vblank Rate)* (real-time at any rate) and *Wider view (VR culling)* are on by default. Savestates need Compatible Savestate Mode and Disable SPU GETLLAR Spin Optimization. Not tested in a headset. |
-| Dragon Age: Origins | BLUS30415 | 120 Hz | No frame-rate patch needed (real time at any rate). Patch *Wider view (VR culling)* (Scale 2.0) fills the headset's view. The HUD sits in the world-fixed screen. Not tested in a headset. |
 | Dragon Age II | BLUS30645 | 72 Hz (just: 71.5 in fights) | No frame-rate patch needed (real time at any rate). The HUD sits in the world-fixed screen. **Parked:** corrupted graphics and poor performance in a headset. |
 | FEZ | NPUB31448 | 120 Hz | No patch needed (60 natively, real time at any rate). An orthographic game: it is shown on the world-fixed screen as a 3D diorama (each eye sees the playfield from a slightly different angle); the VR menu's Screen Depth sets the depth. Savestates do not load. Not tested in a headset. |
 | Flower | NPUA80083 | 90 Hz | The VR build's patch *Unlocked frame rate (follows Vblank Rate)* (on by default) lifts the game's 30 FPS lock at real-time speed. Steers by tilting the controller (SIXAXIS). Only the first level tested. Not tested in a headset. |
