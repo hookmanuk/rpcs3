@@ -406,6 +406,8 @@
 	// Profile depth_remap_screen: the current draw's tile quad (attribute 0, game NDC x0, y0, x1, y1), read before
 	// its eye constants; the quad is drawn through the head rotation and the shader keeps the tile's points.
 	void vr_read_screen_tile();
+	// Profile small_draw_cull: this draw is a small one into a listed target size (skipped in vr_skip_far_cars).
+	bool vr_small_draw_culled();
 	bool vr_screen_tile_matrix(f32 (&pre)[4][4]) const;
 	f32 m_vr_screen_tile[4]{};
 	bool m_vr_screen_tile_valid = false;

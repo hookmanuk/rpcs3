@@ -629,6 +629,17 @@ namespace rsx::vr
 			std::string option; // the VR setting that switches this rule (profile_option_enabled)
 		};
 		std::vector<shared_frame_target> shared_frame_targets;
+		// Profile small_draw_cull: draws of at most max_vertices vertices into render targets of this size are skipped.
+		// For a pass that redraws the scene into a small map where small pieces cannot be seen: SEGA Rally's two 512x512
+		// car reflection maps (one a frame, ~1,370 draws at the race start, ~890 of them 48 vertices or fewer).
+		struct small_draw_cull
+		{
+			u16 width = 0;
+			u16 height = 0;
+			u32 max_vertices = 0;
+			std::string option; // the VR setting that switches this rule (profile_option_enabled)
+		};
+		std::vector<small_draw_cull> small_draw_culls;
 
 		// The stereo rule for a render target this wide.
 		const stereo_rule& stereo_for(u32 target_width, u32 output_width) const;

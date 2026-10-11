@@ -10,6 +10,7 @@
   "camera_block_cache": true,
   "min_scalable_dimension": 600,
   "shared_frame_targets": [{ "width": 512, "height": 512, "frames": 2 }],
+  "small_draw_cull": [{ "width": 512, "height": 512, "max_vertices": 192, "option": "reflections" }],
   "culling_scale_f32": [{ "address": "0x4d7180", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 2, "min": 1.0, "max": 2.5 }],
 
   "matrix_layout": "row_vectors",

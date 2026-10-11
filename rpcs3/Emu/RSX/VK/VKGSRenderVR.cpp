@@ -2882,9 +2882,49 @@ bool VKGSRender::vr_shared_target_skipped()
 	return false;
 }
 
+bool VKGSRender::vr_small_draw_culled()
+{
+	const auto* profile = rsx::vr::camera_probe::get().render_enabled() ? rsx::vr::camera_probe::get().profile() : nullptr;
+	if (!profile || profile->small_draw_culls.empty())
+	{
+		return false;
+	}
+	// Dev: RPCS3_VR_SMALL_CULL=0 draws everything; RPCS3_VR_SMALL_CULL_MAX=<n> replaces max_vertices.
+	static const s32 s_env = []
+	{
+		const char* v = std::getenv("RPCS3_VR_SMALL_CULL");
+		return v ? std::atoi(v) : 1;
+	}();
+	static const s32 s_max = []
+	{
+		const char* v = std::getenv("RPCS3_VR_SMALL_CULL_MAX");
+		return v ? std::atoi(v) : -1;
+	}();
+	if (s_env == 0)
+	{
+		return false;
+	}
+	// All of the clause's ranges (the current range is not set up yet here); inline arrays are never culled.
+	const auto& clause = rsx::method_registers.current_draw_clause;
+	const u32 vertices = clause.command == rsx::draw_command::inlined_array ? 0 : clause.vr_total_elements();
+	if (!vertices)
+	{
+		return false;
+	}
+	for (const auto& rule : profile->small_draw_culls)
+	{
+		if (rule.width == m_framebuffer_layout.width && rule.height == m_framebuffer_layout.height &&
+			vertices <= (s_max >= 0 ? static_cast<u32>(s_max) : rule.max_vertices) && rsx::vr::profile_option_enabled(rule.option))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool VKGSRender::vr_skip_far_cars()
 {
-	if (vr_shared_target_skipped())
+	if (vr_shared_target_skipped() || vr_small_draw_culled())
 	{
 		execute_nop_draw();
 		rsx::thread::end();
@@ -3668,7 +3708,7 @@ void VKGSRender::vr_read_screen_tile()
 	const bool indexed = clause.command == rsx::draw_command::indexed;
 	const bool u32_indices = rsx::method_registers.index_type() == rsx::index_array_type::u32;
 	const u32 index_base = indexed ? rsx::get_address(rsx::method_registers.index_array_address(), rsx::method_registers.index_array_location()) : 0;
-	const u32 first = clause.min_index();
+	const u32 first = clause.min_index(); // the current range is set up here (vr_setup_draw runs per range)
 	const u32 count = std::min<u32>(clause.get_elements_count(), 6);
 	f32 lo[2] = {1e30f, 1e30f}, hi[2] = {-1e30f, -1e30f};
 	for (u32 v = 0; v < count; ++v)
