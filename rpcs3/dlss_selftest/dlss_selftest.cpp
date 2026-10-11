@@ -8,7 +8,8 @@
 //
 //   dlss_selftest <output dir> [frames] [camera|object|both|static]
 //
-// Linux only (X11). Build: cmake -DBUILD_RPCS3_GUI=OFF -DBUILD_DLSS_SELFTEST=ON ...
+// Linux only (X11). Build: cmake -DBUILD_RPCS3_GUI=OFF -DBUILD_DLSS_SELFTEST=ON ...; run every scenario and check the
+// results with run_selftest.sh. DLSS_SELFTEST_MSAA=2|4 makes the scene target multisampled.
 
 #include "stdafx.h"
 
@@ -63,11 +64,14 @@ namespace
 {
 	constexpr u32 width = 1280;
 	constexpr u32 height = 720;
-	constexpr u32 pitch = width * 4;
+	// DLSS_SELFTEST_MSAA=2|4: the scene target is multisampled, 2x diagonal (as Gran Turismo 5's: twice as wide in
+	// memory) or 4x square (twice as wide and high). Lavapipe has no 2x: use 4 there.
+	const u32 g_msaa = std::getenv("DLSS_SELFTEST_MSAA") ? static_cast<u32>(std::atoi(std::getenv("DLSS_SELFTEST_MSAA"))) : 1;
+	const u32 pitch = width * 4 * (g_msaa > 1 ? 2 : 1);
 	constexpr u32 color_offset = 0;
-	constexpr u32 depth_offset = 0x00400000;
-	constexpr u32 vertex_offset = 0x01000000;
-	constexpr u32 fp_offset = 0x01100000; // one fragment program per object, 0x100 apart
+	constexpr u32 depth_offset = 0x01000000;
+	constexpr u32 vertex_offset = 0x02000000;
+	constexpr u32 fp_offset = 0x02100000; // one fragment program per object, 0x100 apart
 
 	std::string g_out_dir;
 	std::string g_scenario = "both";
@@ -151,6 +155,8 @@ namespace
 
 		scene_frame s;
 		s.mvp[0] = mul(vp, scale(6.f, 1.f, 6.f));
+		if (std::getenv("DLSS_SELFTEST_NO_FLOOR"))
+			s.mvp[0] = mul(vp, scale(0.f, 0.f, 0.f)); // the floor collapses to a point (diagnostics)
 		s.mvp[1] = mul(vp, translate(-2.f, 0.5f, -0.5f));
 		s.mvp[2] = mul(vp, translate(cube_x, 0.5f, 1.5f));
 		s.probe_points = {{{3.f, 0.f, -3.f}, {-2.f, 1.f, -0.5f}, {cube_x, 1.f, 1.5f}}}; // floor, tops of the cubes
@@ -342,7 +348,8 @@ namespace
 		b.frame.replay_commands.front().display_buffer_state = 1;
 		static_cast<void>(first);
 		b.method(NV4097_SET_CONTEXT_DMA_ZETA, {CELL_GCM_CONTEXT_DMA_MEMORY_FRAME_BUFFER});
-		b.method(NV4097_SET_SURFACE_FORMAT, {CELL_GCM_SURFACE_A8R8G8B8 | (CELL_GCM_SURFACE_Z24S8 << 5) | (CELL_GCM_SURFACE_PITCH << 8) | (11u << 16) | (10u << 24)});
+		b.method(NV4097_SET_SURFACE_FORMAT, {CELL_GCM_SURFACE_A8R8G8B8 | (CELL_GCM_SURFACE_Z24S8 << 5) | (CELL_GCM_SURFACE_PITCH << 8) |
+			((g_msaa == 4 ? CELL_GCM_SURFACE_SQUARE_CENTERED_4 : g_msaa == 2 ? CELL_GCM_SURFACE_DIAGONAL_CENTERED_2 : CELL_GCM_SURFACE_CENTER_1) << 12) | (11u << 16) | (10u << 24)});
 		b.method(NV4097_SET_SURFACE_PITCH_A, {pitch});
 		b.method(NV4097_SET_SURFACE_COLOR_AOFFSET, {color_offset});
 		b.method(NV4097_SET_SURFACE_ZETA_OFFSET, {depth_offset});

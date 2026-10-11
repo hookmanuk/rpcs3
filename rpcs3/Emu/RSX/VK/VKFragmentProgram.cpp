@@ -197,6 +197,10 @@ void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)
 		vk_prog->output_color_masks[i] = -1;
 	}
 	vk::dlss_insert_fragment_output(OS, m_prog.ctrl, m_prog.mrt_buffers_count); // DLSS test: the motion attachment follows the colour attachments
+	if ((m_prog.ctrl & RSX_SHADER_CONTROL_DLSS_MOTION) && m_prog.mrt_buffers_count < std::size(vk_prog->output_color_masks))
+	{
+		vk_prog->output_color_masks[m_prog.mrt_buffers_count] = -1; // DLSS test: written (validate_pipeline_properties masks unwritten attachments)
+	}
 }
 
 void VKFragmentDecompilerThread::insertConstants(std::stringstream & OS)

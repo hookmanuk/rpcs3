@@ -237,7 +237,7 @@ namespace vk
 					"	const vec4 m = texelFetch(motion_src, sp, 0);\n"
 					"	const bool covered = m.w > 0.5;\n"
 					"	const vec2 mv = covered ? m.xy * sizes.zw * params.xy : vec2(0.);\n"
-					"	const float d = covered ? m.z : 1.;\n"
+					"	const float d = covered ? 1. - m.z : 1.;\n"
 					"	imageStore(mv_out, p, vec4(mv, 0., 0.));\n"
 					"	imageStore(depth_out, p, vec4(d));\n"
 					"	if (params.z == 1.)\n"
@@ -356,10 +356,16 @@ namespace vk
 	namespace
 	{
 		atomic_t<u64> s_drawn_frames{0};    // game frames that had camera draws
+		u32 s_rgba32f_samples = 0, s_rgba16f_samples = 0; // sample counts each motion format supports (dlss_context)
 		atomic_t<u64> s_presented_frame{0}; // which of them the last presented output shows
 	}
 
 	u64 dlss_drawn_frames() { return s_drawn_frames.load(); }
+
+	VkFormat dlss_motion_format(u32 samples)
+	{
+		return (s_rgba32f_samples & samples) || !(s_rgba16f_samples & samples) ? VK_FORMAT_R32G32B32A32_SFLOAT : VK_FORMAT_R16G16B16A16_SFLOAT;
+	}
 	u64 dlss_presented_frame() { return s_presented_frame.load(); }
 
 	dlss_mode dlss_configured_mode()
@@ -607,7 +613,7 @@ namespace vk
 		OS << "	{\n";
 		OS << "		const vec2 dlss_c = dlss_cur.xy / dlss_cur.w;\n";
 		OS << "		const vec2 dlss_p = dlss_prev.w > 1e-6 ? dlss_prev.xy / dlss_prev.w : dlss_c;\n";
-		OS << "		dlss_motion = vec4((dlss_p - dlss_c) * 0.5, gl_FragCoord.z, dlss_cover);\n";
+		OS << "		dlss_motion = vec4((dlss_p - dlss_c) * 0.5, 1. - gl_FragCoord.z, dlss_cover);\n";
 		OS << "	}\n";
 	}
 
@@ -623,10 +629,28 @@ namespace vk
 		}
 		m_jitter_scale = env_f32("RPCS3_DLSS_JITTER_SCALE", 1.f);
 
+		// The sample counts each motion format supports as a blended colour attachment.
 		const VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-		if ((dev.get_format_properties(dlss_motion_format).optimalTilingFeatures & needed) != needed)
+		const auto sample_counts = [&](VkFormat format) -> u32
 		{
-			dlss_log.error("RGBA32F colour attachments with blending are not supported: DLSS motion vectors are off");
+			VkImageFormatProperties fp{};
+			if ((dev.get_format_properties(format).optimalTilingFeatures & needed) != needed ||
+				vkGetPhysicalDeviceImageFormatProperties(dev.gpu(), format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, &fp) != VK_SUCCESS)
+			{
+				return 0;
+			}
+			return fp.sampleCounts;
+		};
+		s_rgba32f_samples = sample_counts(VK_FORMAT_R32G32B32A32_SFLOAT);
+		s_rgba16f_samples = sample_counts(VK_FORMAT_R16G16B16A16_SFLOAT);
+		if (env("RPCS3_DLSS_MOTION_16F"))
+		{
+			s_rgba32f_samples = 0; // test: the RGBA16F motion image
+		}
+		if (!s_rgba32f_samples && !s_rgba16f_samples)
+		{
+			dlss_log.error("Neither RGBA32F nor RGBA16F colour attachments with blending are supported: DLSS motion vectors are off");
 			m_disabled = true;
 		}
 
@@ -748,15 +772,15 @@ namespace vk
 
 	void dlss_context::note_draw(u32 color_address, const u16* constant_ids, usz constant_count)
 	{
-		if (!color_address || m_disabled)
+		if (!color_address)
 		{
 			return;
 		}
 		mat4 m;
 		if (find_camera_matrix(constant_ids, constant_count, m))
 		{
-			m_frame_camera_draws++;
-			if (!m_forced_address)
+			m_frame_camera_draws++; // counted when disabled too: game frames still end at the flip (presented unchanged)
+			if (!m_forced_address && !m_disabled)
 			{
 				m_target_counts[color_address]++;
 			}
@@ -780,18 +804,16 @@ namespace vk
 			vk::get_resource_manager()->dispose(m_motion);
 		}
 
-		VkImageFormatProperties fp{};
-		if (vkGetPhysicalDeviceImageFormatProperties(m_device.gpu(), dlss_motion_format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
-				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, &fp) != VK_SUCCESS ||
-			!(fp.sampleCounts & samples))
+		if (!((s_rgba32f_samples | s_rgba16f_samples) & samples))
 		{
-			dlss_log.error("RGBA32F with %u samples is not supported: DLSS motion vectors are off", static_cast<u32>(samples));
+			dlss_log.error("RGBA32F or RGBA16F with %u samples is not supported: DLSS motion vectors are off", static_cast<u32>(samples));
 			m_disabled = true;
 			return false;
 		}
+		const VkFormat format = dlss_motion_format(samples);
 
 		m_motion = std::make_unique<dlss_motion_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_TYPE_2D, dlss_motion_format, w, h, 1, 1, 1, samples, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_TYPE_2D, format, w, h, 1, 1, 1, samples, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_IMAGE_CREATE_ALLOW_NULL_RPCS3, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
 
@@ -806,7 +828,8 @@ namespace vk
 		m_motion->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 		m_motion_cleared_frame = umax;
 		m_reset_history = true;
-		dlss_log.notice("Motion image %ux%u, %u samples (scene target 0x%x)", w, h, static_cast<u32>(samples), m_scene_address);
+		dlss_log.notice("Motion image %ux%u, %u samples, %s (scene target 0x%x)", w, h, static_cast<u32>(samples),
+			format == VK_FORMAT_R32G32B32A32_SFLOAT ? "RGBA32F" : "RGBA16F", m_scene_address);
 		return true;
 	}
 
@@ -872,12 +895,12 @@ namespace vk
 			vk::end_renderpass(cmd);
 		}
 
-		// First use this frame: no motion, far depth, not covered.
+		// First use this frame: no motion, far depth (stored as 1 - z), not covered.
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 		vk::insert_image_memory_barrier(cmd, m_motion->value, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
 			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, range);
-		const VkClearColorValue clear{.float32 = {0.f, 0.f, 1.f, 0.f}};
+		const VkClearColorValue clear{.float32 = {0.f, 0.f, 0.f, 0.f}};
 		vkCmdClearColorImage(cmd, m_motion->value, VK_IMAGE_LAYOUT_GENERAL, &clear, 1, &range);
 		vk::insert_image_memory_barrier(cmd, m_motion->value, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -908,14 +931,19 @@ namespace vk
 		std::memcpy(out, identity4, sizeof(identity4));
 		out[16] = out[17] = out[18] = out[19] = 0.f;
 
+		static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr;
 		if (!m_bound || instanced || !clip_width || !clip_height)
 		{
+			if (s_debug)
+				dlss_log.notice("Draw skipped: bound %d, instanced %d, clip %ux%u", m_bound, instanced, clip_width, clip_height);
 			return;
 		}
 
 		mat4 cur;
 		if (!find_camera_matrix(constant_ids, constant_count, cur))
 		{
+			if (s_debug)
+				dlss_log.notice("Draw skipped: no camera matrix (%u constant ids)", static_cast<u32>(constant_count));
 			return;
 		}
 
@@ -982,7 +1010,7 @@ namespace vk
 			}
 		}
 
-		if (static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr; s_debug)
+		if (s_debug)
 		{
 			const auto prev_it = m_prev_draws.find(key);
 			dlss_log.notice("Draw key %016llx: M row0 (%.4f %.4f %.4f %.4f), previous %s, R row0 (%.4f %.4f %.4f %.4f)", key, cur.m[0], cur.m[1], cur.m[2], cur.m[3],
@@ -999,11 +1027,6 @@ namespace vk
 		const bool depth_write = regs.depth_test_enabled() && regs.depth_write_enabled();
 		const bool opaque_test = regs.depth_test_enabled() && !regs.blend_enabled_mask();
 		const f32 cover = (depth_write || opaque_test) ? 1.f : 0.f;
-
-		if (static const f32 s_test_shift = env_f32("RPCS3_DLSS_TEST_SHIFT", 0.f); s_test_shift != 0.f)
-		{
-			r[3] += s_test_shift * r[15]; // test: previous position shifted by s_test_shift in clip x (NDC at w = 1)
-		}
 
 		std::memcpy(out, r, sizeof(r));
 		out[16] = 2.f * m_jitter_px[0] / static_cast<f32>(clip_width);

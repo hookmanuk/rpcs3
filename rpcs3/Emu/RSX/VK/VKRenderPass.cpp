@@ -332,7 +332,7 @@ namespace vk
 		if (vk::dlss_renderpass_has_motion(renderpass_key)) // DLSS test: the motion attachment, last colour attachment (before depth)
 		{
 			VkAttachmentDescription motion_attachment_description = {};
-			motion_attachment_description.format = vk::dlss_motion_format;
+			motion_attachment_description.format = vk::dlss_motion_format(samples);
 			motion_attachment_description.samples = samples;
 			motion_attachment_description.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 			motion_attachment_description.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

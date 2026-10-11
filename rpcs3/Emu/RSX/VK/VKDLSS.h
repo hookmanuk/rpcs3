@@ -6,7 +6,7 @@
 // How it works
 // - The scene target is the colour target that took the most perspective camera draws in the last frame (camera
 //   blocks from the title's VR profile, or RPCS3_DLSS_CAMERA). While it is bound, its render pass carries one more
-//   colour attachment, the motion image (RGBA32F: motion in UV units, window depth, coverage), which the shaders of the
+//   colour attachment, the motion image (RGBA32F or 16F: motion in UV units, 1 - window depth, coverage), which the shaders of the
 //   draws into it write (program control bit RSX_SHADER_CONTROL_DLSS_MOTION: their own shader variants).
 // - Per draw the CPU finds the draw's camera matrix (current frame) and the same draw's matrix in the previous frame
 //   (matched by vertex program, vertex/index addresses and the n-th such draw), and uploads R = M_prev * M_cur^-1 after
@@ -31,6 +31,9 @@
 //   RPCS3_DLSS_MV_SIGN=<x sign><y sign>       motion vector sign convention passed to DLSS (default "++")
 //   RPCS3_DLSS_JITTER_SCALE=<f>               jitter amplitude (default 1; 0 disables jitter)
 //   RPCS3_DLSS_SHARPNESS=<f>                  unused by DLSS 2.5.1+ (kept for older DLLs), default 0
+//   RPCS3_DLSS_DEPTH_INVERTED=1               the game's depth is reversed (1 near, 0 far)
+//   RPCS3_DLSS_MOTION_16F=1                   RGBA16F motion image (default RGBA32F where the sample count allows)
+//   RPCS3_DLSS_DEBUG=1                        per-draw and per-flip log lines (draw keys, matrices, skipped draws)
 
 #include "util/types.hpp"
 #include "VulkanAPI.h"
@@ -83,7 +86,9 @@ namespace vk
 	// ---- Render passes (VKRenderPass.cpp) -------------------------------------------------------------------
 	// Key bit 44: the pass has the motion attachment after the colour attachments (before depth).
 	constexpr u64 dlss_renderpass_motion_bit = 1ull << 44;
-	constexpr VkFormat dlss_motion_format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	// RGBA32F, or RGBA16F where the device cannot multisample RGBA32F at this sample count (the window depth is stored as
+	// 1 - z, which half floats keep precise near the far plane).
+	VkFormat dlss_motion_format(u32 samples);
 	inline bool dlss_renderpass_has_motion(u64 key) { return !!(key & dlss_renderpass_motion_bit); }
 
 	// ---- Pipelines (VKGSRender::load_program) -----------------------------------------------------------------

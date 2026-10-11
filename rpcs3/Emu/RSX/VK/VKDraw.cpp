@@ -1340,7 +1340,6 @@ void VKGSRender::end()
 
 	// Load program execution environment
 	load_program_env();
-	m_dlss_in_draw = false; // DLSS test
 	m_frame_stats.setup_time += m_profiler.duration();
 	vr_before_draw_setup(); // VR fork
 
@@ -1431,6 +1430,7 @@ void VKGSRender::end()
 		}
 	}
 	while (draw_call.next());
+	m_dlss_in_draw = false; // DLSS test
 
 	if (m_current_command_buffer->flags & vk::command_buffer::cb_has_conditional_render)
 	{

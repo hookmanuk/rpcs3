@@ -63,6 +63,16 @@ bool VKGSRender::dlss_framebuffer_stale() const
 	return m_dlss->wants_motion(address, vr_active) != m_dlss_motion_bound;
 }
 
+void VKGSRender::dlss_note_draw()
+{
+	if (!m_draw_buffers.empty())
+	{
+		const bool full_bank = m_vertex_prog->has_indexed_constants;
+		m_dlss->note_draw(m_surface_info[m_draw_buffers[0]].address,
+			full_bank ? nullptr : m_vertex_prog->constant_ids.data(), full_bank ? 0 : m_vertex_prog->constant_ids.size());
+	}
+}
+
 void VKGSRender::dlss_after_load_program()
 {
 	if (!m_dlss || !m_program || m_shader_interpreter.is_interpreter(m_program) || !m_vertex_prog)
@@ -70,12 +80,7 @@ void VKGSRender::dlss_after_load_program()
 		return;
 	}
 
-	if (!m_draw_buffers.empty())
-	{
-		const bool full_bank = m_vertex_prog->has_indexed_constants;
-		m_dlss->note_draw(m_surface_info[m_draw_buffers[0]].address,
-			full_bank ? nullptr : m_vertex_prog->constant_ids.data(), full_bank ? 0 : m_vertex_prog->constant_ids.size());
-	}
+	dlss_note_draw();
 
 	// Each draw's motion block differs (its own matrix history): upload the constants for every draw into the scene.
 	if (dlss_draw_block_size())
@@ -88,7 +93,16 @@ void VKGSRender::dlss_after_load_program()
 		m_dlss->before_draw(*m_current_command_buffer);
 	}
 
-	m_dlss_in_draw = true; // the next constant upload is this draw's own (load_program_env)
+	m_dlss_in_draw = true; // until the end of the draw: its constant uploads (load_program_env, then one per sub-draw) are its own
+
+	if (static const bool s_debug = std::getenv("RPCS3_DLSS_DEBUG") != nullptr; s_debug)
+	{
+		// The motion attachment follows the colour attachments.
+		const auto& motion_blend = m_pipeline_properties.state.att_state[std::min<usz>(m_draw_buffers.size(), std::size(m_pipeline_properties.state.att_state) - 1)];
+		rsx_log.notice("DLSS debug draw: bound %d, vp ctrl 0x%x, fp ctrl 0x%x, pass key 0x%llx, attachments %u, motion write mask 0x%x, blend %u",
+			m_dlss_motion_bound, current_vertex_program.ctrl, current_fragment_program.ctrl, m_current_renderpass_key,
+			m_pipeline_properties.state.cs.attachmentCount, motion_blend.colorWriteMask, motion_blend.blendEnable);
+	}
 }
 
 usz VKGSRender::dlss_draw_block_size() const
@@ -106,14 +120,17 @@ void VKGSRender::dlss_write_draw_block(void* dst)
 
 	if (!m_dlss_in_draw)
 	{
-		// patch_transform_constants(): the game rewrote constants between draws with this program bound. The next draw
-		// uploads again with its own block; this copy gets a neutral one and leaves the matrix history alone.
+		// patch_transform_constants() between draws: the game rewrote constants with this program bound. The next draw
+		// uploads again with its own block; this copy gets a neutral one and leaves the matrix history alone. (Inside a
+		// draw, the patches come from merged draws, the sub-draws, each a draw of its own with its own matrix.)
 		m_dlss->write_neutral_block(dst);
 		return;
 	}
 
-	const auto [clip_width, clip_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config,
-		rsx::method_registers.surface_clip_width(), rsx::method_registers.surface_clip_height());
+	// The surface clip, or the framebuffer's size (prepare_rtts) when it reads 0 (capture replay resets the registers).
+	const u16 guest_width = rsx::method_registers.surface_clip_width() ? rsx::method_registers.surface_clip_width() : static_cast<u16>(m_framebuffer_layout.width);
+	const u16 guest_height = rsx::method_registers.surface_clip_height() ? rsx::method_registers.surface_clip_height() : static_cast<u16>(m_framebuffer_layout.height);
+	const auto [clip_width, clip_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config, guest_width, guest_height);
 	const bool full_bank = m_vertex_prog->has_indexed_constants;
 	m_dlss->write_draw_block(dst, full_bank ? nullptr : m_vertex_prog->constant_ids.data(), full_bank ? 0 : m_vertex_prog->constant_ids.size(),
 		vr_vertex_program_hash(), clip_width, clip_height, rsx::method_registers.current_draw_clause.is_trivial_instanced_draw);

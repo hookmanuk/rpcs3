@@ -2395,6 +2395,11 @@ void VKGSRender::patch_transform_constants(rsx::context* /*ctx*/, u32 index, u32
 		return;
 	}
 
+	if (m_dlss && m_dlss_in_draw)
+	{
+		dlss_note_draw(); // DLSS test: a sub-draw (merged draw)
+	}
+
 	// Buffer updates mid-pass violate the spec and destroy performance on NVIDIA
 	auto allocate_mem = [&](usz size) -> std::pair<void*, usz>
 	{
