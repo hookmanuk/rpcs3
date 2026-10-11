@@ -848,6 +848,24 @@ namespace vk
 				}
 			}
 			rsx_log.error("GPU checkpoints: 0x%llx: %u bindings covered it (%llu reported in all, newest frame %u)", address, shown, s_abr_seq, s_ckpt_frame.load());
+			// The device memory allocations ending nearest below it (a write past the end of one, into unused address
+			// space, faults there; memory allocated afterwards can then cover the address).
+			std::vector<const abr_event*> below;
+			for (const auto& e : s_abr_events)
+			{
+				if (e.bind && e.object_type == VK_OBJECT_TYPE_DEVICE_MEMORY && e.base + e.size <= address)
+				{
+					below.push_back(&e);
+				}
+			}
+			std::sort(below.begin(), below.end(), [](const abr_event* a, const abr_event* b) { return a->base + a->size > b->base + b->size; });
+			for (usz i = 0; i < below.size() && i < 6; ++i)
+			{
+				const auto& e = *below[i];
+				const bool freed = std::any_of(s_abr_events.begin(), s_abr_events.end(), [&](const abr_event& u) { return !u.bind && u.handle == e.handle && u.seq > e.seq; });
+				rsx_log.error("GPU checkpoints: 0x%llx: 0x%llx past the end of memory #%llu base 0x%llx size 0x%llx handle 0x%llx bound at frame %u%s",
+					address, address - (e.base + e.size), e.seq, e.base, e.size, e.handle, e.frame, freed ? " (freed since)" : "");
+			}
 		}
 	}
 } // namespace vk

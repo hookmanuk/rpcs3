@@ -4289,19 +4289,26 @@ void VKGSRender::vr_mirror_region(areai& region, bool generated_stereo) const
 
 void VKGSRender::vr_crop_for_side_by_side(rsx::simple_array<vk::viewable_image*>& calibration_src, u32 buffer_width, u32 buffer_height)
 {
-	if (!buffer_width || !buffer_height)
+	// Off by default since 2026-10-11: with it, about half of Gran Turismo 5's race savestate loads lost the GPU device
+	// right after the first headset frame (crop on 5 of 8, off 0 of 8 in interleaved loads; the faults landed in the crop
+	// image, cause not found). Without it the desktop mirror shows each eye's whole surface (GT5: the picture in its
+	// top-left part); the headset is not affected. Dev: RPCS3_VR_MIRROR_CROP=1 crops.
+	static const bool s_no_crop = []() { const char* v = std::getenv("RPCS3_VR_MIRROR_CROP"); return !v || v[0] != '1'; }();
+	if (s_no_crop || !buffer_width || !buffer_height)
 	{
 		return;
 	}
 
-	for (auto& img : calibration_src)
+	for (u64 eye = 0; eye < calibration_src.size(); ++eye)
 	{
+		auto& img = calibration_src[eye];
 		if (img->width() <= buffer_width && img->height() <= buffer_height)
 		{
 			continue;
 		}
 		const u32 w = std::min<u32>(buffer_width, img->width()), h = std::min<u32>(buffer_height, img->height());
-		auto& crop = m_vr_warp_scratch[(1ull << 63) | (static_cast<u64>(img->format()) << 40) | (static_cast<u64>(w) << 20) | h];
+		// One image per eye: with one key for both, the right eye's copy overwrote the left's and the mirror showed it twice.
+		auto& crop = m_vr_warp_scratch[(1ull << 63) | (eye << 62) | (static_cast<u64>(img->format()) << 40) | (static_cast<u64>(w) << 20) | h];
 		if (!crop)
 		{
 			crop = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
