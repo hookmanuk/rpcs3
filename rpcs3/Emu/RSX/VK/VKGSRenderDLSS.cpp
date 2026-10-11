@@ -19,11 +19,11 @@ void VKGSRender::dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images)
 		const usz colors = m_draw_buffers.size();
 		const u32 address = m_surface_info[m_draw_buffers[0]].address;
 		const u32 mrt = rsx::utility::get_mrt_buffers_count(m_framebuffer_layout.target);
-		const bool vr_active = m_vr_multiview || rsx::vr::camera_probe::get().render_enabled();
+		const bool vr_unsupported = dlss_vr_unsupported();
 		const auto [fbo_width, fbo_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config, m_framebuffer_layout.width, m_framebuffer_layout.height);
 
 		if (vk::image* motion = m_dlss->bind_framebuffer(*m_current_command_buffer, address, m_fbo_images[0], fbo_width, fbo_height,
-				static_cast<u32>(colors), mrt, vr_active))
+				static_cast<u32>(colors), mrt, vr_unsupported))
 		{
 			// Colour attachments, the motion attachment, then depth (framebuffer::depth_format() reads the last one).
 			m_dlss_fbo_images.assign(m_fbo_images.begin(), m_fbo_images.begin() + colors);
@@ -33,7 +33,7 @@ void VKGSRender::dlss_prepare_framebuffer(std::vector<vk::image*>*& fbo_images)
 			m_current_renderpass_key |= vk::dlss_renderpass_motion_bit;
 			m_dlss_motion_bound = true;
 		}
-		else if (m_dlss->wants_motion(address, vr_active))
+		else if (m_dlss->wants_motion(address, vr_unsupported))
 		{
 			m_dlss_refused_address = address;
 		}
@@ -59,8 +59,13 @@ bool VKGSRender::dlss_framebuffer_stale() const
 	{
 		return false;
 	}
-	const bool vr_active = m_vr_multiview || rsx::vr::camera_probe::get().render_enabled();
-	return m_dlss->wants_motion(address, vr_active) != m_dlss_motion_bound;
+	return m_dlss->wants_motion(address, dlss_vr_unsupported()) != m_dlss_motion_bound;
+}
+
+bool VKGSRender::dlss_vr_unsupported() const
+{
+	// VR stereo without multiview (each eye its own draw, the right one into a second surface cache): no motion.
+	return rsx::vr::camera_probe::get().render_enabled() && !m_vr_multiview;
 }
 
 void VKGSRender::dlss_note_draw()
@@ -134,6 +139,25 @@ void VKGSRender::dlss_write_draw_block(void* dst)
 	const bool full_bank = m_vertex_prog->has_indexed_constants;
 	m_dlss->write_draw_block(dst, full_bank ? nullptr : m_vertex_prog->constant_ids.data(), full_bank ? 0 : m_vertex_prog->constant_ids.size(),
 		vr_vertex_program_hash(), clip_width, clip_height, rsx::method_registers.current_draw_clause.is_trivial_instanced_draw);
+}
+
+void VKGSRender::dlss_write_eye_blocks(u8* left, u8* right, usz block_offset)
+{
+	if (!dlss_draw_block_size() || !m_dlss_in_draw)
+	{
+		return;
+	}
+
+	const u16 guest_width = rsx::method_registers.surface_clip_width() ? rsx::method_registers.surface_clip_width() : static_cast<u16>(m_framebuffer_layout.width);
+	const u16 guest_height = rsx::method_registers.surface_clip_height() ? rsx::method_registers.surface_clip_height() : static_cast<u16>(m_framebuffer_layout.height);
+	const auto [clip_width, clip_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config, guest_width, guest_height);
+	const bool full_bank = m_vertex_prog->has_indexed_constants;
+	const u16* ids = full_bank ? nullptr : m_vertex_prog->constant_ids.data();
+	const usz count = full_bank ? 0 : m_vertex_prog->constant_ids.size();
+	const u64 hash = vr_vertex_program_hash();
+	const bool instanced = rsx::method_registers.current_draw_clause.is_trivial_instanced_draw;
+	m_dlss->write_draw_block(left + block_offset, ids, count, hash, clip_width, clip_height, instanced, left, 1);
+	m_dlss->write_draw_block(right + block_offset, ids, count, hash, clip_width, clip_height, instanced, right, 2);
 }
 
 vk::pipeline_props VKGSRender::dlss_interpreter_pipeline() const

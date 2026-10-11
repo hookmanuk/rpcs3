@@ -40,6 +40,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <mutex>
 
 LOG_CHANNEL(dlss_log, "DLSS");
 
@@ -357,10 +358,24 @@ namespace vk
 	{
 		atomic_t<u64> s_drawn_frames{0};    // game frames that had camera draws
 		u32 s_rgba32f_samples = 0, s_rgba16f_samples = 0; // sample counts each motion format supports (dlss_context)
+		bool s_test_record = false;                           // dlss_test_record()
+		std::mutex s_test_mutex;
+		std::vector<dlss_test_draw> s_test_presented;         // dlss_test_presented_draws()
 		atomic_t<u64> s_presented_frame{0}; // which of them the last presented output shows
 	}
 
 	u64 dlss_drawn_frames() { return s_drawn_frames.load(); }
+
+	void dlss_test_record(bool enable)
+	{
+		s_test_record = enable;
+	}
+
+	std::vector<dlss_test_draw> dlss_test_presented_draws()
+	{
+		std::lock_guard lock(s_test_mutex);
+		return s_test_presented;
+	}
 
 	VkFormat dlss_motion_format(u32 samples)
 	{
@@ -691,6 +706,7 @@ namespace vk
 		}
 #endif
 		m_last_result = nullptr;
+		m_last_right = nullptr;
 		m_motion.reset();
 		m_mv.reset();
 		m_depth.reset();
@@ -710,7 +726,7 @@ namespace vk
 		m_jitter_px[1] = (halton(index, 3) - 0.5f) * m_jitter_scale;
 	}
 
-	bool dlss_context::find_camera_matrix(const u16* ids, usz count, mat4& out) const
+	bool dlss_context::find_camera_matrix(const u16* ids, usz count, mat4& out, const void* constants) const
 	{
 		static const auto* s_profile = static_cast<const void*>(nullptr);
 		static std::vector<camera_block_desc> s_blocks;
@@ -741,6 +757,13 @@ namespace vk
 			f32 c[4][4];
 			for (int i = 0; i < 4; ++i)
 			{
+				if (constants)
+				{
+					// The upload's layout: the slot's position among the program's constants, or the slot (full bank).
+					const usz index = count ? static_cast<usz>(std::find(ids, ids + count, static_cast<u16>(b.slots[i])) - ids) : b.slots[i];
+					std::memcpy(c[i], static_cast<const u8*>(constants) + index * 16, 16);
+					continue;
+				}
 				for (int j = 0; j < 4; ++j)
 				{
 					c[i][j] = std::bit_cast<f32>(bank[b.slots[i]][j]);
@@ -792,8 +815,9 @@ namespace vk
 		const u32 w = color_surface->width();
 		const u32 h = color_surface->height();
 		const auto samples = static_cast<VkSampleCountFlagBits>(color_surface->samples());
+		const u32 layers = color_surface->layers(); // 2 in VR multiview: one per eye, as the render targets
 
-		if (m_motion && m_motion->width() == w && m_motion->height() == h && m_motion->samples() == color_surface->samples())
+		if (m_motion && m_motion->width() == w && m_motion->height() == h && m_motion->samples() == color_surface->samples() && m_motion->layers() == layers)
 		{
 			return true;
 		}
@@ -813,7 +837,7 @@ namespace vk
 		const VkFormat format = dlss_motion_format(samples);
 
 		m_motion = std::make_unique<dlss_motion_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_TYPE_2D, format, w, h, 1, 1, 1, samples, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_TYPE_2D, format, w, h, 1, 1, layers, samples, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_IMAGE_CREATE_ALLOW_NULL_RPCS3, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
 
@@ -824,18 +848,19 @@ namespace vk
 			return false;
 		}
 
+		m_motion->stereo_layers = layers == 2;
 		m_motion->set_debug_name("DLSS motion");
 		m_motion->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 		m_motion_cleared_frame = umax;
 		m_reset_history = true;
-		dlss_log.notice("Motion image %ux%u, %u samples, %s (scene target 0x%x)", w, h, static_cast<u32>(samples),
-			format == VK_FORMAT_R32G32B32A32_SFLOAT ? "RGBA32F" : "RGBA16F", m_scene_address);
+		dlss_log.notice("Motion image %ux%u, %u samples, %s%s (scene target 0x%x)", w, h, static_cast<u32>(samples),
+			format == VK_FORMAT_R32G32B32A32_SFLOAT ? "RGBA32F" : "RGBA16F", layers == 2 ? ", one layer per eye" : "", m_scene_address);
 		return true;
 	}
 
-	bool dlss_context::wants_motion(u32 color_address, bool vr_active) const
+	bool dlss_context::wants_motion(u32 color_address, bool vr_unsupported) const
 	{
-		if (m_mode == dlss_mode::off || m_disabled || vr_active || !color_address)
+		if (m_mode == dlss_mode::off || m_disabled || vr_unsupported || !color_address)
 		{
 			return false;
 		}
@@ -843,13 +868,13 @@ namespace vk
 	}
 
 	vk::image* dlss_context::bind_framebuffer(const vk::command_buffer& cmd, u32 color_address, vk::image* color_surface,
-		u32 fbo_width, u32 fbo_height, u32 color_attachments, u32 mrt_count, bool vr_active)
+		u32 fbo_width, u32 fbo_height, u32 color_attachments, u32 mrt_count, bool vr_unsupported)
 	{
 		static_cast<void>(fbo_width);
 		static_cast<void>(fbo_height);
 		m_bound = false;
 
-		if (m_mode == dlss_mode::off || m_disabled || vr_active || !color_surface)
+		if (m_mode == dlss_mode::off || m_disabled || vr_unsupported || !color_surface)
 		{
 			return nullptr;
 		}
@@ -873,7 +898,7 @@ namespace vk
 		if (!clear_if_new_frame(cmd))
 		{
 			// Blending reads what an earlier pass wrote.
-			const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+			const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, m_motion->layers()};
 			vk::insert_image_memory_barrier(cmd, m_motion->value, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
 				VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 				VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, range);
@@ -895,8 +920,8 @@ namespace vk
 			vk::end_renderpass(cmd);
 		}
 
-		// First use this frame: no motion, far depth (stored as 1 - z), not covered.
-		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+		// First use this frame: no motion, far depth (stored as 1 - z), not covered. Both eyes' layers in VR multiview.
+		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, m_motion->layers()};
 		vk::insert_image_memory_barrier(cmd, m_motion->value, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
 			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
 			VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, range);
@@ -925,11 +950,21 @@ namespace vk
 	}
 
 	void dlss_context::write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
-		u32 clip_width, u32 clip_height, bool instanced)
+		u32 clip_width, u32 clip_height, bool instanced, const void* constants, u32 view)
 	{
+		view = std::min(view, 2u);
 		f32* out = static_cast<f32*>(dst);
 		std::memcpy(out, identity4, sizeof(identity4));
 		out[16] = out[17] = out[18] = out[19] = 0.f;
+
+		if (view == 0)
+		{
+			m_draw_key = 0; // set below when this draw has a camera matrix
+		}
+		else if (!m_draw_key)
+		{
+			return; // the draw itself had none: neither have its eyes
+		}
 
 		static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr;
 		if (!m_bound || instanced || !clip_width || !clip_height)
@@ -940,7 +975,7 @@ namespace vk
 		}
 
 		mat4 cur;
-		if (!find_camera_matrix(constant_ids, constant_count, cur))
+		if (!find_camera_matrix(constant_ids, constant_count, cur, constants))
 		{
 			if (s_debug)
 				dlss_log.notice("Draw skipped: no camera matrix (%u constant ids)", static_cast<u32>(constant_count));
@@ -950,23 +985,34 @@ namespace vk
 		m_scene_drawn = true;
 		m_clip_width = clip_width;
 		m_clip_height = clip_height;
-		m_camera_draws++;
 
-		// Draw identity: program, vertex and index addresses, range, and how many such draws came before it.
 		const auto& regs = rsx::method_registers;
-		u64 key = mix(0xcbf29ce484222325ull, vp_hash);
-		for (u32 i = 0; i < 16; ++i)
+		u64 key = 0;
+		if (view == 0)
 		{
-			if (regs.vertex_arrays_info[i].size())
+			m_camera_draws++;
+
+			// Draw identity: program, vertex and index addresses, range, and how many such draws came before it.
+			key = mix(0xcbf29ce484222325ull, vp_hash);
+			for (u32 i = 0; i < 16; ++i)
 			{
-				key = mix(key, (u64{i} << 32) | regs.vertex_arrays_info[i].offset());
+				if (regs.vertex_arrays_info[i].size())
+				{
+					key = mix(key, (u64{i} << 32) | regs.vertex_arrays_info[i].offset());
+				}
 			}
+			key = mix(key, regs.index_array_address());
+			const auto& clause = regs.current_draw_clause;
+			// (min_index() asserts outside the draw loop; the element count and the addresses identify the draw well enough.)
+			key = mix(key, clause.vr_total_elements());
+			key = mix(key, m_occurrences[key]++);
+			m_draw_key = key;
 		}
-		key = mix(key, regs.index_array_address());
-		const auto& clause = regs.current_draw_clause;
-		// (min_index() asserts outside the draw loop; the element count and the addresses identify the draw well enough.)
-		key = mix(key, clause.vr_total_elements());
-		key = mix(key, m_occurrences[key]++);
+		else
+		{
+			// An eye of the draw whose view-0 block was just written: its own history.
+			key = mix(m_draw_key, 0x5eed0000ull + view);
+		}
 
 		f32 r[16];
 		std::memcpy(r, identity4, sizeof(r));
@@ -979,11 +1025,12 @@ namespace vk
 			{
 				mul4(found->second.m, inv, r);
 				have_r = true;
-				m_matched++;
+				m_matched += view == 0;
 
 				// Votes for the camera-only reprojection (the same for every static object).
+				auto& votes = m_reproject_votes[view];
 				bool voted = false;
-				for (auto& [m, n] : m_reproject_votes)
+				for (auto& [m, n] : votes)
 				{
 					if (near_equal(m.m, r))
 					{
@@ -992,31 +1039,41 @@ namespace vk
 						break;
 					}
 				}
-				if (!voted && m_reproject_votes.size() < 16)
+				if (!voted && votes.size() < 16)
 				{
 					mat4 v;
 					std::memcpy(v.m, r, sizeof(r));
-					m_reproject_votes.emplace_back(v, 1u);
+					votes.emplace_back(v, 1u);
 				}
 			}
 		}
 
 		if (!have_r)
 		{
-			m_unmatched++;
-			if (m_static_valid)
+			m_unmatched += view == 0;
+			if (m_static_valid[view])
 			{
-				std::memcpy(r, m_static_reproject.m, sizeof(r));
+				std::memcpy(r, m_static_reproject[view].m, sizeof(r));
 			}
 		}
 
 		if (s_debug)
 		{
 			const auto prev_it = m_prev_draws.find(key);
-			dlss_log.notice("Draw key %016llx: M row0 (%.4f %.4f %.4f %.4f), previous %s, R row0 (%.4f %.4f %.4f %.4f)", key, cur.m[0], cur.m[1], cur.m[2], cur.m[3],
+			dlss_log.notice("Draw key %016llx view %u: M row0 (%.4f %.4f %.4f %.4f), previous %s, R row0 (%.4f %.4f %.4f %.4f)", key, view, cur.m[0], cur.m[1], cur.m[2], cur.m[3],
 				prev_it != m_prev_draws.end() ? fmt::format("(%.4f %.4f %.4f %.4f)", prev_it->second.m[0], prev_it->second.m[1], prev_it->second.m[2], prev_it->second.m[3]) : std::string("none"),
 				r[0], r[1], r[2], r[3]);
 		}
+
+		if (s_test_record)
+		{
+			dlss_test_draw t{view, m_view_draws[view]};
+			std::memcpy(t.cur, cur.m, sizeof(t.cur));
+			const auto prev_it = m_prev_draws.find(key);
+			std::memcpy(t.prev, prev_it != m_prev_draws.end() ? prev_it->second.m : cur.m, sizeof(t.prev));
+			m_test_draws.push_back(t);
+		}
+		m_view_draws[view]++;
 
 		draw_record rec;
 		std::memcpy(rec.m, cur.m, sizeof(rec.m));
@@ -1035,29 +1092,41 @@ namespace vk
 		out[19] = 0.f;
 	}
 
-	bool dlss_context::ensure_resolve_images(u32 width, u32 height)
+	bool dlss_context::ensure_resolve_images(u32 width, u32 height, bool stereo)
 	{
-		if (m_mv && m_mv->width() == width && m_mv->height() == height)
+		if (m_mv && m_mv->width() == width && m_mv->height() == height && (!stereo || m_mv_right))
 		{
 			return true;
 		}
 
 		m_last_result = nullptr;
-		if (m_mv) vk::get_resource_manager()->dispose(m_mv);
-		if (m_depth) vk::get_resource_manager()->dispose(m_depth);
-		if (m_debug) vk::get_resource_manager()->dispose(m_debug);
+		m_last_right = nullptr;
+		for (auto* image : {&m_mv, &m_depth, &m_debug, &m_mv_right, &m_depth_right, &m_debug_right})
+		{
+			if (*image) vk::get_resource_manager()->dispose(*image);
+		}
 
+		// TRANSFER_SRC: the debug views are presented (and copied for screenshots and the VR mirror).
 		const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-		m_mv = make_image(m_device, VK_FORMAT_R32G32_SFLOAT, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
-		m_depth = make_image(m_device, VK_FORMAT_R32_SFLOAT, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
-		m_debug = make_image(m_device, VK_FORMAT_R8G8B8A8_UNORM, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+		bool ok = true;
+		for (u32 eye = 0; eye < (stereo ? 2u : 1u); ++eye)
+		{
+			auto& mv = eye ? m_mv_right : m_mv;
+			auto& depth = eye ? m_depth_right : m_depth;
+			auto& debug = eye ? m_debug_right : m_debug;
+			mv = make_image(m_device, VK_FORMAT_R32G32_SFLOAT, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			depth = make_image(m_device, VK_FORMAT_R32_SFLOAT, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			debug = make_image(m_device, VK_FORMAT_R8G8B8A8_UNORM, width, height, VK_SAMPLE_COUNT_1_BIT, usage);
+			ok &= mv->value && depth->value && debug->value;
+		}
 
-		if (!m_mv->value || !m_depth->value || !m_debug->value)
+		if (!ok)
 		{
 			dlss_log.error("Out of memory for the DLSS inputs (%ux%u)", width, height);
-			m_mv.reset();
-			m_depth.reset();
-			m_debug.reset();
+			for (auto* image : {&m_mv, &m_depth, &m_debug, &m_mv_right, &m_depth_right, &m_debug_right})
+			{
+				image->reset();
+			}
 			return false;
 		}
 		m_reset_history = true;
@@ -1072,6 +1141,7 @@ namespace vk
 		}
 
 		m_last_result = nullptr;
+		m_last_right = nullptr;
 		if (m_output) vk::get_resource_manager()->dispose(m_output);
 
 		// RGBA8: the present path (screenshots) expects 4 bytes per pixel.
@@ -1086,14 +1156,17 @@ namespace vk
 		return true;
 	}
 
-	void dlss_context::resolve(const vk::command_buffer& cmd, u32 width, u32 height)
+	void dlss_context::resolve(const vk::command_buffer& cmd, u32 width, u32 height, u32 eye)
 	{
 		// Every earlier write (motion attachment, the displayed image) before the compute reads.
 		vk::insert_global_memory_barrier(cmd);
 
-		m_mv->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
-		m_depth->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
-		m_debug->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		vk::viewable_image* const mv_image = eye ? m_mv_right.get() : m_mv.get();
+		vk::viewable_image* const depth_image = eye ? m_depth_right.get() : m_depth.get();
+		vk::viewable_image* const debug_image = eye ? m_debug_right.get() : m_debug.get();
+		mv_image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		depth_image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+		debug_image->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
 		static const auto mv_sign = env_signs("RPCS3_DLSS_MV_SIGN");
 		const f32 debug_mode = m_mode == dlss_mode::debug_motion ? 1.f : m_mode == dlss_mode::debug_depth ? 2.f : m_mode == dlss_mode::debug_motion_raw ? 3.f : 0.f;
@@ -1102,18 +1175,20 @@ namespace vk
 		const f32 constants[8] = {src_w, src_h, static_cast<f32>(width), static_cast<f32>(height), mv_sign[0], mv_sign[1], debug_mode, 0.f};
 
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
-		const vk::image_view* mv = m_mv->get_view(identity);
-		const vk::image_view* depth = m_depth->get_view(identity);
-		const vk::image_view* debug = m_debug->get_view(identity);
+		const vk::image_view* mv = mv_image->get_view(identity);
+		const vk::image_view* depth = depth_image->get_view(identity);
+		const vk::image_view* debug = debug_image->get_view(identity);
+		// One layer of the motion image: the eye's (a one-layer image: its only one).
+		const u32 layer = m_motion->layers() > 1 ? eye : u32{umax};
 
 		if (m_motion->samples() > 1)
 		{
-			const vk::image_view* src = m_motion->get_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_COLOR_BIT);
+			const vk::image_view* src = m_motion->get_layer_view(rsx::default_remap_vector.with_encoding(VK_REMAP_VIEW_MULTISAMPLED), VK_IMAGE_ASPECT_COLOR_BIT, layer);
 			vk::get_compute_task<dlss_resolve_pass<true>>()->run(cmd, src, mv, depth, debug, constants);
 		}
 		else
 		{
-			const vk::image_view* src = m_motion->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
+			const vk::image_view* src = m_motion->get_layer_view(identity, VK_IMAGE_ASPECT_COLOR_BIT, layer);
 			vk::get_compute_task<dlss_resolve_pass<false>>()->run(cmd, src, mv, depth, debug, constants);
 		}
 
@@ -1121,21 +1196,30 @@ namespace vk
 	}
 
 	vk::viewable_image* dlss_context::on_flip(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height,
-		u32 target_width, u32 target_height, bool emu_flip, bool vr_active, u32& out_w, u32& out_h)
+		u32 target_width, u32 target_height, bool emu_flip, bool vr_unsupported, u32& out_w, u32& out_h,
+		vk::viewable_image** right_eye)
 	{
 		if (m_mode == dlss_mode::off)
 		{
 			return nullptr;
 		}
 
+		const bool debug_view = m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw;
+		// VR multiview: both eyes are shown (right_eye), and the motion image has a layer per eye.
+		const bool stereo = right_eye && *right_eye;
+
 		if (!emu_flip || !m_frame_camera_draws)
 		{
 			// A UI refresh, or a flip without any 3D drawn since the last one (a game showing the same frame again,
 			// a capture replay's empty loop): show the last output again; history, jitter and frame count stay.
-			if (m_last_result && m_last_out_w && m_last_out_h && !m_disabled && !vr_active)
+			if (m_last_result && m_last_out_w && m_last_out_h && !m_disabled && !vr_unsupported && (!stereo || m_last_right))
 			{
 				out_w = m_last_out_w;
 				out_h = m_last_out_h;
+				if (stereo)
+				{
+					*right_eye = m_last_right;
+				}
 				return m_last_result;
 			}
 			return nullptr;
@@ -1143,16 +1227,31 @@ namespace vk
 		m_frame_camera_draws = 0;
 
 		vk::viewable_image* result = nullptr;
-		const bool usable = !m_disabled && !vr_active && source && width && height && m_motion && m_scene_drawn &&
-			m_motion_cleared_frame == m_frame;
+		vk::viewable_image* result_right = nullptr;
+		const bool usable = !m_disabled && !vr_unsupported && source && width && height && m_motion && m_scene_drawn &&
+			m_motion_cleared_frame == m_frame && (!stereo || m_motion->layers() == 2);
 
-		if (usable && m_mode != dlss_mode::jitter_only && ensure_resolve_images(width, height))
+		if (usable && stereo && !debug_view)
 		{
-			resolve(cmd, width, height);
+			// DLSS for the headset (an evaluation per eye, into the eye images OpenXR takes) is the next step.
+			static bool s_reported = false;
+			if (!std::exchange(s_reported, true))
+			{
+				dlss_log.warning("VR multiview: motion vectors are made per eye, but DLSS itself does not run in VR yet (the motion and depth views do)");
+			}
+		}
+		else if (usable && m_mode != dlss_mode::jitter_only && ensure_resolve_images(width, height, stereo))
+		{
+			resolve(cmd, width, height, 0);
+			if (stereo)
+			{
+				resolve(cmd, width, height, 1);
+			}
 
-			if (m_mode == dlss_mode::debug_motion || m_mode == dlss_mode::debug_depth || m_mode == dlss_mode::debug_motion_raw)
+			if (debug_view)
 			{
 				result = m_debug.get();
+				result_right = stereo ? m_debug_right.get() : nullptr;
 				out_w = m_last_out_w = width;
 				out_h = m_last_out_h = height;
 			}
@@ -1195,28 +1294,38 @@ namespace vk
 		static const bool s_debug = env("RPCS3_DLSS_DEBUG") != nullptr;
 		if (m_frame % 300 == 0 || s_debug)
 		{
-			dlss_log.notice("Frame %llu: scene 0x%x, camera draws %u (matched %u, unmatched %u), static reprojection %s, clip %ux%u, output %s",
-				m_frame, m_forced_address ? m_forced_address : m_scene_address, m_camera_draws, m_matched, m_unmatched,
-				m_static_valid ? "found" : "none", m_clip_width, m_clip_height, result ? "replaced" : "unchanged");
+			dlss_log.notice("Frame %llu: scene 0x%x, camera draws %u (matched %u, unmatched %u; eyes %u + %u), static reprojection %s, clip %ux%u, output %s",
+				m_frame, m_forced_address ? m_forced_address : m_scene_address, m_camera_draws, m_matched, m_unmatched, m_view_draws[1], m_view_draws[2],
+				m_static_valid[0] ? "found" : "none", m_clip_width, m_clip_height, result ? (result_right ? "replaced (both eyes)" : "replaced") : "unchanged");
 		}
 
 		m_prev_draws.swap(m_cur_draws);
 		m_cur_draws.clear();
 		m_occurrences.clear();
+		m_draw_key = 0;
 
-		m_static_valid = false;
-		u32 best = 0;
-		for (const auto& [m, n] : m_reproject_votes)
+		for (u32 view = 0; view < 3; ++view)
 		{
-			if (n > best && n >= 3)
+			m_static_valid[view] = false;
+			u32 best = 0;
+			for (const auto& [m, n] : m_reproject_votes[view])
 			{
-				best = n;
-				m_static_reproject = m;
-				m_static_valid = true;
+				if (n > best && n >= 3)
+				{
+					best = n;
+					m_static_reproject[view] = m;
+					m_static_valid[view] = true;
+				}
 			}
+			m_reproject_votes[view].clear();
+			m_view_draws[view] = 0;
 		}
-		m_reproject_votes.clear();
 		m_matched = m_unmatched = m_camera_draws = 0;
+		{
+			std::lock_guard lock(s_test_mutex);
+			s_test_presented.swap(m_test_draws);
+			m_test_draws.clear();
+		}
 
 		if (!m_forced_address)
 		{
@@ -1240,9 +1349,14 @@ namespace vk
 		}
 
 		m_last_result = result;
+		m_last_right = result_right;
 		if (!result)
 		{
 			m_last_out_w = m_last_out_h = 0;
+		}
+		if (stereo && result_right)
+		{
+			*right_eye = result_right;
 		}
 		s_presented_frame = s_drawn_frames.load();
 		s_drawn_frames++;

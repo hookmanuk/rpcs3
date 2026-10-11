@@ -20,6 +20,10 @@
 	// upload_transform_constants(): the motion block after the constants (and the depth remap), for programs that read it.
 	usz dlss_draw_block_size() const;
 	void dlss_write_draw_block(void* dst);
+	// bind_vr_eye_constants_pair() (VR multiview): each eye's block, from that eye's constants, block_offset bytes in.
+	void dlss_write_eye_blocks(u8* left, u8* right, usz block_offset);
+	// VR stereo without multiview: no motion (the two-draw stereo is not supported).
+	bool dlss_vr_unsupported() const;
 	// load_program(): the pipeline the shader interpreter gets (it does not write the motion output).
 	vk::pipeline_props dlss_interpreter_pipeline() const;
 

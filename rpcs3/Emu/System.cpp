@@ -932,6 +932,13 @@ bool Emulator::BootRsxCapture(const std::string& path)
 	m_sfo_dir.clear();
 	m_ar.reset();
 
+	// Fork: RPCS3_REPLAY_TITLE_ID gives the replay a title, so a capture replays with that title's VR profile
+	// (vr_profiles/<TITLE_ID>.json): VR stereo, multiview and the DLSS test's camera blocks.
+	if (const char* replay_title = std::getenv("RPCS3_REPLAY_TITLE_ID"); replay_title && *replay_title)
+	{
+		m_title_id = replay_title;
+	}
+
 	Init();
 	g_cfg.video.disable_on_disk_shader_cache.set(true);
 

@@ -4381,7 +4381,8 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 	};
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
 	const usz remap_size = vr_depth_remap_size(); // profile depth_remap_programs: each eye's depth remap follows its constants
-	const usz stride = utils::align(size + remap_size, alignment);
+	const usz dlss_size = dlss_draw_block_size(); // DLSS test: each eye's motion block follows (VKDLSS.h)
+	const usz stride = utils::align(size + remap_size + dlss_size, alignment);
 	static thread_local std::vector<u8> scratch;
 	scratch.resize(stride * 2);
 	const auto constant_ids = full_bank ? std::span<const u16>{} : std::span<const u16>(m_vertex_prog->constant_ids);
@@ -4506,6 +4507,8 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		}
 		rsx_log.notice("VR why %016llx eye constants (keep game camera %d, world %d), changed slots:%s", vr_vertex_program_hash(), keep_game_camera, classified_world, text.empty() ? " none" : text);
 	}
+
+	dlss_write_eye_blocks(scratch.data(), scratch.data() + stride, size + remap_size); // DLSS test: from each eye's final constants
 
 	const u64 allocation = m_transform_constants_allocator->alloc_bytes(stride * 2);
 	void* destination = m_transform_constants_ring_info.map(allocation, stride * 2);

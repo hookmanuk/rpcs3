@@ -48,10 +48,12 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <mutex>
 #include <set>
@@ -162,6 +164,15 @@ namespace
 		s.probe_points = {{{3.f, 0.f, -3.f}, {-2.f, 1.f, -0.5f}, {cube_x, 1.f, 1.5f}}}; // floor, tops of the cubes
 		return s;
 	}
+
+	// DLSS_SELFTEST_VR=1: VR multiview with the fake headset (RPCS3_VR_FAKE_HMD), the replay titled DLSST0001 with a
+	// VR profile written by the test (camera block c[0], column vectors). The screenshots hold both eyes side by side;
+	// each eye's expected motion comes from that eye's matrices as the renderer recorded them (dlss_test_record).
+	const bool g_vr = std::getenv("DLSS_SELFTEST_VR") != nullptr;
+	constexpr const char* vr_title_id = "DLSST0001";
+
+	// Each object's probe point in its own space (scene_at's probe_points through the inverse model transform).
+	const std::array<std::array<f32, 3>, 3> probe_object_points = {{{0.5f, 0.f, -0.5f}, {0.f, 0.5f, 0.f}, {0.f, 0.5f, 0.f}}};
 
 	// The window position (pixels, y down) of a world point, as RSX's viewport below maps it.
 	std::array<f32, 2> project(const mat4& vp_only, const std::array<f32, 3>& p)
@@ -546,6 +557,12 @@ namespace
 			stbi_write_png(path.c_str(), static_cast<int>(w), static_cast<int>(h), 4, data.data(), static_cast<int>(w * 4));
 			selftest_log.success("Screenshot %s (%ux%u)", path, w, h);
 
+			if (g_vr)
+			{
+				write_vr_expected(frame, w, h);
+				return;
+			}
+
 			// Expected motion (pixels, towards the previous frame) of the probe points in this frame.
 			const scene_frame cur = scene_at(frame), prev = scene_at(frame ? frame - 1 : 0);
 			const mat4 vp_cur = view_projection_at(frame), vp_prev = view_projection_at(frame ? frame - 1 : 0);
@@ -560,6 +577,42 @@ namespace
 		}
 
 		void update_title(double) override {}
+
+		// VR: probe rows for both eyes (probe 3 * eye + object), positions in the side-by-side screenshot.
+		static void write_vr_expected(u32 frame, u32 w, u32 h)
+		{
+			const auto draws = vk::dlss_test_presented_draws();
+			const u32 eye_w = w / 2;
+			if (w < h * 2)
+			{
+				selftest_log.error("Frame %u: the screenshot (%ux%u) does not hold two eyes side by side", frame, w, h);
+			}
+			std::string text;
+			for (u32 eye = 0; eye < 2; ++eye)
+			{
+				for (u32 i = 0; i < 3; ++i)
+				{
+					const auto found = std::find_if(draws.begin(), draws.end(), [&](const vk::dlss_test_draw& d) { return d.view == eye + 1 && d.index == i; });
+					if (found == draws.end())
+					{
+						selftest_log.error("Frame %u: no eye %u matrix for object %u (%u draws recorded)", frame, eye, i, ::size32(draws));
+						continue;
+					}
+					const auto window = [&](const f32* m) -> std::array<f32, 2>
+					{
+						const auto& p = probe_object_points[i];
+						f32 c[4];
+						for (int r = 0; r < 4; ++r)
+							c[r] = m[r * 4 + 0] * p[0] + m[r * 4 + 1] * p[1] + m[r * 4 + 2] * p[2] + m[r * 4 + 3];
+						return {((c[0] / c[3]) * 0.5f + 0.5f) * eye_w, ((c[1] / c[3]) * -0.5f + 0.5f) * h};
+					};
+					const auto pc = window(found->cur);
+					const auto pp = window(found->prev);
+					text += fmt::format("%u %u %f %f %f %f\n", frame, eye * 3 + i, pc[0] + eye * eye_w, pc[1], pp[0] - pc[0], pp[1] - pc[1]);
+				}
+			}
+			fs::write_file(g_out_dir + "/expected.txt", fs::create + fs::write + fs::append, text);
+		}
 	};
 
 	void set_callbacks()
@@ -638,6 +691,27 @@ int main(int argc, char** argv)
 
 	XInitThreads();
 
+	if (g_vr)
+	{
+		// The test title's VR profile, next to the executable as the game profiles are.
+		const std::string dir = fs::get_executable_dir() + "vr_profiles/";
+		fs::create_path(dir);
+		fs::write_file(dir + vr_title_id + ".json", fs::rewrite, std::string(R"({
+  "schema": 1,
+  "title_id": "DLSST0001",
+  "name": "DLSS self-test",
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [0],
+  "output_aspect_tolerance": 0.02,
+  "camera_position": { "eye_baseline": 0.064 },
+  "stereo": { "formula": "clip_x_shear", "per_eye_separation": 0.02, "convergence": 7.0, "eye_offset": "baseline" }
+}
+)"));
+		::setenv("RPCS3_REPLAY_TITLE_ID", vr_title_id, 1);
+		::setenv("RPCS3_VR_FAKE_HMD", "90", 0);
+		vk::dlss_test_record(true);
+	}
+
 	static auto log_file = logs::make_file_listener(g_out_dir + "/RPCS3.log", 512ull * 1024 * 1024);
 	static_cast<void>(log_file);
 
@@ -663,6 +737,7 @@ int main(int argc, char** argv)
 	g_cfg.video.disable_on_disk_shader_cache.set(true);
 	g_cfg.audio.renderer.set(audio_renderer::null);
 	g_cfg.misc.show_shader_compilation_hint.set(false);
+	g_cfg.video.vr.enabled.set(g_vr); // VR renderer (multiview stereo) only in the VR mode
 	fs::write_file(fs::get_config_dir(true) + "config.yml", fs::rewrite, g_cfg.to_string());
 
 	const std::string capture = build_capture(g_out_dir + "/dlss_selftest.rrc");
