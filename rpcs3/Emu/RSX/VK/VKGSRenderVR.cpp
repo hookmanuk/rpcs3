@@ -3407,6 +3407,17 @@ std::string VKGSRender::vr_select_adapter(std::vector<vk::physical_device>& gpus
 // runtime gets a spare queue of that family when there is one.
 void VKGSRender::vr_init_after_device()
 {
+	// A VR game does not draw through the shader interpreter: its draws bypass the VR shader variants (HUD box, depth
+	// remap), so on a cold shader cache the HUD stuck to the face and menus flipped between the fixed screen and the
+	// headset view until the programs were compiled. Async Recompiler skips a draw until its shader is ready instead (a
+	// moment late, not misplaced). For this session only, read before the renderer sets the interpreter up; the saved
+	// setting is unchanged.
+	if (g_cfg.video.shadermode == shader_mode::async_with_interpreter && g_cfg.video.vr.enabled && rsx::vr::camera_probe::get().profile())
+	{
+		rsx_log.notice("VR: Shader Mode Async Recompiler for this session (no shader interpreter in VR)");
+		g_cfg.video.shadermode.set(shader_mode::async_recompiler);
+	}
+
 	dlss_init(); // DLSS test (RPCS3_DLSS)
 
 	if (vk::xr::is_prepared())
