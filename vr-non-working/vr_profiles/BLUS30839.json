@@ -3,6 +3,7 @@
   "title_id": "BLUS30839",
   "app_version": "01.00",
   "name": "Sonic & All-Stars Racing Transformed™",
+  "min_scalable_dimension": 20,
   "max_fps": 0,
   "default_fps": 0,
 
