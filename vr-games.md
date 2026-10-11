@@ -67,7 +67,6 @@ measured yet.
 | Ratchet & Clank | BCUS98282 | Headset refresh rate | 90 Hz |
 | Ratchet & Clank 2: Going Commando | BCUS98282 | Headset refresh rate | 120 Hz |
 | Ratchet & Clank 3: Up Your Arsenal | BCUS98282 | Headset refresh rate | 90 Hz |
-| Gran Turismo 5 | BCUS98114 | Headset refresh rate | 90 Hz in races (busy starts dip) |
 | Sonic & All-Stars Racing Transformed | BLUS30839 | Headset refresh rate | 90 Hz |
 | SEGA Rally Revo | BLUS30068 | Headset refresh rate | 72 Hz (90 on the track) |
 | MotorStorm: Pacific Rift | BCUS98155 | 72 FPS | 72 Hz |
@@ -275,21 +274,7 @@ measured yet.
 - **Frame rate:** as Ratchet & Clank: real-time at the headset rate; the new-game opening and cutscenes at 60 FPS.
 - **Recommended settings:** `Resolution Scale` 300% held 90 FPS in testing.
 
-### 19. Gran Turismo 5 (BCUS98114, XL Edition, US disc 01.00): headset refresh rate
-
-- **Frame rate:** the patch *Pre-race at full frame rate* is on by default and the game runs at the headset rate.
-  Disc version 01.00 only (the frame-rate entry does not match the 02.11 update).
-- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head.
-  *VR: No camera jitter* is off by default.
-- **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
-  reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
-  Fixed Screen (default, fastest) or Full Quality around you.
-- **Recommended settings:** `Resolution Scale` 400% held 90 FPS in races in testing; race starts with the pack
-  ahead dip. `RSX FIFO Fetch Accuracy` Fast saves a little more.
-- **Known issues:** savestates load paused only with a pad connected; the car paint can turn multicoloured after
-  some savestate loads.
-
-### 20. Sonic & All-Stars Racing Transformed (BLUS30839, US disc 01.00): headset refresh rate
+### 19. Sonic & All-Stars Racing Transformed (BLUS30839, US disc 01.00): headset refresh rate
 
 - **Frame rate:** the patch *Unlocked frame rate (follows Vblank Rate)* is on by default: real-time speed at any
   rate.
@@ -299,7 +284,7 @@ measured yet.
   it needs more resolution up and down. 500% is the limit at 90 FPS in testing.
 - **Known issues:** a savestate made with the home menu open loads onto the game's pause menu.
 
-### 21. SEGA Rally Revo (BLUS30068, US disc 01.00): headset refresh rate
+### 20. SEGA Rally Revo (BLUS30068, US disc 01.00): headset refresh rate
 
 - **Frame rate:** the patch *Unlocked frame rate (follows Vblank Rate)* is on by default: real-time speed at any
   rate.
@@ -310,7 +295,7 @@ measured yet.
 - **Known issues:** savestates need `Compatible Savestate Mode` and `Disable SPU GETLLAR Spin Optimization`
   (savestates only).
 
-### 22. MotorStorm: Pacific Rift (BCUS98155, US disc 01.00): 72 FPS
+### 21. MotorStorm: Pacific Rift (BCUS98155, US disc 01.00): 72 FPS
 
 - **Required settings:** Video > `Write Color Buffers` on (right-click the game > Create Custom Configuration).
   Without it the picture is overexposed (the game reads its exposure back from the screen).
@@ -379,6 +364,7 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | FEZ | NPUB31448 | 120 Hz | No patch needed (60 natively, real time at any rate). An orthographic game: it is shown on the world-fixed screen as a 3D diorama (each eye sees the playfield from a slightly different angle); the VR menu's Screen Depth sets the depth. Savestates do not load. Not tested in a headset. |
 | Flower | NPUA80083 | 90 Hz | The VR build's patch *Unlocked frame rate (follows Vblank Rate)* (on by default) lifts the game's 30 FPS lock at real-time speed. Steers by tilting the controller (SIXAXIS). Only the first level tested. Not tested in a headset. |
 | Journey | NPUA70218 (from Journey Collector's Edition) | 72 Hz | Install Journey from the disc's PKG (the collection disc only says "install from the XMB": `rpcs3.exe --installpkg` on `PS3_EXTRA/D002/DATA000.PKG`). The VR build's patches *Unlocked frame rate*, *Wider view (VR culling)* (Scale 2.5) and *Disable SPU MLAA (VR)* are on by default (the last only takes effect from a fresh boot). The game is limited by its SPU work to about 75 FPS in VR. Set `SPU Block Size: Mega`. Only the first dune tested. Not tested in a headset. |
+| Gran Turismo 5 | BCUS98114 (XL Edition, disc 01.00) | 90 Hz in races (busy starts dip) | Works in our test setup, but a fresh install shows garbled welcome text in VR (before the first save), can sit on a black screen on first boot, and can hang at the race-start flyby. |
 
 ---
 
