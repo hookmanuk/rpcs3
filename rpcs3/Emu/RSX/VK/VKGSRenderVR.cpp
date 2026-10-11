@@ -2169,6 +2169,13 @@ void VKGSRender::vr_clear_shown_region()
 // emit_geometry(), after the pipeline bind.
 void VKGSRender::vr_after_pipeline_bind(u32 sub_index, const vk::vertex_upload_info& upload_info)
 {
+	// The render pass instance the pipeline was bound in (vr_after_render_pass_bound).
+	vk::renderpass_op(*m_current_command_buffer, [&](const vk::command_buffer&, VkRenderPass pass, VkFramebuffer fbo)
+	{
+		m_vr_mv_bind_pass = pass;
+		m_vr_mv_bind_fbo = fbo;
+	});
+
 	if (m_vr_draw.mv)
 	{
 		// Multiview: entry 2n serves view 0 and 2n+1 view 1 (the shader adds gl_ViewIndex). The right
@@ -4568,8 +4575,35 @@ bool VKGSRender::vr_bind_viewport()
 }
 
 // emit_geometry(), after the render pass is bound: a pending guest query begins inside the multiview pass.
-void VKGSRender::vr_after_render_pass_bound()
+void VKGSRender::vr_after_render_pass_bound(u32 sub_index, const vk::vertex_upload_info& upload_info)
 {
+	// Multiview: "at the beginning of each subpass all non-render pass state is undefined" (VK_KHR_multiview). emit_geometry
+	// binds the pipeline, descriptors and push constants, then begins a new render pass instance when the pass changed (a
+	// new target, or a pass ended for a clear or a copy): all of that is undefined in it, and the command buffer's bind
+	// cache kept the next draws from binding again (validation: no pipeline bound). Bind everything again inside it.
+	if (m_vr_multiview && vk::get_renderpass_view_mask(m_current_renderpass_key))
+	{
+		VkRenderPass pass = VK_NULL_HANDLE;
+		VkFramebuffer fbo = VK_NULL_HANDLE;
+		vk::renderpass_op(*m_current_command_buffer, [&](const vk::command_buffer&, VkRenderPass p, VkFramebuffer f)
+		{
+			pass = p;
+			fbo = f;
+		});
+		if (pass && (pass != m_vr_mv_bind_pass || fbo != m_vr_mv_bind_fbo))
+		{
+			m_current_command_buffer->invalidate_state_cache();
+			m_program->bind(*m_current_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS);
+			vr_after_pipeline_bind(sub_index, upload_info); // the eyes' push constants (and records this pass)
+			if (!m_vr_draw.render)
+			{
+				update_vertex_env(sub_index, upload_info);
+			}
+			m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+			update_draw_state();
+		}
+	}
+
 	if (m_vr_multiview && (m_current_command_buffer->flags & vk::command_buffer::cb_load_occluson_task))
 	{
 		vr_mv_begin_query_segment();

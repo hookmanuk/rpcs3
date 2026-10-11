@@ -2,8 +2,9 @@
 //
 // It writes a synthetic RSX capture (a floor, a static cube and a moving cube under a perspective camera whose matrix is
 // the vertex constants c[0..3], DP4 rows like Gran Turismo 5), boots it with the Vulkan renderer into an X11 window
-// (Xvfb + lavapipe in the cloud), moves the camera and the cube between replays by rewriting their constants in the
-// FIFO, and saves screenshots of what is presented (with RPCS3_DLSS=motionraw: the motion vectors as numbers).
+// (Xvfb + lavapipe in the cloud) and saves screenshots of what is presented (with RPCS3_DLSS=motionraw: the motion
+// vectors as numbers). The capture holds the whole sequence, each frame with its own camera and cube matrices and an
+// in-FIFO flip.
 // The expected motion of chosen points is written next to the screenshots (expected.txt) for dlss_selftest_check.py.
 //
 //   dlss_selftest <output dir> [frames] [camera|object|both|static]
@@ -329,8 +330,11 @@ namespace
 		return v;
 	}
 
-	// FIFO word index of each object's 16 constants (patched at every flip).
-	std::array<u32, 3> g_constant_words{};
+	// Frames in the capture: the run stops after g_frames + 2 drawn frames, before the replayer starts over.
+	u32 sequence_frames()
+	{
+		return g_frames + 8;
+	}
 
 	std::string build_capture(const std::string& path)
 	{
@@ -359,77 +363,97 @@ namespace
 		b.frame.replay_commands.front().memory_state = memory;
 		b.frame.replay_commands.front().display_buffer_state = 1;
 		static_cast<void>(first);
-		b.method(NV4097_SET_CONTEXT_DMA_ZETA, {CELL_GCM_CONTEXT_DMA_MEMORY_FRAME_BUFFER});
-		b.method(NV4097_SET_SURFACE_FORMAT, {CELL_GCM_SURFACE_A8R8G8B8 | (CELL_GCM_SURFACE_Z24S8 << 5) | (CELL_GCM_SURFACE_PITCH << 8) |
-			((g_msaa == 4 ? CELL_GCM_SURFACE_SQUARE_CENTERED_4 : g_msaa == 2 ? CELL_GCM_SURFACE_DIAGONAL_CENTERED_2 : CELL_GCM_SURFACE_CENTER_1) << 12) | (11u << 16) | (10u << 24)});
-		b.method(NV4097_SET_SURFACE_PITCH_A, {pitch});
-		b.method(NV4097_SET_SURFACE_COLOR_AOFFSET, {color_offset});
-		b.method(NV4097_SET_SURFACE_ZETA_OFFSET, {depth_offset});
-		b.method(NV4097_SET_SURFACE_PITCH_Z, {pitch});
-		b.method(NV4097_SET_SURFACE_COLOR_TARGET, {CELL_GCM_SURFACE_TARGET_0});
-		b.method(NV4097_SET_SURFACE_CLIP_HORIZONTAL, {width << 16});
-		b.method(NV4097_SET_SURFACE_CLIP_VERTICAL, {height << 16});
-		b.method(NV4097_SET_WINDOW_OFFSET, {0});
-		b.method(NV4097_SET_SHADER_WINDOW, {height | (CELL_GCM_WINDOW_ORIGIN_TOP << 12) | (CELL_GCM_WINDOW_PIXEL_CENTER_HALF << 16)});
-
-		// Viewport: NDC y up -> window y down
-		b.method(NV4097_SET_VIEWPORT_HORIZONTAL, {width << 16});
-		b.method(NV4097_SET_VIEWPORT_VERTICAL, {height << 16});
-		b.method(NV4097_SET_SCISSOR_HORIZONTAL, {width << 16});
-		b.method(NV4097_SET_SCISSOR_VERTICAL, {height << 16});
-		b.methodf(NV4097_SET_VIEWPORT_OFFSET, {width / 2.f, height / 2.f, 0.5f, 0.f});
-		b.methodf(NV4097_SET_VIEWPORT_SCALE, {width / 2.f, -(height / 2.f), 0.5f, 0.f});
-		b.methodf(NV4097_SET_CLIP_MIN, {0.f});
-		b.methodf(NV4097_SET_CLIP_MAX, {1.f});
-
-		// State
-		b.method(NV4097_SET_COLOR_MASK, {0x01010101});
-		b.method(NV4097_SET_DEPTH_TEST_ENABLE, {1});
-		b.method(NV4097_SET_DEPTH_FUNC, {CELL_GCM_LESS});
-		b.method(NV4097_SET_DEPTH_MASK, {1});
-		b.method(NV4097_SET_CULL_FACE_ENABLE, {0});
-		b.method(NV4097_SET_BLEND_ENABLE, {0});
-		b.method(NV4097_SET_ALPHA_TEST_ENABLE, {0});
-		b.method(NV4097_SET_STENCIL_TEST_ENABLE, {0});
-
-		// Clear
-		b.method(NV4097_SET_COLOR_CLEAR_VALUE, {0xff202838});
-		b.method(NV4097_SET_ZSTENCIL_CLEAR_VALUE, {0xffffff00});
-		b.method(NV4097_CLEAR_SURFACE, {0xf3});
-
-		// Vertex program
-		const auto vp = make_vertex_program();
-		b.method(NV4097_SET_TRANSFORM_PROGRAM_LOAD, {0});
-		b.method(NV4097_SET_TRANSFORM_PROGRAM, vp);
-		b.method(NV4097_SET_TRANSFORM_PROGRAM_START, {0});
-		b.method(NV4097_SET_VERTEX_ATTRIB_INPUT_MASK, {1});
-		b.method(NV4097_SET_VERTEX_ATTRIB_OUTPUT_MASK, {0});
-		b.method(NV4097_SET_SHADER_CONTROL, {0x02000440}); // 2 registers, 32-bit exports
-		b.method(NV4097_SET_SHADER_PACKER, {0});
-
-		// Vertex array 0: float3 positions, big-endian, stride 12
-		for (u32 i = 1; i < 16; ++i)
+		// Everything after the first method, again for every frame: the HLE flip (GCM_FLIP_COMMAND) resets the
+		// registers to their defaults, as on the console, and games set their state again each frame.
+		const auto frame_state = [&]()
 		{
-			b.method(NV4097_SET_VERTEX_DATA_ARRAY_FORMAT + i, {CELL_GCM_VERTEX_F});
-		}
-		b.method(NV4097_SET_VERTEX_DATA_ARRAY_FORMAT, {CELL_GCM_VERTEX_F | (3u << 4) | (12u << 8)});
-		b.method(NV4097_SET_VERTEX_DATA_BASE_OFFSET, {0});
-		b.method(NV4097_SET_VERTEX_DATA_BASE_INDEX, {0});
+			b.method(NV4097_SET_CONTEXT_DMA_ZETA, {CELL_GCM_CONTEXT_DMA_MEMORY_FRAME_BUFFER});
+			b.method(NV4097_SET_SURFACE_FORMAT, {CELL_GCM_SURFACE_A8R8G8B8 | (CELL_GCM_SURFACE_Z24S8 << 5) | (CELL_GCM_SURFACE_PITCH << 8) |
+				((g_msaa == 4 ? CELL_GCM_SURFACE_SQUARE_CENTERED_4 : g_msaa == 2 ? CELL_GCM_SURFACE_DIAGONAL_CENTERED_2 : CELL_GCM_SURFACE_CENTER_1) << 12) | (11u << 16) | (10u << 24)});
+			b.method(NV4097_SET_SURFACE_PITCH_A, {pitch});
+			b.method(NV4097_SET_SURFACE_COLOR_AOFFSET, {color_offset});
+			b.method(NV4097_SET_SURFACE_ZETA_OFFSET, {depth_offset});
+			b.method(NV4097_SET_SURFACE_PITCH_Z, {pitch});
+			b.method(NV4097_SET_SURFACE_COLOR_TARGET, {CELL_GCM_SURFACE_TARGET_0});
+			b.method(NV4097_SET_SURFACE_CLIP_HORIZONTAL, {width << 16});
+			b.method(NV4097_SET_SURFACE_CLIP_VERTICAL, {height << 16});
+			b.method(NV4097_SET_WINDOW_OFFSET, {0});
+			b.method(NV4097_SET_SHADER_WINDOW, {height | (CELL_GCM_WINDOW_ORIGIN_TOP << 12) | (CELL_GCM_WINDOW_PIXEL_CENTER_HALF << 16)});
 
-		const scene_frame s0 = scene_at(0);
+			// Viewport: NDC y up -> window y down
+			b.method(NV4097_SET_VIEWPORT_HORIZONTAL, {width << 16});
+			b.method(NV4097_SET_VIEWPORT_VERTICAL, {height << 16});
+			b.method(NV4097_SET_SCISSOR_HORIZONTAL, {width << 16});
+			b.method(NV4097_SET_SCISSOR_VERTICAL, {height << 16});
+			b.methodf(NV4097_SET_VIEWPORT_OFFSET, {width / 2.f, height / 2.f, 0.5f, 0.f});
+			b.methodf(NV4097_SET_VIEWPORT_SCALE, {width / 2.f, -(height / 2.f), 0.5f, 0.f});
+			b.methodf(NV4097_SET_CLIP_MIN, {0.f});
+			b.methodf(NV4097_SET_CLIP_MAX, {1.f});
+
+			// State
+			b.method(NV4097_SET_COLOR_MASK, {0x01010101});
+			b.method(NV4097_SET_DEPTH_TEST_ENABLE, {1});
+			b.method(NV4097_SET_DEPTH_FUNC, {CELL_GCM_LESS});
+			b.method(NV4097_SET_DEPTH_MASK, {1});
+			b.method(NV4097_SET_CULL_FACE_ENABLE, {0});
+			b.method(NV4097_SET_BLEND_ENABLE, {0});
+			b.method(NV4097_SET_ALPHA_TEST_ENABLE, {0});
+			b.method(NV4097_SET_STENCIL_TEST_ENABLE, {0});
+
+			// Clear
+			b.method(NV4097_SET_COLOR_CLEAR_VALUE, {0xff202838});
+			b.method(NV4097_SET_ZSTENCIL_CLEAR_VALUE, {0xffffff00});
+			b.method(NV4097_CLEAR_SURFACE, {0xf3});
+
+			// Vertex program
+			const auto vp = make_vertex_program();
+			b.method(NV4097_SET_TRANSFORM_PROGRAM_LOAD, {0});
+			b.method(NV4097_SET_TRANSFORM_PROGRAM, vp);
+			b.method(NV4097_SET_TRANSFORM_PROGRAM_START, {0});
+			b.method(NV4097_SET_VERTEX_ATTRIB_INPUT_MASK, {1});
+			b.method(NV4097_SET_VERTEX_ATTRIB_OUTPUT_MASK, {0});
+			b.method(NV4097_SET_SHADER_CONTROL, {0x02000440}); // 2 registers, 32-bit exports
+			b.method(NV4097_SET_SHADER_PACKER, {0});
+
+			// Vertex array 0: float3 positions, big-endian, stride 12
+			for (u32 i = 1; i < 16; ++i)
+			{
+				b.method(NV4097_SET_VERTEX_DATA_ARRAY_FORMAT + i, {CELL_GCM_VERTEX_F});
+			}
+			b.method(NV4097_SET_VERTEX_DATA_ARRAY_FORMAT, {CELL_GCM_VERTEX_F | (3u << 4) | (12u << 8)});
+			b.method(NV4097_SET_VERTEX_DATA_BASE_OFFSET, {0});
+			b.method(NV4097_SET_VERTEX_DATA_BASE_INDEX, {0});
+		};
+		frame_state();
+
+		// The whole sequence in one capture: each frame clears, draws the three objects with that frame's matrices and
+		// flips in the FIFO (GCM_FLIP_COMMAND, init_gs_render), so the frames reach the renderer whole and in order. (The
+		// replayer flips from its own thread at the end of each replay, and restarts the FIFO; one replay per frame let
+		// those land inside frames.) A no-op after each flip: the replayer takes an idle FIFO as the replay's end.
 		const struct { u32 first; u32 count; } ranges[3] = {{36, 6}, {0, 36}, {0, 36}};
-		for (u32 i = 0; i < 3; ++i)
+		for (u32 frame = 0; frame < sequence_frames(); ++frame)
 		{
-			b.method(NV4097_SET_SHADER_PROGRAM, {(fp_offset + i * 0x100) | (CELL_GCM_LOCATION_LOCAL + 1)});
-			b.method(NV4097_SET_VERTEX_DATA_ARRAY_OFFSET, {vertex_offset}); // local memory
-			b.method(NV4097_SET_TRANSFORM_CONSTANT_LOAD, {0});
-			std::vector<u32> c;
-			for (f32 v : s0.mvp[i])
-				c.push_back(std::bit_cast<u32>(v));
-			g_constant_words[i] = b.method(NV4097_SET_TRANSFORM_CONSTANT, c);
-			b.method(NV4097_SET_BEGIN_END, {CELL_GCM_PRIMITIVE_TRIANGLES});
-			b.method(NV4097_DRAW_ARRAYS, {ranges[i].first | ((ranges[i].count - 1) << 24)});
-			b.method(NV4097_SET_BEGIN_END, {0});
+			if (frame)
+			{
+				b.method(NV4097_SET_CONTEXT_DMA_COLOR_A, {CELL_GCM_CONTEXT_DMA_MEMORY_FRAME_BUFFER});
+				frame_state(); // with its clear
+			}
+			const scene_frame s = scene_at(frame);
+			for (u32 i = 0; i < 3; ++i)
+			{
+				b.method(NV4097_SET_SHADER_PROGRAM, {(fp_offset + i * 0x100) | (CELL_GCM_LOCATION_LOCAL + 1)});
+				b.method(NV4097_SET_VERTEX_DATA_ARRAY_OFFSET, {vertex_offset}); // local memory
+				b.method(NV4097_SET_TRANSFORM_CONSTANT_LOAD, {0});
+				std::vector<u32> c;
+				for (f32 v : s.mvp[i])
+					c.push_back(std::bit_cast<u32>(v));
+				b.method(NV4097_SET_TRANSFORM_CONSTANT, c);
+				b.method(NV4097_SET_BEGIN_END, {CELL_GCM_PRIMITIVE_TRIANGLES});
+				b.method(NV4097_DRAW_ARRAYS, {ranges[i].first | ((ranges[i].count - 1) << 24)});
+				b.method(NV4097_SET_BEGIN_END, {0});
+			}
+			b.method(GCM_FLIP_COMMAND, {1});
+			b.method(NV4097_NO_OPERATION, {0});
 		}
 
 		// Save, as RSXThread does (uncompressed)
@@ -444,27 +468,7 @@ namespace
 
 	// ---- Frame ---------------------------------------------------------------------------------------------------
 	std::atomic<u32> g_flips{0};
-	u32 g_drawn_seen = 0;
 	std::set<u32> g_shot_frames;
-
-	void patch_constants(u32 next_frame)
-	{
-		// The next replay of the capture draws frame `next_frame`: rewrite the three constant blocks in the FIFO.
-		const scene_frame s = scene_at(next_frame);
-		const u32 fifo = rsx::get_address(0x10000000, CELL_GCM_LOCATION_MAIN);
-		if (!fifo)
-		{
-			return;
-		}
-		for (u32 i = 0; i < 3; ++i)
-		{
-			auto ptr = vm::ptr<u32>::make(fifo + g_constant_words[i] * 4);
-			for (u32 j = 0; j < 16; ++j)
-			{
-				ptr[j] = std::bit_cast<u32>(s.mvp[i][j]);
-			}
-		}
-	}
 
 	class x11_frame final : public GSFrameBase
 	{
@@ -509,14 +513,8 @@ namespace
 
 			++g_flips;
 
-			// A replay loop that drew (the renderer counts frames with camera draws; some loops flip without drawing):
-			// the next drawn frame shows scene_at(drawn).
+			// Frames drawn so far (the renderer counts frames with camera draws): drawn frame k is the capture's frame k.
 			const u32 drawn = static_cast<u32>(vk::dlss_drawn_frames());
-			if (drawn != g_drawn_seen)
-			{
-				g_drawn_seen = drawn;
-				patch_constants(drawn);
-			}
 
 			// Screenshots of the last frames (taken at the next present).
 			if (drawn + 6 >= g_frames && drawn < g_frames + 1)
@@ -576,6 +574,11 @@ namespace
 					{
 						reason += fmt::format(" view %u: %u camera draws, %u matched;", view, count, matched);
 					}
+				}
+				if (!reason.empty() && g_vr)
+				{
+					// For the record: the game's constants' blocks (view 0) of the same frame.
+					reason += fmt::format(" (view 0: %u camera draws)", static_cast<u32>(std::count_if(draws.begin(), draws.end(), [](const vk::dlss_test_draw& d) { return d.view == 0; })));
 				}
 				if (!reason.empty())
 				{
@@ -664,7 +667,14 @@ namespace
 		cb.get_gs_frame = []() -> std::unique_ptr<GSFrameBase> { return std::make_unique<x11_frame>(); };
 		cb.get_camera_handler = []() -> std::shared_ptr<camera_handler_base> { return std::make_shared<null_camera_handler>(); };
 		cb.get_music_handler = []() -> std::shared_ptr<music_handler_base> { return std::make_shared<null_music_handler>(); };
-		cb.init_gs_render = [](utils::serial* ar) { g_fxo->init<rsx::thread, named_thread<VKGSRender>>(ar); };
+		cb.init_gs_render = [](utils::serial* ar)
+		{
+			g_fxo->init<rsx::thread, named_thread<VKGSRender>>(ar);
+			// The capture flips in its FIFO (GCM_FLIP_COMMAND, an HLE method), in order with the draws. Without it the
+			// replayer requests the flip from its own thread after each replay, and the RSX thread could take it in the
+			// middle of the next replay's draws (frames cut in two, more often in VR, whose flips take longer).
+			g_fxo->get<rsx::thread>().isHLE = true;
+		};
 		cb.get_audio = []() -> std::shared_ptr<AudioBackend> { return std::make_shared<NullAudioBackend>(); };
 		cb.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return nullptr; };
 		cb.get_msg_dialog = []() -> std::shared_ptr<MsgDialogBase> { return nullptr; };

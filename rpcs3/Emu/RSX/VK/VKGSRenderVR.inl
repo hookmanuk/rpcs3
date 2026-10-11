@@ -333,7 +333,11 @@
 	vk::viewable_image* vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image);
 	// Multiview hooks in upstream functions
 	bool vr_bind_viewport();                 // bind_viewport(): one viewport and scissor per view; true when handled
-	void vr_after_render_pass_bound();       // emit_geometry(): a pending guest query begins inside the multiview pass
+	// emit_geometry(): a pending guest query begins inside the multiview pass; a multiview pass begun after the pipeline
+	// bind gets the pipeline, descriptors, push constants and dynamic state again (undefined in a new instance).
+	void vr_after_render_pass_bound(u32 sub_index, const vk::vertex_upload_info& upload_info);
+	VkRenderPass m_vr_mv_bind_pass = VK_NULL_HANDLE;  // vr_after_pipeline_bind: the render pass instance the pipeline was bound in
+	VkFramebuffer m_vr_mv_bind_fbo = VK_NULL_HANDLE;
 	vk::image_view* vr_array_view(vk::image_view* view, rsx::texture_dimension_extended dimension); // bind_texture_env(): 2D samplers read arrays
 	vk::image_view* vr_array_view(vk::image_view* view);
 	VkImageViewType vr_null_view_type(rsx::texture_dimension_extended dimension); // bind_texture_env(): the null view an array sampler takes

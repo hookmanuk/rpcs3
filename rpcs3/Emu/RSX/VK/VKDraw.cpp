@@ -1158,7 +1158,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		}
 	}
 
-	vr_after_render_pass_bound(); // VR fork: multiview, a pending guest query begins inside the pass
+	vr_after_render_pass_bound(sub_index, upload_info); // VR fork: multiview, a pending guest query begins inside the pass; state bound again in a new pass
 
 	// Bind the new set of descriptors for use with this draw call
 	m_frame_stats.setup_time += m_profiler.duration();
