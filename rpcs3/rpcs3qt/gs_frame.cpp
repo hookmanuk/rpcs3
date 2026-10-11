@@ -20,6 +20,7 @@
 #include "Emu/RSX/Utils/image_utils.hpp"
 #include "Emu/RSX/Utils/rsx_utils.h"
 #include "Emu/RSX/Overlays/overlay_message.h"
+#include "Emu/RSX/Capture/rsx_vr_hooks.h" // VR fork: camera shortcuts
 #include "Emu/Io/interception.h"
 #include "Emu/Io/recording_config.h"
 #include "Input/pad_thread.h"
@@ -421,6 +422,13 @@ void gs_frame::handle_shortcut(gui::shortcuts::shortcut shortcut_key, const QKey
 		audio::change_volume(-5);
 		break;
 	}
+	case gui::shortcuts::shortcut::gw_vr_camera_left: rsx::vr::nudge_camera(0, -5); break; // VR fork
+	case gui::shortcuts::shortcut::gw_vr_camera_right: rsx::vr::nudge_camera(0, 5); break;
+	case gui::shortcuts::shortcut::gw_vr_camera_up: rsx::vr::nudge_camera(1, 5); break;
+	case gui::shortcuts::shortcut::gw_vr_camera_down: rsx::vr::nudge_camera(1, -5); break;
+	case gui::shortcuts::shortcut::gw_vr_camera_forward: rsx::vr::nudge_camera(2, 5); break;
+	case gui::shortcuts::shortcut::gw_vr_camera_back: rsx::vr::nudge_camera(2, -5); break;
+	case gui::shortcuts::shortcut::gw_vr_camera_reset: rsx::vr::nudge_camera(3, 0); break;
 	case gui::shortcuts::shortcut::gw_toggle_mouse_gyro:
 	{
 		if (auto* pad_thr = pad::get_pad_thread(true))

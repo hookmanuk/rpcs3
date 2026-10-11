@@ -39,6 +39,13 @@ void fmt_class_string<shortcut>::format(std::string& out, u64 arg)
 		case shortcut::gw_volume_up: return "gw_volume_up";
 		case shortcut::gw_volume_down: return "gw_volume_down";
 		case shortcut::gw_toggle_mouse_gyro: return "gw_toggle_mouse_gyro";
+		case shortcut::gw_vr_camera_left: return "gw_vr_camera_left";
+		case shortcut::gw_vr_camera_right: return "gw_vr_camera_right";
+		case shortcut::gw_vr_camera_up: return "gw_vr_camera_up";
+		case shortcut::gw_vr_camera_down: return "gw_vr_camera_down";
+		case shortcut::gw_vr_camera_forward: return "gw_vr_camera_forward";
+		case shortcut::gw_vr_camera_back: return "gw_vr_camera_back";
+		case shortcut::gw_vr_camera_reset: return "gw_vr_camera_reset";
 		case shortcut::count: return "count";
 		}
 
@@ -92,6 +99,13 @@ shortcut_settings::shortcut_settings()
 		{ shortcut::gw_volume_up, shortcut_info{ "gw_volume_up", tr("Volume Up"), "Ctrl+Shift++", shortcut_handler_id::game_window, true } },
 		{ shortcut::gw_volume_down, shortcut_info{ "gw_volume_down", tr("Volume Down"), "Ctrl+Shift+-", shortcut_handler_id::game_window, true } },
 		{ shortcut::gw_toggle_mouse_gyro, shortcut_info{ "gw_toggle_mouse_gyro", tr("Toggle Mouse-based Gyro"), "Ctrl+G", shortcut_handler_id::game_window, false } },
+		{ shortcut::gw_vr_camera_left, shortcut_info{ "gw_vr_camera_left", tr("VR Camera Left"), "Left", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_right, shortcut_info{ "gw_vr_camera_right", tr("VR Camera Right"), "Right", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_up, shortcut_info{ "gw_vr_camera_up", tr("VR Camera Up"), "Up", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_down, shortcut_info{ "gw_vr_camera_down", tr("VR Camera Down"), "Down", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_forward, shortcut_info{ "gw_vr_camera_forward", tr("VR Camera Forward"), "Ctrl+Up", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_back, shortcut_info{ "gw_vr_camera_back", tr("VR Camera Back"), "Ctrl+Down", shortcut_handler_id::game_window, true } },
+		{ shortcut::gw_vr_camera_reset, shortcut_info{ "gw_vr_camera_reset", tr("VR Camera Reset"), "Backspace", shortcut_handler_id::game_window, false } },
 	})
 {
 }

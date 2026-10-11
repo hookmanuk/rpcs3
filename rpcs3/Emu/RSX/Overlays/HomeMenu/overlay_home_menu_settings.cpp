@@ -233,8 +233,6 @@ namespace rsx
 						return default_fps ? fmt::format("%s (%u FPS)", text, default_fps) : fmt::format("%s (headset refresh rate)", text);
 					});
 			}
-			add_dropdown(&g_cfg.video.vr.dlss, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS);             // DLSS test: live
-			add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			{
@@ -246,7 +244,9 @@ namespace rsx
 			add_signed_slider(&g_cfg.video.vr.hud_offset_x, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X, " %", 1);
 			add_signed_slider(&g_cfg.video.vr.hud_offset_y, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y, " %", 1);
 			add_unsigned_slider(&g_cfg.video.vr.screen_depth, localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH, " %", 5);
-			add_signed_slider(&g_cfg.video.vr.camera_depth, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH, " cm", 5);
+			add_signed_slider(&g_cfg.video.vr.camera_x, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_X, " cm", 5);
+			add_signed_slider(&g_cfg.video.vr.camera_y, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_Y, " cm", 5);
+			add_signed_slider(&g_cfg.video.vr.camera_z, localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH, " cm", 5);
 			add_signed_slider(&g_cfg.video.vr.reprojection_margin, localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN, "°", 1, { { -1, "Auto" } });
 
 			apply_layout();

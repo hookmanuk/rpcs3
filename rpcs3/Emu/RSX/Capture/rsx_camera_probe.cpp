@@ -3830,7 +3830,7 @@ namespace rsx::vr
 	}
 
 	void camera_probe::set_vr_view(const f32 q[4], const f32 pos[3], f32 eye_scale,
-		f32 fov_scale, bool flip_y, f32 ipd, f32 camera_depth)
+		f32 fov_scale, bool flip_y, f32 ipd, const f32 camera_offset[3])
 	{
 		// OpenXR rotation matrix (right, up, back basis) from the quaternion.
 		const f32 x = q[0], y = q[1], z = q[2], w = q[3];
@@ -3866,8 +3866,9 @@ namespace rsx::vr
 		const f32 units_per_metre = ipd > 0.01f ? eye_baseline * eye_scale / ipd : 0.f;
 		for (u32 i = 0; i < 3; ++i)
 		{
-			// + camera_depth is forward, which is -Z in LOCAL space and +forward here.
-			m_vr_head_m[i] = s[i] * pos[i] + (i == 2 ? camera_depth : 0.f);
+			// The camera offset (metres: x right, y up, z forward) in LOCAL space, where forward is -Z.
+			const f32 offset = i == 2 ? -camera_offset[2] : camera_offset[i];
+			m_vr_head_m[i] = s[i] * (pos[i] + offset);
 			m_vr_head_units[i] = m_vr_head_m[i] * units_per_metre;
 		}
 

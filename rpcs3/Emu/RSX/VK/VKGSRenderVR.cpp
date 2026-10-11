@@ -1835,8 +1835,9 @@ void VKGSRender::vr_update_view()
 			for (u32 i = 0; i < 3; ++i)
 				head_position[i] += s_offset[i];
 		}
+		const f32 camera_offset[3] = {g_cfg.video.vr.camera_x.get() / 100.f, g_cfg.video.vr.camera_y.get() / 100.f, g_cfg.video.vr.camera_z.get() / 100.f};
 		probe.set_vr_view(head, head_position, vk::xr::eye_scale() * 100.f / g_cfg.video.vr.world_scale.get(), vk::xr::fov_scale(),
-			vk::xr::flip_y(), vk::xr::ipd(), g_cfg.video.vr.camera_depth.get() / 100.f);
+			vk::xr::flip_y(), vk::xr::ipd(), camera_offset);
 		probe.set_vr_eye_fov(vk::xr::hmd_fov() ? render_fov : nullptr, eye_fov,
 			g_cfg.video.vr.hud_scale.get() / 100.f, g_cfg.video.vr.hud_fixed.get(),
 			g_cfg.video.vr.hud_offset_x.get() / 100.f, g_cfg.video.vr.hud_offset_y.get() / 100.f,
@@ -4778,12 +4779,20 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 // the eyes differently (vr_before_left_draw sets them again when a draw changes them mid-pass).
 bool VKGSRender::vr_bind_viewport()
 {
+	VkViewport viewport = m_viewport;
+	const bool jittered = dlss_jitter_viewport(viewport); // DLSS: a depth-only pass into the scene's depth
 	if (!m_vr_multiview)
 	{
-		return false;
+		if (!jittered)
+		{
+			return false;
+		}
+		vkCmdSetViewport(*m_current_command_buffer, 0, 1, &viewport);
+		vkCmdSetScissor(*m_current_command_buffer, 0, 1, &m_scissor);
+		return true;
 	}
 
-	const VkViewport viewports[2] = {m_viewport, m_viewport};
+	const VkViewport viewports[2] = {viewport, viewport};
 	// Dev: RPCS3_VR_MV_SCISSOR=0 keeps the game's scissor for both views (no HUD-box clipping).
 	static const bool s_box_scissor = []()
 	{

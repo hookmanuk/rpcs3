@@ -47,6 +47,9 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	subscribe_tooltip(ui->gb_vrDlss, tooltips.settings.vr_dlss);
 	m_emu_settings->EnhanceComboBox(ui->vrDlssModel, emu_settings_type::VRDlssModel);
 	subscribe_tooltip(ui->gb_vrDlssModel, tooltips.settings.vr_dlss_model);
+	// DLSS is parked (2026-10-11, not ready: MotorStorm's menus and intro): hidden until it is.
+	ui->gb_vrDlss->setVisible(false);
+	ui->gb_vrDlssModel->setVisible(false);
 	subscribe_tooltip(ui->gb_vrCinematicScenes, tooltips.settings.vr_cinematic_scenes);
 	const bool cinematic = vr_profile && vr_profile->reduced_scale_percent;
 	ui->gb_vrCinematicScenes->setVisible(cinematic);
@@ -182,6 +185,10 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 		{
 			return QString::number(value);
 		};
+		enhance_vr_slider(ui->vrCameraX, ui->vrCameraXMin, ui->vrCameraXMax, ui->vrCameraXVal, ui->vrCameraXReset,
+			emu_settings_type::VRCameraX, ui->gb_vrCameraX, tooltips.settings.vr_camera_x, plain_text, 5);
+		enhance_vr_slider(ui->vrCameraY, ui->vrCameraYMin, ui->vrCameraYMax, ui->vrCameraYVal, ui->vrCameraYReset,
+			emu_settings_type::VRCameraY, ui->gb_vrCameraY, tooltips.settings.vr_camera_y, plain_text, 5);
 		enhance_vr_slider(ui->vrCameraDepth, ui->vrCameraDepthMin, ui->vrCameraDepthMax, ui->vrCameraDepthVal, ui->vrCameraDepthReset,
 			emu_settings_type::VRCameraDepth, ui->gb_vrCameraDepth, tooltips.settings.vr_camera_depth, plain_text, 5);
 		enhance_vr_slider(ui->vrWorldScale, ui->vrWorldScaleMin, ui->vrWorldScaleMax, ui->vrWorldScaleVal, ui->vrWorldScaleReset,
@@ -207,6 +214,8 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			ui->gb_vrHudOffsetX->setEnabled(vr);
 			ui->gb_vrHudOffsetY->setEnabled(vr);
 			ui->gb_vrScreenDepth->setEnabled(vr && ui->vrFixedScreen->isChecked());
+			ui->gb_vrCameraX->setEnabled(vr && !ui->vrFixedScreen->isChecked());
+			ui->gb_vrCameraY->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 			ui->gb_vrCameraDepth->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 			ui->gb_vrWorldScale->setEnabled(vr && !ui->vrFixedScreen->isChecked());
 			ui->gb_vrReprojectionMargin->setEnabled(vr && !ui->vrFixedScreen->isChecked());

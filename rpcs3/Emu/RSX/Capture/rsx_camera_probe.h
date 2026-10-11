@@ -911,11 +911,11 @@ namespace rsx::vr
 		// draws are rotated by it and the stereo becomes parallel (translation
 		// term only). eye_scale multiplies the game's eye separation, fov_scale
 		// widens the rendered field of view. flip_y if NDC +Y is screen-down.
-		// position_xyz is the head position in LOCAL space (metres); camera_depth is a
-		// constant forward offset of the viewpoint (metres, + is forward). Both are
+		// position_xyz is the head position in LOCAL space (metres); camera_offset is a
+		// constant offset of the viewpoint (metres: x right, y up, z forward). Both are
 		// converted to game units using the game's own eye separation against ipd.
 		void set_vr_view(const f32 quat_xyzw[4], const f32 position_xyz[3], f32 eye_scale,
-			f32 fov_scale, bool flip_y, f32 ipd, f32 camera_depth);
+			f32 fov_scale, bool flip_y, f32 ipd, const f32 camera_offset[3]);
 		void clear_vr_view();
 		// The headset view's head rotation in the game camera's clip basis (see m_vr_rot) and the largest rendered
 		// tangents of both eyes (x, y). False without a headset view.

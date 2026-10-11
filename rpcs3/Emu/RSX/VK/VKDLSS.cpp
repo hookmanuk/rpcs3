@@ -21,6 +21,8 @@
 #include "Utilities/File.h"
 #include "Utilities/StrFmt.h"
 
+#include <set>
+
 #ifdef HAVE_DLSS
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
@@ -593,17 +595,15 @@ namespace vk
 
 	bool dlss_enabled()
 	{
-#ifdef HAVE_DLSS
-		return env("RPCS3_DLSS") == nullptr || dlss_configured_mode() != dlss_mode::off;
-#else
+		// Parked (2026-10-11): only a session that boots with DLSS on gets the context (no menu offers it; the setting
+		// or RPCS3_DLSS). Live switching from Off needs the context and NGX's extensions from boot: dlss_ngx_possible.
 		return dlss_configured_mode() != dlss_mode::off;
-#endif
 	}
 
 	bool dlss_ngx_possible()
 	{
 #ifdef HAVE_DLSS
-		return env("RPCS3_DLSS") == nullptr || dlss_uses_ngx();
+		return dlss_uses_ngx();
 #else
 		return false;
 #endif
@@ -1406,8 +1406,23 @@ namespace vk
 		const f32 cover = (depth_write || opaque_test) ? 1.f : 0.f;
 
 		std::memcpy(out, r, sizeof(r));
-		out[16] = 2.f * m_jitter_px[0] / static_cast<f32>(clip_width);
-		out[17] = 2.f * m_jitter_px[1] / static_cast<f32>(clip_height);
+		// Dev: RPCS3_DLSS_JITTER_BITS=mask,value jitters only programs whose hash & mask == value (bisecting a draw
+		// the jitter breaks); with RPCS3_DLSS_DEBUG each jittered program is logged once.
+		static const auto s_bits = []() -> std::pair<u64, u64>
+		{
+			u64 mask = 0, value = 0;
+			if (const char* v = env("RPCS3_DLSS_JITTER_BITS")) std::sscanf(v, "%llx,%llx", &mask, &value);
+			return {mask, value};
+		}();
+		const bool jitter_this = (vp_hash & s_bits.first) == s_bits.second;
+		if (static std::set<u64> s_logged; s_debug && view != 2 && s_logged.insert(vp_hash).second)
+		{
+			dlss_log.notice("Camera program %016llx: viewport %.0fx%.0f of %ux%u, %u elements, depth test %d write %d func %u, blend %d",
+				vp_hash, 2.f * std::abs(regs.viewport_scale_x()), 2.f * std::abs(regs.viewport_scale_y()), regs.surface_clip_width(), regs.surface_clip_height(),
+				regs.current_draw_clause.vr_total_elements(), regs.depth_test_enabled(), regs.depth_write_enabled(), static_cast<u32>(regs.depth_func()), regs.blend_enabled_mask() != 0);
+		}
+		out[16] = jitter_this ? 2.f * m_jitter_px[0] / static_cast<f32>(clip_width) : 0.f;
+		out[17] = jitter_this ? 2.f * m_jitter_px[1] / static_cast<f32>(clip_height) : 0.f;
 		out[18] = cover;
 		out[19] = 0.f;
 	}
@@ -2079,7 +2094,7 @@ namespace vk
 			feature.quality = static_cast<u32>(quality);
 			feature.preset = letter;
 			feature.fresh = true;
-			dlss_log.notice("DLSS feature%s %ux%u -> %ux%u (quality %u)", eye ? " (right eye)" : "", in_w, in_h, out_w, out_h, feature.quality);
+			dlss_log.notice("DLSS feature%s %ux%u -> %ux%u (quality %u), colour %ux%u format %u", eye ? " (right eye)" : "", in_w, in_h, out_w, out_h, feature.quality, source->width(), source->height(), static_cast<u32>(source->format()));
 		}
 
 		vk::viewable_image* const mv_image = eye ? m_mv_right.get() : m_mv.get();

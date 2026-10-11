@@ -385,12 +385,14 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_X: return tr("HUD Horizontal Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HUD_OFFSET_Y: return tr("HUD Vertical Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SCREEN_DEPTH: return tr("Screen 3D Depth", "VR");
-		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Depth Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_X: return tr("Camera X Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_Y: return tr("Camera Y Offset", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_CAMERA_DEPTH: return tr("Camera Z Offset", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REPROJECTION_MARGIN: return tr("Reprojection Margin", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_RATE: return tr("Frame Rate", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES: return tr("Cinematic Scenes", "VR");
-		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS: return tr("DLSS (test)", "VR");
-		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL: return tr("DLSS Model (test)", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS: return tr("DLSS (experimental)", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL: return tr("DLSS Model (experimental)", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS: return tr("Reduced-Rate Reflections", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR: return tr("Reduced-Rate Mirror", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS: return tr("Simpler Distant Cars", "VR");

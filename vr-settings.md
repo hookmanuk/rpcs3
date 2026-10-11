@@ -44,10 +44,10 @@ Scroll down the **GPU** tab to the **VR** section.
 | Reduced-Rate Mirror | Only for games whose VR profile offers it (Gran Turismo 5). On (default): the rear-view mirror is redrawn every other frame. Off: every frame. Changes take effect at once. |
 | Simpler Distant Cars | Only for games whose VR profile offers it (Gran Turismo 5). On (default): the nearest car stays complete; other cars beyond 30 m leave out their smallest parts; the biggest saving with many cars in view. Off: full detail on every car. Changes take effect at once. |
 | HUD Scale | Size of the HUD and menus (or the fixed screen) as a percentage of the central view. |
-| HUD Depth | How far away the HUD and menus (or the fixed screen) appear, 1-10 m. Auto (the default) uses the game's own setting from its VR profile, otherwise 2 m. They keep the same apparent size; further away sits better with a distant scene, for example a gun sight you look through. |
+| HUD Depth | How far away the HUD and menus (or the fixed screen) appear, 1-30 m (far enough to follow a Camera Z Offset of up to 20 m). Auto (the default) uses the game's own setting from its VR profile, otherwise 2 m. They keep the same apparent size; further away sits better with a distant scene, for example a gun sight you look through. |
 | HUD Horizontal / Vertical Offset | Moves the HUD and menus. 100% moves the centre of the HUD to the edge of the central view; positive is right or up. |
 | Screen 3D Depth | Strength of the 3D effect on the fixed screen (Fixed Screen only). |
-| Camera Depth Offset | Moves your viewpoint forward (positive) or back. Leave at 0 to sit where the game puts the camera. |
+| Camera X / Y / Z Offset | Moves your viewpoint in centimetres, up to 20 m each way: X right (positive) or left, Y up or down, Z forward or back. Leave all three at 0 to sit where the game puts the camera. In game, with the game window focused: the arrow keys move X and Y, Ctrl+Up / Ctrl+Down move Z (5 cm a press, hold to repeat), Backspace puts all three back to 0. The keys can be changed under **Configuration > Shortcuts**; they also reach the game if your keyboard is set up as a pad. |
 | Reprojection Margin | Further down. Renders beyond the edges of the view so head turns at low frame rates show no black borders. Leave on Auto. |
 
 Hover over any setting to see a description of it at the bottom of the window. **Reset** next to a slider

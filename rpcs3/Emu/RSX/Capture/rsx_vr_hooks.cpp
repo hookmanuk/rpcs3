@@ -370,6 +370,23 @@ namespace rsx::vr
 		s_dlss_motion = enabled;
 	}
 
+	void nudge_camera(u32 axis, s32 delta_cm)
+	{
+		auto& vr = g_cfg.video.vr;
+		if (axis > 2)
+		{
+			vr.camera_x.set(0);
+			vr.camera_y.set(0);
+			vr.camera_z.set(0);
+		}
+		else
+		{
+			auto& offset = axis == 0 ? vr.camera_x : axis == 1 ? vr.camera_y : vr.camera_z;
+			offset.set(std::clamp<s64>(offset.get() + delta_cm, offset.min, offset.max));
+		}
+		vr_dev_log.notice("VR camera offset: x %d, y %d, z %d cm", vr.camera_x.get(), vr.camera_y.get(), vr.camera_z.get());
+	}
+
 	void set_vr_program_ctrl(u32& ctrl)
 	{
 		ctrl = s_dlss_motion ? (ctrl | RSX_SHADER_CONTROL_DLSS_MOTION) : (ctrl & ~RSX_SHADER_CONTROL_DLSS_MOTION); // DLSS test

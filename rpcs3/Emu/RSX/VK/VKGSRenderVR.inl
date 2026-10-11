@@ -35,6 +35,8 @@
 	void dlss_write_draw_block(void* dst);
 	// bind_vr_eye_constants_pair() (VR multiview): each eye's block, from that eye's constants, block_offset bytes in.
 	void dlss_write_eye_blocks(u8* left, u8* right, usz block_offset);
+	// A depth-only pass into the scene's depth buffer: the viewport moved by the frame's jitter (true when it applies).
+	bool dlss_jitter_viewport(VkViewport& viewport) const;
 	// VR: before a HUD-box draw into a display buffer, the image without the HUD for DLSS (vk::dlss_context::hud_snapshot).
 	void dlss_hud_snapshot(u32 color_index);
 	// VR stereo without multiview: no motion (the two-draw stereo is not supported).

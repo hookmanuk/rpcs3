@@ -48,6 +48,13 @@ namespace gui
 			gw_volume_up,
 			gw_volume_down,
 			gw_toggle_mouse_gyro,
+			gw_vr_camera_left,     // VR fork: the camera offset (Video > VR > Camera X/Y/Z Offset)
+			gw_vr_camera_right,
+			gw_vr_camera_up,
+			gw_vr_camera_down,
+			gw_vr_camera_forward,
+			gw_vr_camera_back,
+			gw_vr_camera_reset,
 
 			count
 		};

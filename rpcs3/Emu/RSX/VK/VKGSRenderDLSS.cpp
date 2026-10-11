@@ -8,6 +8,8 @@
 #include "../Common/surface_store.h"
 #include "../rsx_methods.h"
 
+#include <set>
+
 // DLSS test: VKGSRender's side of VKDLSS.h (members declared in VKGSRenderVR.inl). Upstream files only call the fork's
 // existing VR hooks, which call these (plus one line each in load_program() and the render pass builder).
 
@@ -15,6 +17,14 @@
 
 void VKGSRender::dlss_init()
 {
+	// DLSS on at boot: MSAA off for the session (DLSS is the anti-aliasing; MSAA only costs time, and its motion path is
+	// the least tried). Read once here, before the render targets and the backend's MSAA support are set up, as RPCS3
+	// itself turns MSAA off on a device without it; the saved setting is not changed.
+	if (vk::dlss_configured_mode() != vk::dlss_mode::off && g_cfg.video.antialiasing_level != msaa_level::none && !std::getenv("RPCS3_DLSS_KEEP_MSAA"))
+	{
+		rsx_log.notice("DLSS: MSAA off for this session (DLSS is on)");
+		g_cfg.video.antialiasing_level.set(msaa_level::none);
+	}
 	if (vk::dlss_enabled())
 	{
 		m_dlss = std::make_unique<vk::dlss_context>(*m_device);
@@ -78,6 +88,7 @@ void VKGSRender::dlss_prepare_framebuffer()
 			m_dlss_fbo_images.insert(m_dlss_fbo_images.end(), m_fbo_images.begin() + colors, m_fbo_images.end());
 			m_current_renderpass_key |= vk::dlss_renderpass_motion_bit;
 			m_dlss_motion_bound = true;
+			m_dlss->note_scene_depth(m_framebuffer_layout.zeta_address);
 		}
 		else if (m_dlss->wants_motion(address, vr_unsupported))
 		{
@@ -254,6 +265,18 @@ void VKGSRender::dlss_write_draw_block(void* dst)
 
 void VKGSRender::dlss_write_eye_blocks(u8* left, u8* right, usz block_offset)
 {
+	if (static const bool s_debug = std::getenv("RPCS3_DLSS_DEBUG") != nullptr; s_debug && m_dlss_motion_bound)
+	{
+		// Dev: every program drawn into the scene target, once (a pass that gets no block gets no jitter either).
+		static std::set<u64> s_seen;
+		if (s_seen.insert(vr_vertex_program_hash()).second)
+		{
+			const auto& r = rsx::method_registers;
+			rsx_log.notice("DLSS scene program %016llx: block %u, depth test %d write %d func %u, blend %d, instanced %d, elements %u",
+				vr_vertex_program_hash(), static_cast<u32>(dlss_draw_block_size()), r.depth_test_enabled(), r.depth_write_enabled(), static_cast<u32>(r.depth_func()),
+				r.blend_enabled_mask() != 0, r.current_draw_clause.is_trivial_instanced_draw, r.current_draw_clause.vr_total_elements());
+		}
+	}
 	if (!dlss_draw_block_size() || !dlss_in_draw())
 	{
 		return;
@@ -294,6 +317,28 @@ void VKGSRender::dlss_hud_snapshot(u32 color_index)
 	{
 		begin_render_pass();
 	}
+}
+
+// Depth-only passes (no colour target) never get the motion attachment, so their programs are not the motion variants
+// and the shader adds no jitter. A game that lays the scene's depth down first and draws colour over it with a less-or-
+// equal test then lost whole surfaces: MotorStorm's terrain, jittered against its unjittered depth, failed the test on a
+// slope, went black, and the game's exposure swung the frame white and black. Their viewport is moved by the jitter
+// instead, the same shift the shader gives the colour passes.
+bool VKGSRender::dlss_jitter_viewport(VkViewport& viewport) const
+{
+	if (!m_dlss || m_dlss_motion_bound || !m_draw_buffers.empty() || !m_framebuffer_layout.zeta_address ||
+		m_framebuffer_layout.zeta_address != m_dlss->scene_depth() || !rsx::method_registers.depth_test_enabled())
+	{
+		return false;
+	}
+	const f32* jitter = m_dlss->jitter_px();
+	if (jitter[0] == 0.f && jitter[1] == 0.f)
+	{
+		return false;
+	}
+	viewport.x += jitter[0];
+	viewport.y += jitter[1];
+	return true;
 }
 
 // ---- Flip (vr_publish_frame) ---------------------------------------------------------------------------

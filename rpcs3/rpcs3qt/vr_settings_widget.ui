@@ -124,30 +124,6 @@
           </widget>
          </item>
          <item>
-          <widget class="QGroupBox" name="gb_vrDlss">
-           <property name="title">
-            <string>DLSS (test)</string>
-           </property>
-           <layout class="QVBoxLayout" name="gb_vrDlss_layout">
-            <item>
-             <widget class="QComboBox" name="vrDlss"/>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="gb_vrDlssModel">
-           <property name="title">
-            <string>DLSS Model (test)</string>
-           </property>
-           <layout class="QVBoxLayout" name="gb_vrDlssModel_layout">
-            <item>
-             <widget class="QComboBox" name="vrDlssModel"/>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
           <widget class="QGroupBox" name="gb_vrHudScale">
            <property name="title">
             <string>HUD Scale</string>
@@ -368,9 +344,119 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrCameraX">
+           <property name="title">
+            <string>Camera X Offset (left / right, cm)</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrCameraX_layout">
+            <item>
+             <layout class="QHBoxLayout" name="vrCameraXLayoutTop" stretch="0,1,0">
+              <item>
+               <widget class="QLabel" name="vrCameraXMin">
+                <property name="text">
+                 <string>-2000</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="vrCameraX">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="vrCameraXMax">
+                <property name="text">
+                 <string>2000</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="vrCameraXLayoutBottom" stretch="1,0">
+              <item>
+               <widget class="QLabel" name="vrCameraXVal">
+                <property name="text">
+                 <string>0</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="vrCameraXReset">
+                <property name="text">
+                 <string>Reset</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="gb_vrCameraY">
+           <property name="title">
+            <string>Camera Y Offset (down / up, cm)</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrCameraY_layout">
+            <item>
+             <layout class="QHBoxLayout" name="vrCameraYLayoutTop" stretch="0,1,0">
+              <item>
+               <widget class="QLabel" name="vrCameraYMin">
+                <property name="text">
+                 <string>-2000</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="vrCameraY">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="vrCameraYMax">
+                <property name="text">
+                 <string>2000</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="vrCameraYLayoutBottom" stretch="1,0">
+              <item>
+               <widget class="QLabel" name="vrCameraYVal">
+                <property name="text">
+                 <string>0</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="vrCameraYReset">
+                <property name="text">
+                 <string>Reset</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QGroupBox" name="gb_vrCameraDepth">
            <property name="title">
-            <string>Camera Depth Offset</string>
+            <string>Camera Z Offset (back / forward, cm)</string>
            </property>
            <layout class="QVBoxLayout" name="gb_vrCameraDepth_layout">
             <item>
@@ -378,7 +464,7 @@
               <item>
                <widget class="QLabel" name="vrCameraDepthMin">
                 <property name="text">
-                 <string>-500</string>
+                 <string>-2000</string>
                 </property>
                </widget>
               </item>
@@ -392,7 +478,7 @@
               <item>
                <widget class="QLabel" name="vrCameraDepthMax">
                 <property name="text">
-                 <string>500</string>
+                 <string>2000</string>
                 </property>
                </widget>
               </item>
@@ -528,6 +614,30 @@
                </widget>
               </item>
              </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="gb_vrDlss">
+           <property name="title">
+            <string>DLSS (experimental)</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrDlss_layout">
+            <item>
+             <widget class="QComboBox" name="vrDlss"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="gb_vrDlssModel">
+           <property name="title">
+            <string>DLSS Model (experimental)</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrDlssModel_layout">
+            <item>
+             <widget class="QComboBox" name="vrDlssModel"/>
             </item>
            </layout>
           </widget>

@@ -103,12 +103,11 @@ namespace vk
 	// image shows.
 	u64 dlss_drawn_frames();
 	u64 dlss_presented_frame();
-	// The DLSS context exists: with the SDK always (the setting changes while the game runs, Off included), else only
-	// for a mode set at boot (the debug views and the stand-in).
+	// The DLSS context exists: a mode set at boot (DLSS is parked: no menu offers the setting).
 	bool dlss_enabled();
 	// The mode runs NGX (not a debug or jitter-only mode).
 	bool dlss_uses_ngx();
-	// NGX may run in this session: its Vulkan extensions are enabled at boot (the setting can turn it on later).
+	// NGX may run in this session: its Vulkan extensions are enabled at boot.
 	bool dlss_ngx_possible();
 
 	// ---- Vulkan instance and device (vkutils/instance.cpp, vkutils/device.cpp) -----------------------------
@@ -182,6 +181,12 @@ namespace vk
 		void note_viewport_xform(const f32* scale_offset);
 		// VR multiview: the next view-0 write_draw_block only identifies the draw (its eyes' blocks carry the motion).
 		void set_identify_only(bool v) { m_identify_only = v; }
+		// This frame's jitter in scene pixels (0, 0 when the mode has none).
+		const f32* jitter_px() const { return m_jitter_px; }
+		// The scene target's depth buffer (its address, from the framebuffer the motion attachment went into): depth-only
+		// passes into it are jittered through the viewport (VKGSRender::dlss_jitter_viewport).
+		void note_scene_depth(u32 address) { m_scene_depth = address; }
+		u32 scene_depth() const { return m_scene_depth; }
 		// The HUD outside DLSS (VR): the display image as it was before the frame's first HUD-box draw is DLSS's input,
 		// and what the HUD draws added (the final image minus that copy) goes on top of DLSS's output. The HUD then needs
 		// no jitter and no motion vectors (it had neither: DLSS moved its still text back and forth with the jitter, and
@@ -272,6 +277,7 @@ namespace vk
 		std::unique_ptr<vk::viewable_image> m_hud_pre[2]; // hud_snapshot's copies (eye 0, 1)
 		const vk::image* m_hud_pre_target = nullptr;      // the image they were taken from, until the flip
 		u32 m_hud_pre_layers = 0;
+		u32 m_scene_depth = 0;
 		bool m_output_fresh = false;
 		void warp_check(const vk::command_buffer& cmd, vk::viewable_image* source, u32 width, u32 height, u32 eye);
 		bool m_reset_history = true;
