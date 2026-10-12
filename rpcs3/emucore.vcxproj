@@ -561,6 +561,7 @@
     <ClCompile Include="Emu\Cell\PPUThread.cpp" />
     <ClCompile Include="Emu\Cell\RawSPUThread.cpp" />
     <ClCompile Include="Emu\Cell\SPUCommonRecompiler.cpp" />
+    <ClCompile Include="Emu\Cell\SPUAsyncCompile.cpp" />
     <ClCompile Include="Emu\Cell\SPULLVMRecompiler.cpp" />
     <ClCompile Include="Emu\Cell\SPUThread.cpp" />
     <ClCompile Include="Emu\CPU\CPUThread.cpp" />
@@ -1025,6 +1026,7 @@
     <ClInclude Include="Emu\Cell\SPUAnalyser.h" />
     <ClInclude Include="Emu\Cell\SPUASMJITRecompiler.h" />
     <ClInclude Include="Emu\Cell\SPUDisAsm.h" />
+    <ClInclude Include="Emu\Cell\SPUAsyncCompile.h" />
     <ClInclude Include="Emu\Cell\SPUInterpreter.h" />
     <ClInclude Include="Emu\Cell\SPUOpcodes.h" />
     <ClInclude Include="Emu\Cell\SPURecompiler.h" />

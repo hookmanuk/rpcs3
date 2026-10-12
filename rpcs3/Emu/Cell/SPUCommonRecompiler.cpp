@@ -20,6 +20,7 @@
 #include "SPUAnalyser.h"
 #include "SPUInterpreter.h"
 #include "SPUDisAsm.h"
+#include "SPUAsyncCompile.h" // VR fork
 #include <algorithm>
 #include <cstring>
 #include <optional>
@@ -2204,6 +2205,8 @@ void spu_recompiler_base::dispatch(spu_thread& spu, void*, u8* rip)
 		spu_runtime::g_escape(&spu);
 		return;
 	}
+
+	if (spu_async_dispatch(spu)) return; // VR fork: interpret while it compiles on a worker thread
 
 #if defined(__APPLE__)
 	pthread_jit_write_protect_np(false);

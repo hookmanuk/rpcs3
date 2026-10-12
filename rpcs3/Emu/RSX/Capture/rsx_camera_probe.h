@@ -165,6 +165,10 @@ namespace rsx::vr
 		// are unchanged from that eye's previous plain scene-camera draw (SEGA Rally: ~95% of its 2-4k draws a frame).
 		// Dev: RPCS3_VR_BLOCK_CACHE=0/1 forces it off/on.
 		bool camera_block_cache = false;
+		// "spu_async_compile": true: an SPU that reaches code nobody compiled yet runs it interpreted while it compiles on a
+		// worker thread (Emu/Cell/SPUAsyncCompile.cpp), instead of stopping for the compile. Gran Turismo 5 froze on a fresh
+		// install (empty SPU cache) without it: a job queue's start was lost in that pause. Dev: RPCS3_SPU_ASYNC=0/1.
+		bool spu_async_compile = false;
 		// "clear_view_targets": true: a view-sized colour target is cleared the first time it is bound in a frame. For games
 		// that never clear colour because their sky covers the game's view: turned, the parts outside it kept older
 		// frames and smeared (MotorStorm: Pacific Rift).

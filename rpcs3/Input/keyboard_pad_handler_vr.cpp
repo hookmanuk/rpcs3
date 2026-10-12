@@ -1,6 +1,10 @@
 #include "stdafx.h"
 #include "keyboard_pad_handler.h"
 #include "Utilities/File.h"
+#include "Emu/IdManager.h"
+#include "Emu/Cell/PPUThread.h"
+#include "Emu/Cell/SPUThread.h"
+#include "Emu/Memory/vm.h"
 
 #include <QString>
 
@@ -11,6 +15,7 @@
 //   wait <ms>
 //   motion <x> <y> <z> [g]      set the SIXAXIS sensors (0-1023, 512 level, "-" unchanged)
 //                               from then on (the keyboard pad has no motion: Flower steers by tilt)
+//   dump [addr..]               log every PPU and SPU thread's state at once, and 256 bytes at each hex address
 // Lets scripted runs drive a game when the desktop is locked and cannot take input.
 void keyboard_pad_handler::process_key_script()
 {
@@ -51,6 +56,35 @@ void keyboard_pad_handler::process_key_script()
 				{
 					return i < words.size() ? static_cast<u32>(std::strtoul(words[i].c_str(), nullptr, 10)) : def;
 				};
+				if (words[0] == "dump")
+				{
+					// Development: log every PPU and SPU thread's state (registers, call stack, waits), e.g. in a hang.
+					idm::select<named_thread<ppu_thread>>([](u32, named_thread<ppu_thread>& t)
+					{
+						std::string s;
+						t.dump_all(s);
+						input_log.success("VR key script: thread dump %s\n%s", t.get_name(), s);
+					});
+					idm::select<named_thread<spu_thread>>([](u32, named_thread<spu_thread>& t)
+					{
+						std::string s;
+						t.dump_all(s);
+						input_log.success("VR key script: thread dump %s\n%s", t.get_name(), s);
+					});
+					// dump <addr> [<addr>..]: also 256 bytes of guest memory at each (hex) address
+					for (usz i = 1; i < words.size(); i++)
+					{
+						const u32 addr = static_cast<u32>(std::strtoul(words[i].c_str(), nullptr, 16)) & ~15u;
+						std::string s;
+						for (u32 off = 0; off < 256 && vm::check_addr(addr + off); off += 16)
+						{
+							const be_t<u32>* p = vm::get_super_ptr<be_t<u32>>(addr + off);
+							fmt::append(s, "\n%08x: %08x %08x %08x %08x", addr + off, +p[0], +p[1], +p[2], +p[3]);
+						}
+						input_log.success("VR key script: memory at 0x%x:%s", addr, s);
+					}
+					continue;
+				}
 				if (words[0] == "wait")
 				{
 					t += std::chrono::milliseconds(num(1, 0));

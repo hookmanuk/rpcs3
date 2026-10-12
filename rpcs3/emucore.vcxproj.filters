@@ -237,6 +237,9 @@
     <ClCompile Include="Emu\Cell\SPUCommonRecompiler.cpp">
       <Filter>Emu\Cell</Filter>
     </ClCompile>
+    <ClCompile Include="Emu\Cell\SPUAsyncCompile.cpp">
+      <Filter>Emu\Cell</Filter>
+    </ClCompile>
     <ClCompile Include="Emu\Cell\SPULLVMRecompiler.cpp">
       <Filter>Emu\Cell</Filter>
     </ClCompile>
@@ -1558,6 +1561,9 @@
       <Filter>Emu\Cell</Filter>
     </ClInclude>
     <ClInclude Include="Emu\Cell\SPUDisAsm.h">
+      <Filter>Emu\Cell</Filter>
+    </ClInclude>
+    <ClInclude Include="Emu\Cell\SPUAsyncCompile.h">
       <Filter>Emu\Cell</Filter>
     </ClInclude>
     <ClInclude Include="Emu\Cell\SPUInterpreter.h">
