@@ -68,9 +68,9 @@ measured yet.
 | Ratchet & Clank 2: Going Commando | BCUS98282 | Headset refresh rate | 120 Hz |
 | Ratchet & Clank 3: Up Your Arsenal | BCUS98282 | Headset refresh rate | 90 Hz |
 | Sonic & All-Stars Racing Transformed | BLUS30839 | Headset refresh rate | 90 Hz |
-| SEGA Rally Revo | BLUS30068 | Headset refresh rate | 72 Hz (90 on the track) |
+| SEGA Rally Revo | BLUS30068 | Headset refresh rate | 72 Hz |
 | MotorStorm: Pacific Rift | BCUS98155 | 72 FPS | 72 Hz |
-| Gran Turismo 5 | BCUS98114 | Headset refresh rate | 90 Hz in races (busy starts dip) |
+| Gran Turismo 5 | BCUS98114 | Headset refresh rate | 72 Hz |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
