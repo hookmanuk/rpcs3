@@ -1,0 +1,15 @@
+# Gran Turismo 5 (BCUS98114): the VR build's per-game settings (shipped as config/custom_configs/config_BCUS98114.yml).
+# Only these settings; everything else follows your global configuration.
+Core:
+  SPU Block Size: Mega
+  RSX FIFO Fetch Accuracy: Fast
+  Accurate RSX reservation access: true
+  Sleep Timers Accuracy: As Host
+Video:
+  Resolution Scale: 300
+  Disable ZCull Occlusion Queries: true
+  Disable Blit Engine Upscaling: true
+  Vblank NTSC Fixup: false
+  VR:
+    Reprojection Margin: 0
+    Wider View: false

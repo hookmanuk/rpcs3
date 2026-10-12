@@ -201,7 +201,8 @@ namespace rsx
 			if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && (profile->reduced_scale_percent ||
 				rsx::vr::profile_has_option(*profile, "highest_detail") || rsx::vr::profile_has_option(*profile, "reflections") ||
 				rsx::vr::profile_has_option(*profile, "mirror") || rsx::vr::profile_has_option(*profile, "distant_cars") ||
-				rsx::vr::profile_has_option(*profile, "simpler_vehicles") || rsx::vr::profile_has_option(*profile, "fewer_shadows")))
+				rsx::vr::profile_has_option(*profile, "simpler_vehicles") || rsx::vr::profile_has_option(*profile, "fewer_shadows") ||
+				!profile->culling_scale_f32.empty()))
 			{
 				const auto heading = [this](localized_string_id id)
 				{
@@ -214,6 +215,7 @@ namespace rsx
 				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
 				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
 				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);
+				if (!profile->culling_scale_f32.empty()) add_checkbox(&g_cfg.video.vr.wider_view, localized_string_id::HOME_MENU_SETTINGS_VR_WIDER_VIEW);
 				if (profile->reduced_scale_percent) add_dropdown(&g_cfg.video.vr.cinematic_scenes, localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES);
 				heading(localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL);
 			}

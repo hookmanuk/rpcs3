@@ -2196,11 +2196,25 @@ namespace rsx::vr
 					}
 				}
 			}
-			const f32 half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg;
 			// Tangent mode: the projection's scales are divided by the word, so the game's half-height tangent becomes
 			// tan(fov / 2) x scale (89 degrees at most: a corner behind the camera takes the maximum). tangent_x: the
 			// half-width tangent, tan(fov / 2) x aspect x scale.
 			const f32 game_tan = std::tan(rule.fov_deg / 2.f / 57.29578f) * (rule.horizontal ? rule.aspect : 1.f);
+			// The VR setting Wider View (live). On: the whole headset view at the current pose plus margin_deg. Off: the
+			// head turn only, the game's own half-angle around the direction the head looks (straight ahead: the game's
+			// culling, so the headset view's edges can miss scenery). Gran Turismo 5 looking ahead: scale 2.0 on, 1.0 off,
+			// ~1.2 ms of the RSX thread on a busy race; from ~45 degrees of head turn both reach the max.
+			f32 head_deg = 0.f;
+			for (u32 transpose = 0; transpose < 2; ++transpose)
+			{
+				const f32 x = transpose ? R[2 * 3 + 0] : R[0 * 3 + 2];
+				const f32 y = transpose ? R[2 * 3 + 1] : R[1 * 3 + 2];
+				const f32 z = R[2 * 3 + 2];
+				head_deg = std::max(head_deg, z <= 0.05f ? 90.f : std::atan(rule.horizontal ? std::fabs(x / z) : std::max(std::fabs(y / z), std::fabs(x / z) / rule.aspect)) * 57.29578f);
+			}
+			const f32 game_half_deg = rule.tangent ? std::atan(game_tan) * 57.29578f : rule.fov_deg / 2.f;
+			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg;
+			const f32 half_deg = g_cfg.video.vr.wider_view ? full_half_deg : std::min(full_half_deg, game_half_deg + head_deg);
 			const f32 wanted = std::clamp(rule.tangent ? std::tan(std::min(half_deg, 89.f) / 57.29578f) / game_tan :
 				2.f * half_deg / rule.fov_deg, rule.min, rule.max);
 			// Up at once (newly visible scenery must not be missing); down slowly, so a glance back and forth does not

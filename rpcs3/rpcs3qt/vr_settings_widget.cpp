@@ -70,6 +70,11 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 		game_option(ui->vrReducedRateReflections, emu_settings_type::VRReducedRateReflections, "reflections", tooltips.settings.vr_reduced_rate_reflections);
 		game_option(ui->vrReducedRateMirror, emu_settings_type::VRReducedRateMirror, "mirror", tooltips.settings.vr_reduced_rate_mirror);
 		game_option(ui->vrSimplerDistantCars, emu_settings_type::VRSimplerDistantCars, "distant_cars", tooltips.settings.vr_simpler_distant_cars);
+		// Wider View: for a profile whose culling widens with the head (culling_scale_f32)
+		enhance_checkbox(emu_settings_type::VRWiderView, ui->vrWiderView, tooltips.settings.vr_wider_view);
+		const bool wider = vr_profile && !vr_profile->culling_scale_f32.empty();
+		ui->vrWiderView->setVisible(wider);
+		any |= wider;
 		ui->gb_vrGame->setVisible(any);
 	}
 	{

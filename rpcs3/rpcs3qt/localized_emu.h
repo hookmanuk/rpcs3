@@ -397,6 +397,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR: return tr("Reduced-Rate Mirror", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS: return tr("Simpler Distant Cars", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HIGHEST_DETAIL_MODELS: return tr("Highest Detail Models", "VR"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_WIDER_VIEW: return tr("Wider View", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GAME: return tr("Game", "VR settings section"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES: return tr("Simpler Other Vehicles", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS: return tr("Fewer Shadows", "VR"); // VR fork
