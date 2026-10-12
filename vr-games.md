@@ -315,15 +315,19 @@ measured yet.
   The VR build is made for disc version 01.00 (the frame-rate patch does not match 2.11). The first boot also
   compiles the game's code for a few minutes; new menus and races load a little slower the first time they are seen.
 - **Frame rate:** the patch *Pre-race at full frame rate* is on by default and the game runs at the headset rate.
-- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head.
-  *VR: No camera jitter* is off by default.
+- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head;
+  the **Wider View** setting (home menu, VR page) chooses how much: off (the default for this game) widens the view
+  only as far as you turn your head, on draws the whole headset view (slower). *VR: No camera jitter* is off by default.
 - **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
   reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
   Fixed Screen (default, fastest) or Full Quality around you.
-- **Recommended settings:** `Resolution Scale` 400% held 90 FPS in races in testing; race starts with the pack
-  ahead dip. `RSX FIFO Fetch Accuracy` Fast saves a little more.
+- **Settings shipped for this game** (its per-game configuration): `MSAA` Disabled (the game draws 4x MSAA on top of
+  the Resolution Scale; without it the pre-race views and flybys run at about 90 FPS at 400% instead of 5-30), Resolution
+  Scale 300%. `Resolution Scale` 400% held 90 FPS in races and the pre-race views in testing; race starts with the
+  pack ahead dip.
 - **Known issues:** savestates load paused only with a pad connected; the car paint can turn multicoloured after
-  some savestate loads.
+  some savestate loads; shadows can flicker (dark patches on the number plate of a car ahead); a car level with you
+  is only partly drawn when you turn your head towards it.
 
 ---
 
