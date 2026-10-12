@@ -169,6 +169,10 @@ namespace rsx::vr
 		// worker thread (Emu/Cell/SPUAsyncCompile.cpp), instead of stopping for the compile. Gran Turismo 5 froze on a fresh
 		// install (empty SPU cache) without it: a job queue's start was lost in that pause. Dev: RPCS3_SPU_ASYNC=0/1.
 		bool spu_async_compile = false;
+		// "display_area_sizes": true: the texture sizes in screen_frame_draws and reduced_scale_frames also match the same size
+		// scaled down uniformly to 0.8. Gran Turismo 5 renders its full-screen 2D targets at its Adjust Display Area setting:
+		// 2560x1440 at 1.0, 2304x1296 at a fresh install's 0.9, where its menus stayed in the headset view.
+		bool display_area_sizes = false;
 		// "clear_view_targets": true: a view-sized colour target is cleared the first time it is bound in a frame. For games
 		// that never clear colour because their sky covers the game's view: turned, the parts outside it kept older
 		// frames and smeared (MotorStorm: Pacific Rift).

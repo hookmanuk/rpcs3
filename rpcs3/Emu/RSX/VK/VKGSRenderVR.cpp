@@ -196,6 +196,24 @@ static bool vr_display_buffer(const rsx::thread& rsx, u32 address, u32 width, u3
 	return false;
 }
 
+// Profile draw lists match texture 0's size exactly, or with display_area_sizes the same size scaled down uniformly to
+// 0.8: Gran Turismo 5 renders its full-screen 2D targets at its Adjust Display Area setting (2560x1440 at 1.0, 2304x1296
+// at the 0.9 of a fresh install).
+static bool vr_texture_size_matches(const rsx::vr::title_profile& profile, u16 want_w, u16 want_h, u16 w, u16 h)
+{
+	if (w == want_w && h == want_h)
+	{
+		return true;
+	}
+	if (!profile.display_area_sizes || !want_w || !want_h || !w || !h || w > want_w || h > want_h)
+	{
+		return false;
+	}
+	const f32 kx = static_cast<f32>(w) / want_w;
+	const f32 ky = static_cast<f32>(h) / want_h;
+	return kx >= 0.79f && std::fabs(kx - ky) < 0.01f;
+}
+
 u32 VKGSRender::vr_sampled_pose()
 {
 	u32 pose = 0;
@@ -3235,13 +3253,13 @@ bool VKGSRender::vr_skip_draw()
 		const auto& list = profile->screen_space_screen_frame_draws;
 		if (std::any_of(list.begin(), list.end(), [&](const auto& d)
 				{
-					return d.width == width && d.height == height;
+					return vr_texture_size_matches(*profile, d.width, d.height, width, height);
 				}))
 		{
 			const u64 h = hash();
 			m_vr_screen_frame_draws += std::any_of(list.begin(), list.end(), [&](const auto& d)
 				{
-					return d.program == h && d.width == width && d.height == height;
+					return d.program == h && vr_texture_size_matches(*profile, d.width, d.height, width, height);
 				});
 		}
 	}
@@ -3276,13 +3294,13 @@ bool VKGSRender::vr_skip_draw()
 		const auto& list = profile->reduced_scale_draws;
 		if (std::any_of(list.begin(), list.end(), [&](const auto& d)
 				{
-					return d.width == width && d.height == height;
+					return vr_texture_size_matches(*profile, d.width, d.height, width, height);
 				}))
 		{
 			const u64 h = hash();
 			m_vr_reduced_scale_draws += std::any_of(list.begin(), list.end(), [&](const auto& d)
 				{
-					return d.program == h && d.width == width && d.height == height;
+					return d.program == h && vr_texture_size_matches(*profile, d.width, d.height, width, height);
 				});
 		}
 	}
