@@ -4004,12 +4004,33 @@ namespace rsx::vr
 			return;
 		}
 
-		if (profile.screen_space_output_pixel_draws_not_hud &&
-			std::fabs(std::fabs(block.rows[0][0]) * eye.width * 0.5f - 1.f) < 1e-3f &&
-			std::fabs(std::fabs(block.rows[1][1]) * eye.height * 0.5f - 1.f) < 1e-3f)
+		// Dev: RPCS3_VR_HUDLOG=1 logs each distinct HUD-candidate draw once (program, target size, matrix scale in output pixels)
+		if (static const bool s_hudlog = std::getenv("RPCS3_VR_HUDLOG") != nullptr; s_hudlog)
 		{
-			block.release();
-			return;
+			static std::mutex s_mutex;
+			static std::set<std::string> s_seen;
+			const std::string key = fmt::format("prog %016x target %ux%u db %d scale %.4f %.4f off %.4f %.4f", m_draw_program, surface_w, surface_h,
+				+m_draw_into_display_buffer, std::fabs(block.rows[0][0]) * eye.width * 0.5f, std::fabs(block.rows[1][1]) * eye.height * 0.5f, block.rows[3][0], block.rows[3][1]);
+			std::lock_guard lock(s_mutex);
+			if (s_seen.insert(key).second)
+			{
+				vr_probe_log.success("HUDLOG %s", key);
+			}
+		}
+
+		// Output pixels 1:1, or at one uniform factor from 0.8 to 1.25: Gran Turismo 5 shrinks its 2D layer to its Adjust
+		// Display Area setting (0.9 on a fresh install, 1.0 with the marks at the screen corners) and rasterises its font
+		// atlas at the inverse (1/0.9). At 0.9 those draws failed a 1:1 test, were boxed as HUD and every glyph was
+		// garbled. Its HUD (1920x1080 units) maps at 0.67 and below.
+		if (profile.screen_space_output_pixel_draws_not_hud)
+		{
+			const f32 fx = std::fabs(block.rows[0][0]) * eye.width * 0.5f;
+			const f32 fy = std::fabs(block.rows[1][1]) * eye.height * 0.5f;
+			if (fx >= 0.8f && fx <= 1.25f && std::fabs(fx - fy) < 1e-3f * fx)
+			{
+				block.release();
+				return;
+			}
 		}
 
 		if (profile.screen_space_hud_box_after_shader)
