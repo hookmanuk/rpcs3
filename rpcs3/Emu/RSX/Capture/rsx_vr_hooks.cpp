@@ -840,9 +840,92 @@ namespace rsx::vr
 		}
 	}
 
+	namespace
+	{
+		std::FILE* frame_log_file()
+		{
+			static std::FILE* s_file = []() -> std::FILE*
+			{
+				const char* path = std::getenv("RPCS3_VR_FRAMELOG");
+				if (!path || !*path)
+				{
+					return nullptr;
+				}
+				std::FILE* f = std::fopen(path, "w");
+				if (f)
+				{
+					std::fputs("kind,t_us,dt_ms,rsx_ms,cinematic,on_screen,wait_frame_ms,acquire_ms,ready_ms,copy_ms,end_ms\n", f);
+				}
+				return f;
+			}();
+			return s_file;
+		}
+		std::mutex g_frame_log_mutex;
+		atomic_t<bool> g_frame_on_screen{false};
+
+		void frame_log_row(const char* kind, u64 now, f64 dt_ms, f64 rsx_ms, bool cinematic, bool on_screen, const f32* steps = nullptr)
+		{
+			std::FILE* f = frame_log_file();
+			if (!f)
+			{
+				return;
+			}
+			std::lock_guard lock(g_frame_log_mutex);
+			if (steps)
+			{
+				std::fprintf(f, "%s,%llu,%.3f,%.3f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f\n", kind, static_cast<unsigned long long>(now), dt_ms, rsx_ms, cinematic ? 1 : 0,
+					on_screen ? 1 : 0, steps[0], steps[1], steps[2], steps[3], steps[4]);
+			}
+			else
+			{
+				std::fprintf(f, "%s,%llu,%.3f,%.3f,%d,%d,,,,,\n", kind, static_cast<unsigned long long>(now), dt_ms, rsx_ms, cinematic ? 1 : 0, on_screen ? 1 : 0);
+			}
+			if (static u64 s_flushed = 0; now - s_flushed > 1'000'000)
+			{
+				std::fflush(f);
+				s_flushed = now;
+			}
+		}
+	}
+
+	void set_frame_on_screen(bool on_screen)
+	{
+		g_frame_on_screen = on_screen;
+	}
+
+	void frame_log_xr_submit(f32 wait_frame_ms, f32 acquire_ms, f32 ready_ms, f32 copy_ms, f32 end_ms)
+	{
+		if (!frame_log_file())
+		{
+			return;
+		}
+		static u64 s_last = 0;
+		const u64 now = get_system_time();
+		const f32 steps[5] = {wait_frame_ms, acquire_ms, ready_ms, copy_ms, end_ms};
+		frame_log_row("xr", now, s_last ? (now - s_last) / 1000. : 0., 0., cinematic_frame(), g_frame_on_screen, steps);
+		s_last = now;
+	}
+
 	void on_flip()
 	{
 		rsx::vr::note_game_flip();
+		if (frame_log_file())
+		{
+			// RSX thread CPU time since the last flip (cycle-exact on Windows, at the TSC rate).
+			u64 cpu_us = 0;
+#ifdef _WIN32
+			ULONG64 cycles = 0;
+			if (static const u64 s_tsc = utils::get_tsc_freq(); s_tsc && QueryThreadCycleTime(GetCurrentThread(), &cycles))
+			{
+				cpu_us = static_cast<u64>(static_cast<f64>(cycles) * 1e6 / static_cast<f64>(s_tsc));
+			}
+#endif
+			static u64 s_last = 0, s_last_cpu = 0;
+			const u64 now = get_system_time();
+			frame_log_row("flip", now, s_last ? (now - s_last) / 1000. : 0., s_last ? (cpu_us - s_last_cpu) / 1000. : 0., cinematic_frame(), g_frame_on_screen);
+			s_last = now;
+			s_last_cpu = cpu_us;
+		}
 		// VR fork dev hook: RPCS3_VR_FRAMESTATS=<seconds> logs the game's frame times over each window of that
 		// length: frames, average FPS, 1% low and 0.1% low (the FPS of the 99th / 99.9th percentile frame time).
 		// Only runs when the variable is set.

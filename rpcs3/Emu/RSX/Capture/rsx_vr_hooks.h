@@ -98,6 +98,10 @@ namespace rsx::vr
 	// A frame of a scene the profile marks as cinematic (reduced_scale_frames: Gran Turismo 5's pre-race views). Such a
 	// frame follows the Cinematic Scenes setting alone (vr_update_view), whatever other screen rules match it.
 	bool cinematic_frame();
+	// Dev: RPCS3_VR_FRAMELOG=<file> writes one CSV row per game flip (time, frame time, RSX thread CPU time, cinematic and
+	// fixed-screen flags) and per headset frame submitted (OpenXR frame thread), for plans/tools/re/framelog.py.
+	void set_frame_on_screen(bool on_screen); // VKGSRender::vr_update_view: this frame goes on the fixed screen
+	void frame_log_xr_submit(f32 wait_frame_ms, f32 acquire_ms, f32 ready_ms, f32 copy_ms, f32 end_ms); // OpenXR frame thread, after xrEndFrame
 
 	// rsx::thread::on_frame_end: stereo inspector, camera probe poll, game refresh rate, profile generator, dev hooks.
 	void on_frame_end(u32 buffer, u32 draw_calls);

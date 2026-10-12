@@ -7,6 +7,7 @@ Core:
   Sleep Timers Accuracy: As Host
 Video:
   Resolution Scale: 300
+  MSAA: Disabled
   Disable ZCull Occlusion Queries: true
   Disable Blit Engine Upscaling: true
   Vblank NTSC Fixup: false

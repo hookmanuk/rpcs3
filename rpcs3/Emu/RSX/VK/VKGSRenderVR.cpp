@@ -1735,6 +1735,7 @@ void VKGSRender::vr_update_view()
 		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
 	}
 	m_vr_video_on_screen = no_3d;
+	rsx::vr::set_frame_on_screen(no_3d); // dev frame log
 	// An orthographic game (profile orthographic_stereo: Fez) has no view to turn with the head: it is a diorama on the
 	// fixed screen, in stereo.
 	const bool orthographic = no_3d_profile && no_3d_profile->orthographic_stereo_angle > 0.f;

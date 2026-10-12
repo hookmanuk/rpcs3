@@ -6,6 +6,7 @@
 #include "vkutils/image.h"
 #include "vkutils/image_helpers.h"
 #include "../Capture/rsx_camera_probe.h"
+#include "../Capture/rsx_vr_hooks.h"
 #include "Utilities/Thread.h"
 
 // Configuration macros read by openxr.h: no prototypes (the loader below resolves every
@@ -1093,8 +1094,15 @@ namespace vk::xr
 
 		void run_frame()
 		{
+			// Dev frame log (RPCS3_VR_FRAMELOG): where a headset frame's time goes.
+			using clk = std::chrono::steady_clock;
+			const auto ms_since = [](clk::time_point t) { return std::chrono::duration<f32, std::milli>(clk::now() - t).count(); };
+			f32 t_wait_frame = 0.f, t_acquire = 0.f, t_ready = 0.f, t_copy = 0.f;
+			auto t = clk::now();
 			XrFrameState frame_state{XR_TYPE_FRAME_STATE};
-			if (!check(g_xr.xrWaitFrame(g_xr.session, nullptr, &frame_state), "xrWaitFrame"))
+			const bool waited = check(g_xr.xrWaitFrame(g_xr.session, nullptr, &frame_state), "xrWaitFrame");
+			t_wait_frame = ms_since(t);
+			if (!waited)
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(5));
 				return;
@@ -1165,6 +1173,7 @@ namespace vk::xr
 			if (index >= 0 && frame_state.shouldRender && ensure_swapchains(g_xr.slot_w, g_xr.slot_h, g_xr.slot_format))
 			{
 				bool ok = true;
+				t = clk::now();
 				for (auto& eye : g_xr.eyes)
 				{
 					XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -1176,9 +1185,13 @@ namespace vk::xr
 					unlock_queue();
 				}
 
+				t_acquire = ms_since(t);
 				if (ok)
 				{
+					t = clk::now();
 					wait_ready(meta.ready);
+					t_ready = ms_since(t);
+					t = clk::now();
 					VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
 					begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 					vkResetCommandBuffer(g_xr.cmd, 0);
@@ -1215,6 +1228,7 @@ namespace vk::xr
 					// lifetimes trivial and never touches the RSX thread.
 					vkWaitForFences(g_xr.device, 1, &g_xr.fence, VK_TRUE, UINT64_MAX);
 					vkResetFences(g_xr.device, 1, &g_xr.fence);
+					t_copy = ms_since(t);
 				}
 
 				lock_queue();
@@ -1322,9 +1336,11 @@ namespace vk::xr
 			end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			end.layerCount = layer_count;
 			end.layers = layers;
+			t = clk::now();
 			lock_queue();
 			check(g_xr.xrEndFrame(g_xr.session, &end), "xrEndFrame");
 			unlock_queue();
+			rsx::vr::frame_log_xr_submit(t_wait_frame, t_acquire, t_ready, t_copy, ms_since(t)); // dev: RPCS3_VR_FRAMELOG
 
 			static bool s_reported = false;
 			if (layer_count && !std::exchange(s_reported, true))
@@ -1522,6 +1538,15 @@ namespace vk::xr
 		// before it (this flip's copies into the eye/overlay buffers) has completed.
 		const u32 k = g_xr.ready_next++ % std::size(g_xr.ready_fences);
 		VkFence fence = g_xr.ready_fences[k];
+		// At most one published frame ahead of the GPU (dev: RPCS3_VR_XR_PACE=0 turns it off). The frame thread shows the
+		// newest published frame and waits for its fence; with the GPU saturated (Gran Turismo 5's pre-race views at 400%)
+		// the game queued ~4 frames ahead, so each headset frame waited ~80 ms and three of four game frames were never
+		// shown (headset 13 FPS, game 50). Paced, the headset shows every frame; no cost where the GPU keeps up.
+		static const bool s_pace = []() { const char* v = std::getenv("RPCS3_VR_XR_PACE"); return !v || v[0] != '0'; }();
+		if (const u32 prev = (k + std::size(g_xr.ready_fences) - 1) % std::size(g_xr.ready_fences); s_pace && g_xr.ready_submitted[prev])
+		{
+			vkWaitForFences(g_xr.device, 1, &g_xr.ready_fences[prev], VK_TRUE, 100'000'000);
+		}
 		if (g_xr.ready_submitted[k])
 		{
 			// Eight flips old: long complete.
