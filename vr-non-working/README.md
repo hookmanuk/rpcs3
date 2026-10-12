@@ -28,6 +28,5 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | X-Men Origins: Wolverine | BLUS30268 | `vr_profiles/BLUS30268.json` (72 FPS: Vblank 144) | `patches/BLUS30268_patch.yml` (*Unlocked frame rate (VR)* on by default; *Present every vblank (flat 60 FPS)* off) |
 | Dragon Age II | BLUS30645 | `vr_profiles/BLUS30645.json` (just under 72 FPS in busy fights) | |
 | MX vs ATV Reflex | BLUS30321 | `vr_profiles/BLUS30321.json` (generated, 30 FPS; not checked) | |
-| Gran Turismo 5 (XL Edition, disc 01.00) | BCUS98114 | `vr_profiles/BCUS98114.json` | `patches/BCUS98114_patch.yml` (*Pre-race at full frame rate*, *VR: Wider view (head-driven culling)*, on by default) |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

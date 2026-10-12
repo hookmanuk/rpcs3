@@ -70,6 +70,7 @@ measured yet.
 | Sonic & All-Stars Racing Transformed | BLUS30839 | Headset refresh rate | 90 Hz |
 | SEGA Rally Revo | BLUS30068 | Headset refresh rate | 72 Hz (90 on the track) |
 | MotorStorm: Pacific Rift | BCUS98155 | 72 FPS | 72 Hz |
+| Gran Turismo 5 | BCUS98114 | Headset refresh rate | 90 Hz in races (busy starts dip) |
 
 ### 1. WipEout HD Fury (BCES00664): headset refresh rate
 
@@ -308,6 +309,22 @@ measured yet.
 - **Recommended settings:** `Resolution Scale` 300%.
 - **Known issues:** tree shadows look stepped at a distance (the game's own shadow resolution).
 
+### 22. Gran Turismo 5 (BCUS98114, XL Edition, US disc 01.00): headset refresh rate
+
+- **First boot:** RPCS3 offers to install the update bundled on the disc (*PKG Installation*, 2.11): choose **Skip**.
+  The VR build is made for disc version 01.00 (the frame-rate patch does not match 2.11). The first boot also
+  compiles the game's code for a few minutes; new menus and races load a little slower the first time they are seen.
+- **Frame rate:** the patch *Pre-race at full frame rate* is on by default and the game runs at the headset rate.
+- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head.
+  *VR: No camera jitter* is off by default.
+- **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
+  reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
+  Fixed Screen (default, fastest) or Full Quality around you.
+- **Recommended settings:** `Resolution Scale` 400% held 90 FPS in races in testing; race starts with the pack
+  ahead dip. `RSX FIFO Fetch Accuracy` Fast saves a little more.
+- **Known issues:** savestates load paused only with a pad connected; the car paint can turn multicoloured after
+  some savestate loads.
+
 ---
 
 
@@ -322,6 +339,7 @@ Defaults, all changeable per game:
 | Game patches marked "on by default" | on | Switch them off in `Manage > Game Patches` if you want to. |
 
 ---
+
 
 ## Frame generation (OFXR Bridge)
 
@@ -364,7 +382,6 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | FEZ | NPUB31448 | 120 Hz | No patch needed (60 natively, real time at any rate). An orthographic game: it is shown on the world-fixed screen as a 3D diorama (each eye sees the playfield from a slightly different angle); the VR menu's Screen Depth sets the depth. Savestates do not load. Not tested in a headset. |
 | Flower | NPUA80083 | 90 Hz | The VR build's patch *Unlocked frame rate (follows Vblank Rate)* (on by default) lifts the game's 30 FPS lock at real-time speed. Steers by tilting the controller (SIXAXIS). Only the first level tested. Not tested in a headset. |
 | Journey | NPUA70218 (from Journey Collector's Edition) | 72 Hz | Install Journey from the disc's PKG (the collection disc only says "install from the XMB": `rpcs3.exe --installpkg` on `PS3_EXTRA/D002/DATA000.PKG`). The VR build's patches *Unlocked frame rate*, *Wider view (VR culling)* (Scale 2.5) and *Disable SPU MLAA (VR)* are on by default (the last only takes effect from a fresh boot). The game is limited by its SPU work to about 75 FPS in VR. Set `SPU Block Size: Mega`. Only the first dune tested. Not tested in a headset. |
-| Gran Turismo 5 | BCUS98114 (XL Edition, disc 01.00) | 90 Hz in races (busy starts dip) | Works in our test setup, but a fresh install shows garbled welcome text in VR (before the first save), can sit on a black screen on first boot, and can hang at the race-start flyby. |
 
 ---
 
