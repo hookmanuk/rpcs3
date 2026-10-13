@@ -69,6 +69,7 @@ namespace vk
 		void* m_params = nullptr; // NVSDK_NGX_Parameter* of our own
 		feature m_features[2];
 		std::unique_ptr<vk::viewable_image> m_output[2];
+		std::unique_ptr<vk::viewable_image> m_invalid_mv; // dev (RPCS3_DLSSG_MV=invalid): motion vectors all marked invalid
 		bool m_have_previous[2]{};
 		bool m_disabled = false;
 	};

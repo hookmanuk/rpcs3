@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "VKFrameGen.h"
+
+#include <limits>
 #include "VKDLSS.h"
 #include "VKResourceManager.h"
 #include "vkutils/barriers.h"
@@ -7,6 +9,7 @@
 #include "vkutils/image.h"
 #include "Emu/system_config.h"
 #include "Utilities/StrFmt.h"
+#include "Utilities/File.h"
 
 #ifdef HAVE_DLSS
 #if defined(__GNUC__) || defined(__clang__)
@@ -362,19 +365,52 @@ namespace vk
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
+		// Dev: RPCS3_DLSSG_MV=invalid gives DLSS-G no usable motion vectors (its own flow only), =game the game's. Without the
+		// variable, the file %TEMP%/rpcs3-vrprofile/DLSSG_MV_INVALID switches it live (checked every 45 frames).
+		vk::viewable_image* motion_img = in.motion;
+		static const char* s_mv_env = std::getenv("RPCS3_DLSSG_MV");
+		static bool s_invalid = s_mv_env && std::string_view(s_mv_env) == "invalid";
+		if (static u32 s_check = 0; !s_mv_env && eye == 0 && s_check++ % 45 == 0)
+		{
+			const char* temp = std::getenv("TEMP");
+			const bool now = temp && fs::is_file(std::string(temp) + "/rpcs3-vrprofile/DLSSG_MV_INVALID");
+			if (now != s_invalid)
+			{
+				framegen_log.notice("Frame generation motion vectors: %s", now ? "none (DLSS-G's own flow)" : "the game's");
+				s_invalid = now;
+			}
+		}
+		if (s_invalid)
+		{
+			if (!m_invalid_mv || m_invalid_mv->width() != in.motion->width() || m_invalid_mv->height() != in.motion->height())
+			{
+				if (m_invalid_mv)
+				{
+					vk::get_resource_manager()->dispose(m_invalid_mv);
+				}
+				m_invalid_mv = std::make_unique<vk::viewable_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					VK_IMAGE_TYPE_2D, VK_FORMAT_R32G32_SFLOAT, in.motion->width(), in.motion->height(), 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
+			}
+			m_invalid_mv->change_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+			const VkClearColorValue invalid{.float32 = {std::numeric_limits<f32>::max(), std::numeric_limits<f32>::max(), 0.f, 0.f}};
+			vkCmdClearColorImage(cmd, m_invalid_mv->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &invalid, 1, &range);
+			motion_img = m_invalid_mv.get();
+		}
+
 		in.backbuffer->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		in.depth->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		in.motion->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		motion_img->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		out->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 
 		const vk::image_view* bb_view = in.backbuffer->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
 		const vk::image_view* depth_view = in.depth->get_view(identity);
-		const vk::image_view* mv_view = in.motion->get_view(identity);
+		const vk::image_view* mv_view = motion_img->get_view(identity);
 		const vk::image_view* out_view = out->get_view(identity);
 
 		NVSDK_NGX_Resource_VK backbuffer = NVSDK_NGX_Create_ImageView_Resource_VK(bb_view->value, in.backbuffer->value, range, bb_view->info.format, in.backbuffer->width(), in.backbuffer->height(), false);
 		NVSDK_NGX_Resource_VK depth = NVSDK_NGX_Create_ImageView_Resource_VK(depth_view->value, in.depth->value, range, VK_FORMAT_R32_SFLOAT, in.depth->width(), in.depth->height(), false);
-		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, in.motion->value, range, VK_FORMAT_R32G32_SFLOAT, in.motion->width(), in.motion->height(), false);
+		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, motion_img->value, range, VK_FORMAT_R32G32_SFLOAT, motion_img->width(), motion_img->height(), false);
 		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, out->value, range, out->format(), out->width(), out->height(), true);
 
 		NVSDK_NGX_VK_DLSSG_Eval_Params eval{};
@@ -398,7 +434,7 @@ namespace vk
 		opt.menuDetectionEnabled = false;
 		opt.notRenderingGameFrames = false;
 		opt.orthoProjection = false;
-		opt.motionVectorsInvalidValue = 0.f;
+		opt.motionVectorsInvalidValue = std::numeric_limits<f32>::max(); // never written (0 marked every still pixel invalid: the car under a chase camera ghosted)
 
 		// The eye's projection: symmetric half tangents, a nominal depth range (the depth flag is what DLSS-G's output
 		// depends on most; the motion vectors carry the motion).
@@ -440,7 +476,7 @@ namespace vk
 		opt.outputInterpSubrectSize = {out->width(), out->height()};
 
 		const NVSDK_NGX_Result r = NGX_VK_EVALUATE_DLSSG(cmd, static_cast<NVSDK_NGX_Handle*>(m_features[eye].handle), static_cast<NVSDK_NGX_Parameter*>(m_params), &eval, &opt);
-		in.motion->pop_layout(cmd);
+		motion_img->pop_layout(cmd);
 		in.depth->pop_layout(cmd);
 		in.backbuffer->pop_layout(cmd);
 		vk::insert_global_memory_barrier(cmd);
