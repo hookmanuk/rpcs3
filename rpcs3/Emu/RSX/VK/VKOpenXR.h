@@ -126,8 +126,6 @@ namespace vk::xr
 
 	// Diagnostic: head yaw (degrees) of a pose from locate_render_pose, NaN if no longer kept.
 	f32 render_pose_yaw(u32 pose_id);
-	// framegen: how fast the head turned between the last two committed game frames (degrees per second).
-	f32 head_turn_rate();
 	// Diagnostic: distance (mm) between the left-eye positions of two kept poses, NaN otherwise.
 	f32 render_pose_step_mm(u32 from_id, u32 to_id);
 

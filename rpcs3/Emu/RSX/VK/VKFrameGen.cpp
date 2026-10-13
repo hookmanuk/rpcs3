@@ -3,7 +3,6 @@
 
 #include <limits>
 #include "VKDLSS.h"
-#include "VKOpenXR.h"
 #include "VKResourceManager.h"
 #include "vkutils/barriers.h"
 #include "vkutils/device.h"
@@ -143,34 +142,6 @@ namespace vk
 			{
 				framegen_log.notice("Frame generation motion: %s", now == framegen_motion::own ? "DLSS-G's own estimate" : now == framegen_motion::game ? "the game's vectors" : "hybrid (the game's vectors on static world)");
 				s_mode = now;
-			}
-		}
-		// Hybrid while the head is still-ish; the game's vectors while it turns (Matt, headset: hybrid is better still, the
-		// game's vectors better on head turns). On above 20 degrees/s, back below 10 (RPCS3_DLSSG_TURN_DPS sets the upper).
-		if (s_mode == framegen_motion::hybrid)
-		{
-			static const f32 s_on = [] { const char* v = std::getenv("RPCS3_DLSSG_TURN_DPS"); return v ? static_cast<f32>(std::atof(v)) : 20.f; }();
-			static bool s_turning = false;
-			static std::chrono::steady_clock::time_point s_last_fast{};
-			const f32 rate = vk::xr::head_turn_rate();
-			const auto now = std::chrono::steady_clock::now();
-			if (rate > s_on * 0.5f)
-			{
-				s_last_fast = now;
-			}
-			// Held 200 ms past the last fast frame: a frame drawn with an unchanged pose mid-turn must not switch back.
-			const bool turning = s_turning ? now - s_last_fast < std::chrono::milliseconds(200) : rate > s_on;
-			if (s_turning != turning)
-			{
-				s_turning = !s_turning;
-				if (static u32 s_logged = 0; s_logged++ < 20)
-				{
-					framegen_log.notice("Frame generation motion: %s (head %.0f degrees/s)", s_turning ? "the game's vectors, head turning" : "hybrid, head still", rate);
-				}
-			}
-			if (s_turning)
-			{
-				return framegen_motion::game;
 			}
 		}
 		return s_mode;
