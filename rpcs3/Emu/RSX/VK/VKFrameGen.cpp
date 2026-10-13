@@ -365,15 +365,17 @@ namespace vk
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-		// Dev: RPCS3_DLSSG_MV=invalid gives DLSS-G no usable motion vectors (its own flow only), =game the game's. Without the
-		// variable, the file %TEMP%/rpcs3-vrprofile/DLSSG_MV_INVALID switches it live (checked every 45 frames).
+		// DLSS-G's own motion estimate by default (the game's motion vectors all marked invalid): our vectors give objects the
+		// game moves itself (MotorStorm's car, built on the SPU) the world's motion, and DLSS-G ghosted their edges (Matt,
+		// headset, 2026-10-13: "much better"). RPCS3_DLSSG_MV=game|invalid fixes it; without the variable the file
+		// %TEMP%/rpcs3-vrprofile/DLSSG_MV_GAME switches to the game's vectors live (checked every 45 frames).
 		vk::viewable_image* motion_img = in.motion;
 		static const char* s_mv_env = std::getenv("RPCS3_DLSSG_MV");
-		static bool s_invalid = s_mv_env && std::string_view(s_mv_env) == "invalid";
+		static bool s_invalid = !s_mv_env || std::string_view(s_mv_env) != "game";
 		if (static u32 s_check = 0; !s_mv_env && eye == 0 && s_check++ % 45 == 0)
 		{
 			const char* temp = std::getenv("TEMP");
-			const bool now = temp && fs::is_file(std::string(temp) + "/rpcs3-vrprofile/DLSSG_MV_INVALID");
+			const bool now = !(temp && fs::is_file(std::string(temp) + "/rpcs3-vrprofile/DLSSG_MV_GAME"));
 			if (now != s_invalid)
 			{
 				framegen_log.notice("Frame generation motion vectors: %s", now ? "none (DLSS-G's own flow)" : "the game's");
