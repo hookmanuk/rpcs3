@@ -28,5 +28,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | X-Men Origins: Wolverine | BLUS30268 | `vr_profiles/BLUS30268.json` (72 FPS: Vblank 144) | `patches/BLUS30268_patch.yml` (*Unlocked frame rate (VR)* on by default; *Present every vblank (flat 60 FPS)* off) |
 | Dragon Age II | BLUS30645 | `vr_profiles/BLUS30645.json` (just under 72 FPS in busy fights) | |
 | MX vs ATV Reflex | BLUS30321 | `vr_profiles/BLUS30321.json` (generated, 30 FPS; not checked) | |
+| Prince of Persia | BLUS30214 | `vr_profiles/BLUS30214.json` (90 FPS at 300%) | `patches/BLUS30214_patch.yml` (*Unlocked frame rate (follows Vblank Rate)*, on by default) |
+| NiGHTS into dreams... | NPUB30798 | `vr_profiles/NPUB30798.json` (hand-made; 30 FPS, no frame-rate patch yet) | |
 
 Notes and evidence for each game are in the separate plans repository (`plans/profiles/<ID>-notes.md`).

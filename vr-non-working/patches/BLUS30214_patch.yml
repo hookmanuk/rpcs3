@@ -1,0 +1,14 @@
+Version: 1.2
+
+PPU-8254e202229bc5be77d12bf298d6f40b169c4cde:
+  "Unlocked frame rate (follows Vblank Rate)":
+    Games:
+      "Prince of Persia":
+        BLUS30214: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Presents a frame on every vblank instead of every second one. The game's vblank handler (0x1bc810) counts GCM label 0x43 down once per vblank; each frame sets it to 2 and the GPU waits for 0 before the next frame. The handler now clears it on every vblank, so the frame rate follows the Vblank Rate (the VR rate in VR). Game time is real time: its clocks advance 1.0 per second at 30 and at 60 FPS."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x001bc86c, 0x3ba00000 ] # li r29, 0 (was subf r29, r0, r29: label 0x43 minus 1 while above 0)
