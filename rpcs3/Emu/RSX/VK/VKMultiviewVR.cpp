@@ -354,13 +354,15 @@ namespace vk
 	void vr_insert_depth_remap_fragment_start(std::ostream& OS, u32 ctrl, u32 in_register_mask, u32 depth_mask)
 	{
 		const u32 tc_mask = (in_register_mask >> 4) & 0x3ff; // FragmentProgramDecompiler's in_tc0 (bit 4) to in_tc9
-		if (!(ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) || !tc_mask || !depth_mask)
+		const auto* profile = rsx::vr::camera_probe::get().profile();
+		// Profile depth_remap_packed_unit: the depth is a colour copy at that unit (plain remap passes only).
+		const s32 packed = (profile && (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) && !(ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) ? profile->depth_remap_packed_unit : -1;
+		if (!(ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)) || !tc_mask || (!depth_mask && packed < 0))
 		{
 			return;
 		}
 		const std::string tc = "tc" + std::to_string(std::countr_zero(tc_mask));
-		const std::string unit = std::to_string(std::countr_zero(depth_mask));
-		const auto* profile = rsx::vr::camera_probe::get().profile();
+		const std::string unit = std::to_string(packed >= 0 ? static_cast<u32>(packed) : std::countr_zero(depth_mask));
 		if ((ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) && !(ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP))
 		{
 			// Game-view depth variant (profile depth_remap_screen.depth_programs): the pass builds a depth pyramid in the
@@ -487,18 +489,34 @@ namespace vk
 		OS << "		const ivec2 vr_px = ivec2(gl_FragCoord.xy);\n";
 		OS << "#endif\n";
 		OS << "		const float vr_w = " << tc << ".w != 0. ? " << tc << ".w : 1.;\n";
+		// The eye's depth at this pixel: the depth texture's, or (depth_remap_packed_unit) decoded from the colour copy
+		// (r * 65536 + g * 256 + b over 2^24 - 1, the bytes RPCS3's Z24-as-RGBA8 conversion put at w, x, y).
+		std::string eye_depth = "texelFetch(tex" + unit + ", vr_px, 0).r";
+		if (packed >= 0)
+		{
+			OS << "		const vec4 vr_packed = texelFetch(tex" << unit << ", vr_px, 0);\n";
+			OS << "		const float vr_packed_depth = float((uint(round(vr_packed.w * 255.)) << 16) | (uint(round(vr_packed.x * 255.)) << 8) | uint(round(vr_packed.y * 255.))) / 16777215.;\n";
+			eye_depth = "vr_packed_depth";
+		}
 		if (profile && profile->depth_remap_uv)
 		{
 			// Screen uv (y down) to NDC, remap to the game camera, and back to uv (w = 1: the program divides by it).
 			OS << "		const vec2 vr_uv = " << tc << ".xy / vr_w;\n";
-			OS << "		const vec4 vr_eye = vec4(vr_uv.x * 2. - 1., 1. - vr_uv.y * 2., texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+			OS << "		const vec4 vr_eye = vec4(vr_uv.x * 2. - 1., 1. - vr_uv.y * 2., " << eye_depth << ", 1.);\n";
 		}
 		else
 		{
-			OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, texelFetch(tex" << unit << ", vr_px, 0).r, 1.);\n";
+			OS << "		const vec4 vr_eye = vec4(" << tc << ".xy / vr_w, " << eye_depth << ", 1.);\n";
 		}
 		OS << "		vr_remap_position = vr_eye.x * vr_depth_remap[0] + vr_eye.y * vr_depth_remap[1] + vr_eye.z * vr_depth_remap[2] + vr_depth_remap[3];\n";
-		OS << "		vr_remap_zs = vec2(vr_remap_position.w != 0. ? clamp(vr_remap_position.z / vr_remap_position.w, 0., 1.) : vr_eye.z, float(texelFetch(tex" << unit << "_stencil, vr_px, 0).x));\n";
+		if (packed >= 0)
+		{
+			OS << "		vr_remap_zs = vec2(vr_remap_position.w != 0. ? clamp(vr_remap_position.z / vr_remap_position.w, 0., 1.) : vr_eye.z, vr_packed.z * 255.);\n";
+		}
+		else
+		{
+			OS << "		vr_remap_zs = vec2(vr_remap_position.w != 0. ? clamp(vr_remap_position.z / vr_remap_position.w, 0., 1.) : vr_eye.z, float(texelFetch(tex" << unit << "_stencil, vr_px, 0).x));\n";
+		}
 		if (profile && profile->depth_remap_uv)
 		{
 			OS << "		const vec2 vr_ndc_g = vr_remap_position.xy / (vr_remap_position.w != 0. ? vr_remap_position.w : 1.);\n";
@@ -512,6 +530,19 @@ namespace vk
 		}
 		OS << "	}\n";
 		OS << "#define " << tc << " vr_remap_position\n";
+		if (packed >= 0)
+		{
+			// The program's colour reads of the copy return the game camera's depth, encoded as the copy holds it.
+			OS << "	const uint vr_remap_v = uint(vr_remap_zs.x * 16777215.);\n";
+			OS << "	const vec4 vr_remap_packed = vec4(float((vr_remap_v >> 8) & 255u), float(vr_remap_v & 255u), vr_remap_zs.y, float((vr_remap_v >> 16) & 255u)) / 255.;\n";
+			OS << "#undef TEX2D\n";
+			OS << "#ifdef _VR_MULTIVIEW\n";
+			OS << "#define TEX2D(index, coord2) ((index == " << unit << ") ? _process_texel(vr_remap_packed, TEX_FLAGS(index)) : _process_texel(texture(TEX_NAME(index), vec3(COORD_SCALE2(index, coord2), VR_LAYER)), TEX_FLAGS(index)))\n";
+			OS << "#else\n";
+			OS << "#define TEX2D(index, coord2) ((index == " << unit << ") ? _process_texel(vr_remap_packed, TEX_FLAGS(index)) : _process_texel(texture(TEX_NAME(index), COORD_SCALE2(index, coord2)), TEX_FLAGS(index)))\n";
+			OS << "#endif\n\n";
+			return;
+		}
 		OS << "#undef TEX2D_Z24X8_RGBA8\n";
 		OS << "#ifdef _VR_MULTIVIEW\n";
 		OS << "#define TEX2D_Z24X8_RGBA8(index, coord2) _process_texel(convert_z24x8_to_rgba8((index == " << unit << ") ? vr_remap_zs : ZS_READ2D(index, COORD_SCALE2(index, coord2)), TEX_PARAM(index).remap, TEX_FLAGS(index)), TEX_FLAGS(index))\n";

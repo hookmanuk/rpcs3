@@ -424,6 +424,35 @@ namespace rsx::vr
 		return s_depth_remap;
 	}
 
+	// The current vertex program's depth_remap_programs entry: listed at all, and its texture0 size (0 = any draw) and format.
+	static bool s_depth_remap_listed = false;
+	static u32 s_depth_remap_texture0 = 0;
+	static u32 s_depth_remap_texture0_format = 0;
+
+	static bool depth_remap_texture0_matches()
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[0];
+		const u32 size = static_cast<u32>(tex.width()) << 16 | static_cast<u32>(tex.height());
+		const u32 target = static_cast<u32>(rsx::method_registers.surface_clip_width()) << 16 | static_cast<u32>(rsx::method_registers.surface_clip_height());
+		return tex.enabled() && size == s_depth_remap_texture0 && size == target &&
+			(!s_depth_remap_texture0_format || (tex.format() & 0xff) == s_depth_remap_texture0_format);
+	}
+
+	bool refresh_depth_remap_for_draw()
+	{
+		if (!s_depth_remap_texture0)
+		{
+			return false;
+		}
+		const bool remap = s_depth_remap_listed && depth_remap_texture0_matches();
+		if (remap == s_depth_remap)
+		{
+			return false;
+		}
+		s_depth_remap = remap;
+		return true;
+	}
+
 	bool depth_remap_screen_active()
 	{
 		return s_depth_remap_screen || s_depth_remap_game_view;
@@ -577,7 +606,26 @@ namespace rsx::vr
 			}
 		}
 		const bool exact = (bits & 1) != 0;
-		const bool remap = (bits & 2) != 0;
+		bool remap = (bits & 2) != 0;
+		s_depth_remap_listed = remap;
+		s_depth_remap_texture0 = 0;
+		s_depth_remap_texture0_format = 0;
+		if (remap)
+		{
+			if (const auto* profile = camera_probe::get().profile(); profile && !profile->depth_remap_texture0.empty())
+			{
+				const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(program);
+				for (const auto& rule : profile->depth_remap_texture0)
+				{
+					if (rule.program == hash)
+					{
+						s_depth_remap_texture0 = rule.size;
+						s_depth_remap_texture0_format = rule.format;
+					}
+				}
+				remap = !s_depth_remap_texture0 || depth_remap_texture0_matches();
+			}
+		}
 		const bool screen = (bits & 4) != 0;
 		const bool game_view = (bits & 8) != 0;
 		const bool changed = exact != s_exact_depth || remap != s_depth_remap || screen != s_depth_remap_screen || game_view != s_depth_remap_game_view;

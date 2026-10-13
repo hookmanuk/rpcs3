@@ -203,6 +203,17 @@ namespace rsx::vr
 		// Asura's Wrath: the characters' shadows are a screen-space mask (07d7202eb4af1d79) projecting the scene depth
 		// into each character's shadow map; in the headset the shadows slid across the characters as the head turned.
 		std::vector<u64> depth_remap_programs;
+		// An entry given as { "program": "<hash>", "texture0": "WxH", "texture0_format": "0xa5" }: the remap applies only to
+		// that program's draws whose texture unit 0 has that size (and raw format byte, if given) and whose render target is
+		// that size too. For a full-screen program the game also uses for other passes (Uncharted's fc15ec0752d20290: the
+		// sun-shadow mask, and the depth resolve, depth downsamples, bloom and post chain).
+		struct depth_remap_texture0_rule { u64 program; u32 size; u32 format; }; // size: width << 16 | height; format 0: any
+		std::vector<depth_remap_texture0_rule> depth_remap_texture0;
+		// depth_remap_packed_unit: the remap passes read their depth from this texture unit as a colour copy of the depth
+		// (24 bits as RPCS3's Z24-as-RGBA8 conversion gives them: (g, b, stencil, r) / 255), not from a depth texture.
+		// Uncharted's resolve pass (the same program) copies a sample of the 2x MSAA depth into such a colour target, which the
+		// sun-shadow pass reads. -1 = none.
+		s32 depth_remap_packed_unit = -1;
 		// depth_remap_volume_programs: other programs drawing the remap passes' volumes (Sonic's stencil pre-pass
 		// 2fe8ebfb47d877be): they take the scene camera's eye transform as the remap passes do.
 		std::vector<u64> depth_remap_volume_programs;

@@ -85,6 +85,9 @@ namespace rsx::vr
 	bool depth_remap_game_view_program(u64 vertex_ucode_hash);
 	// The current vertex program is one of the profile's depth_remap_programs (its shaders carry RSX_SHADER_CONTROL_VR_DEPTH_REMAP).
 	bool depth_remap_active();
+	// Before each draw's program is chosen: a depth_remap_programs entry with a texture0 size applies to the draws whose
+	// texture unit 0 has it. True when that changed (the program state then needs choosing again).
+	bool refresh_depth_remap_for_draw();
 	// ... of its depth_remap_screen programs or depth_programs (RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN; their depth
 	// remap is the scene camera's), and of its programs only (the screen tiles).
 	bool depth_remap_screen_active();

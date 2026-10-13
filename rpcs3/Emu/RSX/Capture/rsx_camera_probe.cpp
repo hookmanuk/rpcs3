@@ -1108,12 +1108,31 @@ namespace rsx::vr
 			{
 				for (const auto& program : programs)
 				{
-					const std::string text = program.as<std::string>();
+					// depth_remap_programs entries may be { "program": "<hash>", "texture0": "WxH" } (see depth_remap_texture0).
+					const bool is_map = program.IsMap() && std::string_view(key) == "depth_remap_programs";
+					const std::string text = is_map ? (program["program"] ? program["program"].as<std::string>() : std::string()) : program.as<std::string>();
 					char* end = nullptr;
 					const u64 hash = std::strtoull(text.c_str(), &end, 16);
 					if (text.empty() || !end || *end)
 						fail(std::string(key) + ": '" + text + "' is not a hex program hash");
 					(std::string_view(key) == "depth_remap_programs" ? profile->depth_remap_programs : profile->depth_remap_volume_programs).push_back(hash);
+					if (is_map && program["texture0"])
+					{
+						const std::string size = program["texture0"].as<std::string>();
+						u32 w = 0, h = 0;
+						if (std::sscanf(size.c_str(), "%ux%u", &w, &h) != 2 || !w || !h || w > 0xffff || h > 0xffff)
+							fail("depth_remap_programs: texture0 '" + size + "' is not WxH");
+						u32 format = 0;
+						if (program["texture0_format"])
+						{
+							const std::string text = program["texture0_format"].as<std::string>();
+							char* fend = nullptr;
+							format = static_cast<u32>(std::strtoul(text.c_str(), &fend, 16));
+							if (text.empty() || !fend || *fend || !format || format > 0xff)
+								fail("depth_remap_programs: texture0_format '" + text + "' is not a hex format byte");
+						}
+						profile->depth_remap_texture0.push_back({hash, w << 16 | h, format});
+					}
 				}
 			}
 		}
@@ -1124,6 +1143,10 @@ namespace rsx::vr
 		if (std::string uv; read(root, "depth_remap_uv", uv, false))
 		{
 			profile->depth_remap_uv = uv == "true";
+		}
+		if (std::string unit; read(root, "depth_remap_packed_unit", unit, false))
+		{
+			profile->depth_remap_packed_unit = std::clamp(std::atoi(unit.c_str()), -1, 15);
 		}
 		if (std::string xyw; read(root, "depth_remap_xyw", xyw, false))
 		{
@@ -1599,7 +1622,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});

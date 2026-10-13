@@ -3202,6 +3202,11 @@ bool VKGSRender::vr_skip_far_cars()
 // dev probe key hide=<hash>[@<target>]. Returns true after finishing the draw as a no-op.
 bool VKGSRender::vr_skip_draw()
 {
+	// Profile depth_remap_programs with a texture0 size: the remap follows each draw's texture unit 0.
+	if (rsx::vr::refresh_depth_remap_for_draw())
+	{
+		m_graphics_state |= (rsx::pipeline_state::vertex_program_state_dirty | rsx::pipeline_state::fragment_program_state_dirty);
+	}
 	if (m_gpuprof_target && m_gpuprof_enabled > 0 && m_framebuffer_layout.color_addresses[0] == m_gpuprof_target)
 	{
 		// Dev GPU profiler: per-draw segment after the draw's textures loaded ("fmt" 0x20000 + the draw's index).
@@ -3702,8 +3707,11 @@ void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sig
 	{
 		return;
 	}
-	// Profile depth_remap_screen: the pass has no camera block; its remap is the scene camera's for this eye.
-	if (eye && eye_sign != 0.f && rsx::vr::depth_remap_screen_active())
+	// Profile depth_remap_screen, and the depth_remap_packed_unit passes (Uncharted's full-screen sun-shadow mask): the pass
+	// has no camera block; its remap is the scene camera's for this eye.
+	const auto* remap_profile = rsx::vr::camera_probe::get().profile();
+	const bool packed_pass = remap_profile && remap_profile->depth_remap_packed_unit >= 0 && rsx::vr::depth_remap_active();
+	if (eye && eye_sign != 0.f && (rsx::vr::depth_remap_screen_active() || packed_pass))
 	{
 		rsx::vr::camera_probe::get().screen_depth_remap(eye_sign);
 	}
