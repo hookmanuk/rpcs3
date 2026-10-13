@@ -13,6 +13,13 @@
 	vk::viewable_image* m_framegen_eyes[2]{};
 	u32 m_framegen_pose = 0;
 	void framegen_on_flip(vk::viewable_image* left, vk::viewable_image* right);
+	// DLSS sharpening (RCAS, Video > FidelityFX CAS Sharpening Intensity) of each eye's output.
+	std::unique_ptr<vk::viewable_image> m_dlss_sharpened[2];
+	void dlss_sharpen(vk::viewable_image* image, u32 eye);
+	// framegen: each eye's DLSS output before the HUD went back on (DLSS-G's HUD-less input).
+	std::unique_ptr<vk::viewable_image> m_framegen_hudless[2];
+	bool m_framegen_hudless_valid[2]{};
+	void framegen_keep_hudless(vk::viewable_image* image, u32 eye);
 	bool m_dlss_motion_bound = false;          // the bound framebuffer has the motion attachment
 	bool m_dlss_uploading = false;             // dlss_draw_setup(): the draw's own constant upload
 	u32 m_dlss_refused_address = 0;            // a scene target refused this frame (MRT mismatch, no memory): not retried until the flip

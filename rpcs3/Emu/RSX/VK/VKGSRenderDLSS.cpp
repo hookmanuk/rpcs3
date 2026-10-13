@@ -3,6 +3,8 @@
 #include "VKDLSS.h"
 #include "VKFrameGen.h"
 #include "VKOpenXR.h"
+#include "upscalers/fsr_pass.h"
+#include "vkutils/image.h"
 
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_hooks.h"
@@ -41,6 +43,11 @@ void VKGSRender::dlss_destroy()
 {
 	rsx::vr::set_dlss_session(false);
 	m_framegen.reset();
+	m_dlss_sharpened[0].reset();
+	m_dlss_sharpened[1].reset();
+	m_framegen_hudless[0].reset();
+	m_framegen_hudless[1].reset();
+	m_framegen_hudless_valid[0] = m_framegen_hudless_valid[1] = false;
 	m_dlss.reset();
 }
 
@@ -362,6 +369,84 @@ bool VKGSRender::dlss_jitter_viewport(VkViewport& viewport) const
 	return true;
 }
 
+void VKGSRender::framegen_keep_hudless(vk::viewable_image* image, u32 eye)
+{
+	m_framegen_hudless_valid[eye] = false;
+	if (!image || eye > 1)
+	{
+		return;
+	}
+	auto& copy = m_framegen_hudless[eye];
+	if (!copy || copy->width() != image->width() || copy->height() != image->height() || copy->format() != image->format())
+	{
+		if (copy)
+		{
+			vk::get_resource_manager()->dispose(copy);
+		}
+		copy = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_TYPE_2D, image->format(), image->width(), image->height(), 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, vk::VK_IMAGE_CREATE_ALLOW_NULL_RPCS3, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
+		if (!copy->value)
+		{
+			copy.reset();
+			return;
+		}
+		copy->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); // a copy returns it to this, never to undefined
+	}
+	const areai r{0, 0, static_cast<s32>(image->width()), static_cast<s32>(image->height())};
+	vk::copy_image(*m_current_command_buffer, image, copy.get(), r, r);
+	m_framegen_hudless_valid[eye] = true;
+}
+
+// RCAS (AMD FidelityFX, as the FSR upscaler's second pass) on a DLSS output, in place. The slider's 0 turns it off.
+void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
+{
+	const u32 strength = g_cfg.video.rcas_sharpening_intensity;
+	if (!strength || !image || eye > 1)
+	{
+		return;
+	}
+	if (image->format() != VK_FORMAT_R8G8B8A8_UNORM)
+	{
+		static bool s_logged = false;
+		if (!std::exchange(s_logged, true))
+		{
+			rsx_log.warning("DLSS: no sharpening for output format %u", static_cast<u32>(image->format()));
+		}
+		return;
+	}
+	auto& tmp = m_dlss_sharpened[eye];
+	const u32 w = image->width(), h = image->height();
+	if (!tmp || tmp->width() != w || tmp->height() != h)
+	{
+		if (tmp)
+		{
+			vk::get_resource_manager()->dispose(tmp);
+		}
+		tmp = std::make_unique<vk::viewable_image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_TYPE_2D, VK_FORMAT_R8G8B8A8_UNORM, w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, vk::VK_IMAGE_CREATE_ALLOW_NULL_RPCS3,
+			VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
+		if (!tmp->value)
+		{
+			tmp.reset();
+			return;
+		}
+	}
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	tmp->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+	vk::get_compute_task<vk::FidelityFX::rcas_pass>()->run(*m_current_command_buffer, image, tmp.get(), {w, h}, {w, h});
+	image->pop_layout(*m_current_command_buffer);
+	vk::insert_global_memory_barrier(*m_current_command_buffer);
+	const areai r{0, 0, static_cast<s32>(w), static_cast<s32>(h)};
+	vk::copy_image(*m_current_command_buffer, tmp.get(), image, r, r);
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+}
+
 // ---- Flip (vr_publish_frame) ---------------------------------------------------------------------------
 
 void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* right)
@@ -383,6 +468,7 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 		in.tan_half_x = tan_x;
 		in.tan_half_y = tan_y;
 		in.depth_inverted = std::getenv("RPCS3_DLSS_DEPTH_INVERTED") != nullptr;
+		in.hudless = m_framegen_hudless_valid[eye] ? m_framegen_hudless[eye].get() : nullptr;
 		if (!m_dlss->framegen_inputs(*m_current_command_buffer, eye, vk::framegen_motion_mode() == vk::framegen_motion::hybrid, in.depth, in.motion,
 				in.clip_to_prev_clip, in.have_motion_matrix))
 		{
@@ -443,6 +529,11 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	vk::viewable_image* const final_left = image_to_flip;
 	vk::viewable_image* const final_right = image_to_flip2;
 	vk::viewable_image* pre_left = m_dlss->hud_pre(image_to_flip, 0);
+	if (static u32 s_flips = 0; info.emu_flip && ++s_flips % 600 == 0 && (s_flips <= 3000))
+	{
+		// HUD kept out of DLSS (and frame generation's HUD-less input) only when a HUD-box draw went into the flipped image.
+		rsx_log.notice("DLSS: HUD separated from the scene this flip: %s", pre_left ? "yes" : "no (no HUD-box draw into the displayed image)");
+	}
 	vk::viewable_image* pre_right = pre_left && vr_view && image_to_flip2 ? m_dlss->hud_pre(image_to_flip, 1) : nullptr;
 	if (vr_view && image_to_flip2 && !pre_right)
 	{
@@ -454,6 +545,27 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 			static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, dlss_vr_unsupported(), out_w, out_h,
 			vr_view ? &right : nullptr))
 	{
+		if (m_dlss->output_fresh())
+		{
+			// Sharpening (Video > FidelityFX CAS Sharpening Intensity): DLSS's own output, before the HUD goes back on and
+			// before frame generation. Only a fresh output (one shown again is sharpened already).
+			dlss_sharpen(dlss_image, 0);
+			if (vr_view && right && right != pre_right && right != image_to_flip2)
+			{
+				dlss_sharpen(right, 1);
+			}
+		}
+		if (pre_left && m_dlss->output_fresh() && m_framegen && vk::framegen_enabled() && vr_view)
+		{
+			// Frame generation's HUD-less input (any game whose HUD the VR HUD box separates): DLSS's output before the HUD
+			// is put back, so DLSS-G leaves the HUD's pixels alone instead of moving them with the world.
+			framegen_keep_hudless(dlss_image, 0);
+			framegen_keep_hudless(pre_right && right != pre_right ? right : nullptr, 1);
+		}
+		else
+		{
+			m_framegen_hudless_valid[0] = m_framegen_hudless_valid[1] = false;
+		}
 		if (pre_left && m_dlss->output_fresh())
 		{
 			m_dlss->hud_composite(*m_current_command_buffer, dlss_image, final_left, 0, pre_left, buffer_width, buffer_height);

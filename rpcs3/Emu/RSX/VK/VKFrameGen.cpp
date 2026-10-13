@@ -430,7 +430,13 @@ namespace vk
 			motion_img = m_invalid_mv.get();
 		}
 
+		vk::viewable_image* const hudless = in.hudless && in.hudless->width() == in.backbuffer->width() && in.hudless->height() == in.backbuffer->height() &&
+			in.hudless->format() == in.backbuffer->format() ? in.hudless : nullptr;
 		in.backbuffer->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		if (hudless)
+		{
+			hudless->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
 		in.depth->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		motion_img->push_layout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		out->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
@@ -445,8 +451,16 @@ namespace vk
 		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, motion_img->value, range, VK_FORMAT_R32G32_SFLOAT, motion_img->width(), motion_img->height(), false);
 		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, out->value, range, out->format(), out->width(), out->height(), true);
 
+		NVSDK_NGX_Resource_VK hudless_res{};
+		if (hudless)
+		{
+			const vk::image_view* hl_view = hudless->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
+			hudless_res = NVSDK_NGX_Create_ImageView_Resource_VK(hl_view->value, hudless->value, range, hl_view->info.format, hudless->width(), hudless->height(), false);
+		}
+
 		NVSDK_NGX_VK_DLSSG_Eval_Params eval{};
 		eval.pBackbuffer = &backbuffer;
+		eval.pHudless = hudless ? &hudless_res : nullptr;
 		eval.pDepth = &depth;
 		eval.pMVecs = &motion;
 		eval.pOutputInterpFrame = &output;
@@ -505,11 +519,23 @@ namespace vk
 		opt.mvecsSubrectSize = {in.motion->width(), in.motion->height()};
 		opt.depthSubrectSize = {in.depth->width(), in.depth->height()};
 		opt.backbufferSubrectSize = {in.backbuffer->width(), in.backbuffer->height()};
+		if (hudless)
+		{
+			opt.hudLessSubrectSize = {hudless->width(), hudless->height()};
+		}
+		if (static bool s_logged = false; hudless && !std::exchange(s_logged, true))
+		{
+			framegen_log.notice("Frame generation: HUD-less input on (the VR HUD box's separation)");
+		}
 		opt.outputInterpSubrectSize = {out->width(), out->height()};
 
 		const NVSDK_NGX_Result r = NGX_VK_EVALUATE_DLSSG(cmd, static_cast<NVSDK_NGX_Handle*>(m_features[eye].handle), static_cast<NVSDK_NGX_Parameter*>(m_params), &eval, &opt);
 		motion_img->pop_layout(cmd);
 		in.depth->pop_layout(cmd);
+		if (hudless)
+		{
+			hudless->pop_layout(cmd);
+		}
 		in.backbuffer->pop_layout(cmd);
 		vk::insert_global_memory_barrier(cmd);
 

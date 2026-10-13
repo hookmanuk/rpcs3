@@ -41,6 +41,7 @@ namespace vk
 	struct framegen_eye_inputs
 	{
 		vk::viewable_image* backbuffer = nullptr; // the final eye image (what the headset would show)
+		vk::viewable_image* hudless = nullptr;    // optional: the same without the HUD (same size and format)
 		vk::viewable_image* depth = nullptr;      // R32F at render size (VKDLSS: the resolved depth)
 		vk::viewable_image* motion = nullptr;     // RG32F at render size, current to previous, render pixels
 		f32 clip_to_prev_clip[16]{};              // row-major, column vectors (clip_prev = M * clip)
