@@ -262,6 +262,7 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::VRDlssModel,                get_cfg_location(local_cfg.video.vr.dlss_model) },
 	{ emu_settings_type::VRDlssSharpening,           get_cfg_location(local_cfg.video.vr.dlss_sharpening) },
 	{ emu_settings_type::VRFrameGeneration,          get_cfg_location(local_cfg.video.vr.frame_generation) },
+	{ emu_settings_type::VRFrameGenMultiplier,       get_cfg_location(local_cfg.video.vr.frame_generation_multiplier) },
 	{ emu_settings_type::VRFrameGenMotion,           get_cfg_location(local_cfg.video.vr.frame_generation_motion) },
 	{ emu_settings_type::VRHighestDetailModels,      get_cfg_location(local_cfg.video.vr.highest_detail_models) },
 	{ emu_settings_type::VRReducedRateReflections,   get_cfg_location(local_cfg.video.vr.reduced_rate_reflections) },

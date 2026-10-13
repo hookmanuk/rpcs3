@@ -1563,6 +1563,13 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case vr_dlss_model::m: return tr("M: transformer (Performance default)", "DLSS model");
 		}
 		break;
+	case emu_settings_type::VRFrameGenMultiplier:
+		switch (static_cast<vr_framegen_multiplier>(index))
+		{
+		case vr_framegen_multiplier::x2: return tr("2x (one generated frame per rendered frame)", "Frame generation multiplier");
+		case vr_framegen_multiplier::x3: return tr("3x (two; RTX 50)", "Frame generation multiplier");
+		}
+		break;
 	case emu_settings_type::VRFrameGenMotion:
 		switch (static_cast<vr_framegen_motion>(index))
 		{

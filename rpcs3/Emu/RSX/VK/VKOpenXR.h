@@ -67,7 +67,8 @@ namespace vk::xr
 	// returns true, submit the command buffer, then call commit_eyes().
 	// framegen: generated = a generated pair (VKFrameGen.h), published and committed before this flip's real pair and
 	// shown on the headset frame before it.
-	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, bool generated = false);
+	// generated: the k-th generated pair (1 or 2) instead of the real one (0).
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, u32 generated = 0);
 
 	// After submitting a command buffer with published eyes/overlay, before commit_*:
 	// marks the point on RPCS3's queue the frame thread waits for before copying them
@@ -78,7 +79,8 @@ namespace vk::xr
 	// rendered with (pose_id from locate_render_pose; 0 = none) and (game-FOV mode)
 	// its FOV. The frame thread presents it. crop: the part of each eye image the
 	// projection layer shows (x0, y0, x1, y1 as fractions; profile display_rect).
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f}, bool generated = false);
+	// generated: the k-th generated pair, at fraction of the way in time from the last real frame to this one.
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f}, u32 generated = 0, f32 fraction = 0.5f);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
 	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)
@@ -124,7 +126,7 @@ namespace vk::xr
 	// (u, v, 1) of the to_id frame to the from_id frame's image (divide by the third).
 	bool render_pose_homography(u32 from_id, u32 to_id, f32 h[9]);
 	// framegen: the same from the cur_id frame to the orientation halfway between prev_id's and cur_id's (a generated frame's).
-	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9]);
+	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9], f32 fraction = 0.5f);
 
 	// Diagnostic: head yaw (degrees) of a pose from locate_render_pose, NaN if no longer kept.
 	f32 render_pose_yaw(u32 pose_id);

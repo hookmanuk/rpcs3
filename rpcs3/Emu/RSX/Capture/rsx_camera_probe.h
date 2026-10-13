@@ -700,6 +700,8 @@ namespace rsx::vr
 	// framegen: DLSS Frame Generation runs (VKFrameGen.h): the game renders at half the VR frame rate (the headset still
 	// gets every frame, half of them generated).
 	void set_framegen_active(bool active);
+	// The frame-rate multiplier while it runs (2 or 3): the game renders at the VR frame rate divided by it.
+	void set_framegen_multiplier(u32 multiplier);
 
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);

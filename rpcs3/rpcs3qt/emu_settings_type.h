@@ -249,6 +249,7 @@ enum class emu_settings_type
 	VRDlssModel,
 	VRDlssSharpening,         // VR fork
 	VRFrameGeneration,        // VR fork, framegen
+	VRFrameGenMultiplier,
 	VRFrameGenMotion,
 	VRHighestDetailModels,    // VR fork: game options (rules tagged "option" in the VR profile)
 	VRReducedRateReflections,

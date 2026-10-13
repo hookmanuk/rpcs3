@@ -48,6 +48,8 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 	m_emu_settings->EnhanceComboBox(ui->vrDlssModel, emu_settings_type::VRDlssModel);
 	subscribe_tooltip(ui->gb_vrDlssModel, tooltips.settings.vr_dlss_model);
 	enhance_checkbox(emu_settings_type::VRFrameGeneration, ui->vrFrameGeneration, tooltips.settings.vr_frame_generation);
+	m_emu_settings->EnhanceComboBox(ui->vrFrameGenMultiplier, emu_settings_type::VRFrameGenMultiplier);
+	subscribe_tooltip(ui->gb_vrFrameGenMultiplier, tooltips.settings.vr_framegen_multiplier);
 	m_emu_settings->EnhanceComboBox(ui->vrFrameGenMotion, emu_settings_type::VRFrameGenMotion);
 	subscribe_tooltip(ui->gb_vrFrameGenMotion, tooltips.settings.vr_framegen_motion);
 	// DLSS (experimental): set before boot it makes the DLSS context for the session; the home menu then changes the

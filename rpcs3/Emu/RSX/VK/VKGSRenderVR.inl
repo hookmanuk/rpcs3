@@ -10,13 +10,15 @@
 	// framegen (VKFrameGen.h): DLSS Frame Generation; null unless DLSS is on at boot (the setting then works live). m_framegen_eyes: this flip's
 	// generated pair (null: none), shown before the real pair.
 	std::unique_ptr<vk::framegen_context> m_framegen;
-	vk::viewable_image* m_framegen_eyes[2]{};
+	vk::viewable_image* m_framegen_eyes[2][2]{}; // [k-th generated pair][eye]
+	u32 m_framegen_count = 0;                     // generated pairs this flip (1 at 2x, 2 at 3x)
 	u32 m_framegen_pose = 0;
 	void framegen_on_flip(const rsx::display_flip_info_t& info, vk::viewable_image* left, vk::viewable_image* right);
 	u32 vr_displayed_pose(const rsx::display_flip_info_t& info); // the head pose the displayed image was drawn with
 	// DLSS sharpening (RCAS, VR > DLSS Sharpening) of each eye's output.
 	std::unique_ptr<vk::viewable_image> m_dlss_sharpened[2];
 	void dlss_sharpen(vk::viewable_image* image, u32 eye);
+	void dlss_dump_sequence(vk::viewable_image* input, u32 in_w, u32 in_h, vk::viewable_image* output); // dev: RPCS3_DLSS_SEQ
 	// framegen: each eye's DLSS output before the HUD went back on (DLSS-G's HUD-less input).
 	std::unique_ptr<vk::viewable_image> m_framegen_hudless[2];
 	bool m_framegen_hudless_valid[2]{};

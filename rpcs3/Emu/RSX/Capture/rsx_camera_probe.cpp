@@ -1668,6 +1668,16 @@ namespace rsx::vr
 	}
 
 	static atomic_t<bool> g_framegen_active{false};
+	static atomic_t<u32> g_framegen_multiplier{2};
+
+	void set_framegen_multiplier(u32 multiplier)
+	{
+		multiplier = std::clamp<u32>(multiplier, 2, 4);
+		if (g_framegen_multiplier.exchange(multiplier) != multiplier)
+		{
+			vr_probe_log.notice("VR: frame generation %ux: the game runs at 1/%u of the VR frame rate", multiplier, multiplier);
+		}
+	}
 
 	void set_framegen_active(bool active)
 	{
@@ -1924,9 +1934,9 @@ namespace rsx::vr
 		}
 		if (g_framegen_active.load())
 		{
-			// Frame generation doubles it again (Unlimited: half the headset's refresh rate).
+			// Frame generation multiplies it again (Unlimited: the headset's refresh rate divided by the multiplier).
 			const u32 full = fps ? fps : g_headset_refresh_hz.load();
-			fps = full ? std::max<u32>(full / 2, 1) : fps;
+			fps = full ? std::max<u32>(full / g_framegen_multiplier.load(), 1) : fps;
 		}
 		return fps;
 	}

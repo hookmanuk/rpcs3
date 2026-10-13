@@ -241,6 +241,7 @@ namespace rsx
 				add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
 				add_unsigned_slider(&g_cfg.video.vr.dlss_sharpening, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_SHARPENING, " %", 5); // VR fork
 				add_checkbox(&g_cfg.video.vr.frame_generation, localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_GENERATION); // VR fork (framegen)
+				add_dropdown(&g_cfg.video.vr.frame_generation_multiplier, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MULTIPLIER);
 				add_dropdown(&g_cfg.video.vr.frame_generation_motion, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MOTION);
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);

@@ -10,6 +10,8 @@
 #include "3rdparty/GPUOpen/include/ffx_fsr1.h"
 #undef A_CPU
 #include "vkutils/image.h"
+#include "vkutils/buffer_object.h"
+#include "Utilities/File.h"
 
 #include "../Capture/rsx_camera_probe.h"
 #include "../Capture/rsx_vr_hooks.h"
@@ -418,6 +420,75 @@ namespace
 	};
 }
 
+// Dev: RPCS3_DLSS_SEQ=<path>. Writing "<x> <y> <w> <h> <frames>" (output pixels of the left eye) into <path> saves, for that
+// many consecutive game frames, the region of DLSS's input (render size, the same region scaled) and of its output as raw
+// RGBA8: <path>.<n>.in / .out, sizes in <path>.txt. Each frame's input is the truth for that frame, so where DLSS's
+// history misplaces something the output differs from it (Sonic's jumping scenery).
+void VKGSRender::dlss_dump_sequence(vk::viewable_image* input, u32 in_w, u32 in_h, vk::viewable_image* output)
+{
+	static const std::string s_path = [] { const char* v = std::getenv("RPCS3_DLSS_SEQ"); return v ? std::string(v) : std::string(); }();
+	static s32 s_left = 0, s_index = 0, s_x = 0, s_y = 0, s_w = 0, s_h = 0;
+	if (s_path.empty() || !input || !output || !in_w || !in_h)
+	{
+		return;
+	}
+	if (s_left <= 0)
+	{
+		static u32 s_poll = 0;
+		if (s_poll++ % 30 || !fs::is_file(s_path))
+		{
+			return;
+		}
+		const std::string request = fs::file(s_path).to_string();
+		fs::remove_file(s_path);
+		if (std::sscanf(request.c_str(), "%d %d %d %d %d", &s_x, &s_y, &s_w, &s_h, &s_left) != 5 || s_w <= 0 || s_h <= 0)
+		{
+			s_left = 0;
+			return;
+		}
+		s_index = 0;
+		s_x = std::clamp<s32>(s_x, 0, static_cast<s32>(output->width()) - 1);
+		s_y = std::clamp<s32>(s_y, 0, static_cast<s32>(output->height()) - 1);
+		s_w = std::min<s32>(s_w, static_cast<s32>(output->width()) - s_x);
+		s_h = std::min<s32>(s_h, static_cast<s32>(output->height()) - s_y);
+		rsx_log.notice("DLSS sequence: %d frames of %dx%d at (%d, %d), output %ux%u, input %ux%u", s_left, s_w, s_h, s_x, s_y, output->width(), output->height(), in_w, in_h);
+	}
+	const f32 sx = static_cast<f32>(in_w) / output->width(), sy = static_cast<f32>(in_h) / output->height();
+	const s32 ix = static_cast<s32>(s_x * sx), iy = static_cast<s32>(s_y * sy);
+	const s32 iw = std::max<s32>(1, static_cast<s32>(s_w * sx)), ih = std::max<s32>(1, static_cast<s32>(s_h * sy));
+	const usz out_size = static_cast<usz>(s_w) * s_h * 4, in_size = static_cast<usz>(iw) * ih * 4;
+	vk::buffer buffer(*m_device, utils::align(out_size + in_size, 0x10000), m_device->get_memory_mapping().host_visible_coherent,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
+	const auto copy = [&](vk::viewable_image* image, s32 x, s32 y, s32 w, s32 h, usz offset)
+	{
+		VkBufferImageCopy region{};
+		region.bufferOffset = offset;
+		region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+		region.imageOffset = {x, y, 0};
+		region.imageExtent = {static_cast<u32>(w), static_cast<u32>(h), 1};
+		image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+		vk::copy_image_to_buffer(*m_current_command_buffer, image, &buffer, region);
+		image->pop_layout(*m_current_command_buffer);
+	};
+	copy(output, s_x, s_y, s_w, s_h, 0);
+	copy(input, ix, iy, iw, ih, out_size);
+	flush_command_queue(true);
+	const u8* data = static_cast<const u8*>(buffer.map(0, out_size + in_size));
+	fs::write_file(fmt::format("%s.%03d.out", s_path, s_index), fs::rewrite, data, out_size);
+	fs::write_file(fmt::format("%s.%03d.in", s_path, s_index), fs::rewrite, data + out_size, in_size);
+	buffer.unmap();
+	if (s_index == 0)
+	{
+		fs::write_file(s_path + ".txt", fs::rewrite, fmt::format("%d %d %d %d %u %u", s_w, s_h, iw, ih, static_cast<u32>(output->format()), static_cast<u32>(input->format())));
+	}
+	s_index++;
+	if (--s_left == 0)
+	{
+		rsx_log.notice("DLSS sequence: %d frames written", s_index);
+	}
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+}
+
 // RCAS (AMD FidelityFX, as the FSR upscaler's second pass) on a DLSS output, in place. VR > DLSS Sharpening 0 turns it off.
 void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 {
@@ -471,7 +542,7 @@ void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 
 void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::viewable_image* left, vk::viewable_image* right)
 {
-	m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
+	m_framegen_count = 0;
 	if (!left || !right || left == right)
 	{
 		m_framegen->reset();
@@ -479,7 +550,9 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 	}
 	f32 tan_x = 1.f, tan_y = 1.f;
 	rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
-	vk::viewable_image* outs[2]{};
+	// 2x: one generated frame between two real ones; 3x: two (DLSS-G's multi-frame generation).
+	const u32 extra = m_framegen->multiplier() - 1;
+	vk::viewable_image* outs[2][2]{}; // [k][eye]
 	vk::viewable_image* const eyes[2] = {left, right};
 	for (u32 eye = 0; eye < 2; ++eye)
 	{
@@ -496,42 +569,56 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 		{
 			return;
 		}
-		outs[eye] = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset());
+		for (u32 k = 0; k < extra; ++k)
+		{
+			outs[k][eye] = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset(), k + 1, extra);
+		}
 	}
 	const u32 pose = vr_displayed_pose(info);
-	if (outs[0] && outs[1])
+	u32 count = 0;
+	while (count < extra && outs[count][0] && outs[count][1])
 	{
-		// The HUD of this frame onto the generated pair, turned from this frame's head pose to the halfway one.
-		f32 h[9];
-		const bool turned = vk::xr::render_pose_halfway_homography(m_framegen_pose, pose, h);
-		for (u32 eye = 0; eye < 2; ++eye)
+		count++;
+	}
+	if (count == extra && count)
+	{
+		// The HUD of this frame onto each generated pair, turned from this frame's head pose to that pair's (k / multiplier of
+		// the way from the last frame's).
+		for (u32 k = 0; k < count; ++k)
 		{
-			if (m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye])
+			f32 h[9];
+			const bool turned = vk::xr::render_pose_halfway_homography(m_framegen_pose, pose, h, static_cast<f32>(k + 1) / static_cast<f32>(extra + 1));
+			for (u32 eye = 0; eye < 2; ++eye)
 			{
-				m_dlss->hud_composite(*m_current_command_buffer, outs[eye], m_framegen_hud_final[eye], 0, m_framegen_hud_pre[eye], m_framegen_hud_w, m_framegen_hud_h,
-					turned ? h : nullptr);
+				if (m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye])
+				{
+					m_dlss->hud_composite(*m_current_command_buffer, outs[k][eye], m_framegen_hud_final[eye], 0, m_framegen_hud_pre[eye], m_framegen_hud_w, m_framegen_hud_h,
+						turned ? h : nullptr);
+				}
 			}
+			m_framegen_eyes[k][0] = outs[k][0];
+			m_framegen_eyes[k][1] = outs[k][1];
 		}
-		m_framegen_eyes[0] = outs[0];
-		m_framegen_eyes[1] = outs[1];
+		m_framegen_count = count;
+		rsx::vr::set_framegen_multiplier(extra + 1);
 		if (static const char* s_only = std::getenv("RPCS3_DLSSG_ONLY"); s_only)
 		{
 			// Dev: show only generated frames (each in place of its real frame), to look at them. =2: the left eye's generated
 			// frame in the left eye and its real frame in the right, to compare the two in one capture.
-			const areai r{0, 0, static_cast<s32>(outs[0]->width()), static_cast<s32>(outs[0]->height())};
+			const areai r{0, 0, static_cast<s32>(outs[0][0]->width()), static_cast<s32>(outs[0][0]->height())};
 			if (s_only[0] == '2')
 			{
 				vk::copy_image(*m_current_command_buffer, eyes[0], eyes[1], r, r);
-				vk::copy_image(*m_current_command_buffer, outs[0], eyes[0], r, r);
+				vk::copy_image(*m_current_command_buffer, outs[0][0], eyes[0], r, r);
 			}
 			else
 			{
 				for (u32 eye = 0; eye < 2; ++eye)
 				{
-					vk::copy_image(*m_current_command_buffer, outs[eye], eyes[eye], r, r);
+					vk::copy_image(*m_current_command_buffer, outs[0][eye], eyes[eye], r, r);
 				}
 			}
-			m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
+			m_framegen_count = 0;
 		}
 	}
 	m_framegen_pose = pose;
@@ -549,6 +636,10 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	if (!m_dlss || avconfig.stereo_enabled || (generated_stereo && !m_vr_multiview))
 	{
 		return;
+	}
+	if (!vk::dlss_uses_ngx() && info.emu_flip && image_to_flip)
+	{
+		dlss_dump_sequence(image_to_flip, buffer_width, buffer_height, image_to_flip); // dev: RPCS3_DLSS_SEQ with DLSS off (the plain frame)
 	}
 
 	const auto target = avconfig.aspect_convert_region({ buffer_width, buffer_height }, m_swapchain_dims);
@@ -576,10 +667,16 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	}
 	m_dlss->hud_flip_done();
 	vk::viewable_image* right = pre_right ? pre_right : image_to_flip2;
+	vk::viewable_image* const dlss_input = pre_left ? pre_left : image_to_flip;
+	const u32 dlss_in_w = buffer_width, dlss_in_h = buffer_height;
 	if (vk::viewable_image* dlss_image = m_dlss->on_flip(*m_current_command_buffer, pre_left ? pre_left : image_to_flip, buffer_width, buffer_height,
 			static_cast<u32>(target.width()), static_cast<u32>(target.height()), info.emu_flip, dlss_vr_unsupported(), out_w, out_h,
 			vr_view ? &right : nullptr))
 	{
+		if (info.emu_flip && m_dlss->output_fresh())
+		{
+			dlss_dump_sequence(dlss_input, dlss_in_w, dlss_in_h, dlss_image); // dev: RPCS3_DLSS_SEQ
+		}
 		if (m_dlss->output_fresh())
 		{
 			// Sharpening (VR > DLSS Sharpening): DLSS's own output, before the HUD goes back on and

@@ -139,7 +139,7 @@ namespace vk::xr
 			std::mutex slot_mutex;
 			std::condition_variable slot_cv;
 			u64 commit_seq = 0; // bumped by commit_eyes(); the frame thread paces on it
-			slot_t slots[6]; // framegen: in use, three queued and two being written
+			slot_t slots[8]; // framegen: in use, four queued, the real pair and two generated ones being written (3x)
 			u32 slot_w = 0;
 			u32 slot_h = 0;
 			VkFormat slot_format = VK_FORMAT_UNDEFINED;
@@ -149,8 +149,8 @@ namespace vk::xr
 			// framegen (VKFrameGen.h): each flip commits a generated pair, then its real pair; both go into a queue the frame
 			// thread shows one per headset frame, in order. The thread runs every headset frame and never waits for the GPU (a
 			// thread that waited for each commit and for its GPU work missed headset frames whenever that work ran past one).
-			s32 writing_generated = -1; // generated slot the RSX thread is filling
-			s32 present_queue[3]{-1, -1, -1}; // committed, not shown yet, oldest first (a full queue drops its oldest)
+			s32 writing_generated[2]{-1, -1}; // generated slots the RSX thread is filling (the k-th generated pair: [k - 1])
+			s32 present_queue[4]{-1, -1, -1, -1}; // committed, not shown yet, oldest first (a full queue drops its oldest)
 			u32 present_count = 0;
 			std::chrono::steady_clock::time_point last_generated{}; // the last generated commit
 			bool framegen_active() const { return present_count || std::chrono::steady_clock::now() - last_generated < std::chrono::milliseconds(250); }
@@ -947,7 +947,7 @@ namespace vk::xr
 			g_xr.slot_w = g_xr.slot_h = 0;
 			g_xr.slot_format = VK_FORMAT_UNDEFINED;
 			g_xr.latest = -1;
-			g_xr.writing_generated = -1;
+			g_xr.writing_generated[0] = g_xr.writing_generated[1] = -1;
 			g_xr.present_count = 0;
 		}
 
@@ -1537,8 +1537,12 @@ namespace vk::xr
 		return g_xr.session && g_xr.session_running.load() && !g_xr.lost;
 	}
 
-	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, bool generated)
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, u32 generated)
 	{
+		if (generated > std::size(g_xr.writing_generated))
+		{
+			return false;
+		}
 		if (!is_running() || !left || !width || !height)
 		{
 			return false;
@@ -1570,7 +1574,8 @@ namespace vk::xr
 		}
 
 		s32 slot = 0;
-		while (slot == g_xr.latest || slot == g_xr.in_use || g_xr.queued(slot) || slot == g_xr.writing || slot == g_xr.writing_generated)
+		while (slot == g_xr.latest || slot == g_xr.in_use || g_xr.queued(slot) || slot == g_xr.writing ||
+			std::find(std::begin(g_xr.writing_generated), std::end(g_xr.writing_generated), slot) != std::end(g_xr.writing_generated))
 		{
 			slot++;
 		}
@@ -1578,7 +1583,7 @@ namespace vk::xr
 		{
 			return false;
 		}
-		(generated ? g_xr.writing_generated : g_xr.writing) = slot;
+		(generated ? g_xr.writing_generated[generated - 1] : g_xr.writing) = slot;
 		lock.unlock();
 
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -1638,17 +1643,17 @@ namespace vk::xr
 		g_xr.ready_pending = g_xr.ready_submitted[k] ? static_cast<s32>(k) : -1;
 	}
 
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop, bool generated)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop, u32 generated, f32 fraction)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
-		if ((generated ? g_xr.writing_generated : g_xr.writing) < 0)
+		if (generated > std::size(g_xr.writing_generated) || (generated ? g_xr.writing_generated[generated - 1] : g_xr.writing) < 0)
 		{
 			return;
 		}
 
 		// The pose this frame's draws were rotated by. Too old to be in the history
 		// (or never located): not declared as a projection.
-		auto& slot = g_xr.slots[generated ? g_xr.writing_generated : g_xr.writing];
+		auto& slot = g_xr.slots[generated ? g_xr.writing_generated[generated - 1] : g_xr.writing];
 		const bool kept = pose_id && g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id && g_xr.kept_pose.id == pose_id;
 		if (!kept && (!pose_id || g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id))
 		{
@@ -1676,8 +1681,9 @@ namespace vk::xr
 
 		if (generated)
 		{
-			// framegen: the generated frame lies halfway in time between the last real frame and this one; it is
-			// declared with the head pose halfway between theirs (the compositor turns it to the display pose).
+			// framegen: the generated frame lies a fraction of the way in time between the last real frame and this one (1/2 at
+			// 2x; 1/3 and 2/3 at 3x); it is declared with the head pose that far between theirs (the compositor turns it to the
+			// display pose).
 			if (g_xr.latest >= 0 && g_xr.slots[g_xr.latest].pose_valid && slot.pose_valid)
 			{
 				const auto& prev = g_xr.slots[g_xr.latest];
@@ -1687,7 +1693,8 @@ namespace vk::xr
 				{
 					b = {-b.x, -b.y, -b.z, -b.w};
 				}
-				XrQuaternionf q{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f, (a.w + b.w) * 0.5f};
+				const f32 t = std::clamp(fraction, 0.f, 1.f), u = 1.f - t;
+				XrQuaternionf q{a.x * u + b.x * t, a.y * u + b.y * t, a.z * u + b.z * t, a.w * u + b.w * t};
 				const f32 len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
 				if (len > 1e-6f)
 				{
@@ -1696,15 +1703,15 @@ namespace vk::xr
 				}
 				for (u32 i = 0; i < 2; ++i)
 				{
-					slot.eye_position[i] = {(prev.eye_position[i].x + slot.eye_position[i].x) * 0.5f, (prev.eye_position[i].y + slot.eye_position[i].y) * 0.5f,
-						(prev.eye_position[i].z + slot.eye_position[i].z) * 0.5f};
+					slot.eye_position[i] = {prev.eye_position[i].x * u + slot.eye_position[i].x * t, prev.eye_position[i].y * u + slot.eye_position[i].y * t,
+						prev.eye_position[i].z * u + slot.eye_position[i].z * t};
 				}
 			}
 			slot.ready = g_xr.ready_pending; // the real pair's commit takes it
 			slot.generated = true;
 			g_xr.last_generated = std::chrono::steady_clock::now();
-			g_xr.enqueue(g_xr.writing_generated);
-			g_xr.writing_generated = -1;
+			g_xr.enqueue(g_xr.writing_generated[generated - 1]);
+			g_xr.writing_generated[generated - 1] = -1;
 			return;
 		}
 		slot.ready = std::exchange(g_xr.ready_pending, -1);
@@ -1956,7 +1963,7 @@ namespace vk::xr
 		return pose_homography(from.orientation, to.orientation, to.eye_fov, h);
 	}
 
-	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9])
+	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9], f32 fraction)
 	{
 		const auto& prev = g_xr.render_poses[prev_id % std::size(g_xr.render_poses)];
 		const auto& cur = g_xr.render_poses[cur_id % std::size(g_xr.render_poses)];
@@ -1964,14 +1971,15 @@ namespace vk::xr
 		{
 			return false;
 		}
-		// The orientation halfway between (as commit_eyes declares a generated frame's).
+		// The orientation that fraction of the way from prev to cur (as commit_eyes declares a generated frame's).
 		const XrQuaternionf& a = prev.orientation;
 		XrQuaternionf b = cur.orientation;
 		if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.f)
 		{
 			b = {-b.x, -b.y, -b.z, -b.w};
 		}
-		XrQuaternionf m{a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+		const f32 t = std::clamp(fraction, 0.f, 1.f), u = 1.f - t;
+		XrQuaternionf m{a.x * u + b.x * t, a.y * u + b.y * t, a.z * u + b.z * t, a.w * u + b.w * t};
 		const f32 len = std::sqrt(m.x * m.x + m.y * m.y + m.z * m.z + m.w * m.w);
 		if (len < 1e-6f)
 		{

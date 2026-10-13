@@ -60,7 +60,10 @@ namespace vk
 		bool available();
 		// The interpolated frame between the previous call's backbuffer for this eye and this one, or null (no previous
 		// frame, a reset, or a failure). Recorded into cmd; valid until the next call for the same eye.
-		vk::viewable_image* evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset);
+		// index / count: the index-th of count generated frames between the two (multi-frame generation; 1 / 1 at 2x).
+		vk::viewable_image* evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset, u32 index = 1, u32 count = 1);
+		// The frame-rate multiplier in use: the setting (2x or 3x), within what this GPU's DLSS-G supports.
+		u32 multiplier() const;
 		// Forget both eyes' history (the next evaluation generates nothing).
 		void reset() { m_have_previous[0] = m_have_previous[1] = false; }
 		// Turned off (the setting): the features are freed and the game goes back to the full VR frame rate.
@@ -80,7 +83,9 @@ namespace vk
 		s32 m_available = -1; // -1 unknown, 0 no, 1 yes
 		void* m_params = nullptr; // NVSDK_NGX_Parameter* of our own
 		feature m_features[2];
-		std::unique_ptr<vk::viewable_image> m_output[2];
+		std::unique_ptr<vk::viewable_image> m_output[2][2]; // [eye][index - 1]
+		u32 m_max_frames = 1;     // generated frames per rendered frame this GPU supports (MultiFrameCountMax)
+		bool m_first[2]{};        // this frame's evaluations start the history (no previous frame): nothing generated
 		std::unique_ptr<vk::viewable_image> m_invalid_mv; // dev (RPCS3_DLSSG_MV=invalid): motion vectors all marked invalid
 		bool m_have_previous[2]{};
 		bool m_disabled = false;

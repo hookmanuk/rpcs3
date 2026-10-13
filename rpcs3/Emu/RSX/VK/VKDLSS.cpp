@@ -1549,6 +1549,14 @@ namespace vk
 				mul4(found->second.m, inv, r);
 				have_r = true;
 				m_matched += view == (m_eyes_only ? 1u : 0u);
+				// This frame's motion for a draw with this matrix, for unpaired draws with the same one (below).
+				if (auto& cache = m_frame_motion[view]; cache.size() < 32 &&
+					std::none_of(cache.begin(), cache.end(), [&](const std::pair<mat4, mat4>& e) { return near_equal(e.first.m, cur.m); }))
+				{
+					mat4 motion;
+					std::memcpy(motion.m, r, sizeof(r));
+					cache.emplace_back(cur, motion);
+				}
 
 				// Votes for the camera-only reprojection (the same for every static object).
 				auto& votes = m_reproject_votes[view];
@@ -1591,7 +1599,30 @@ namespace vk
 		if (!have_r)
 		{
 			m_unmatched += view == (m_eyes_only ? 1u : 0u);
-			if (m_static_valid[view])
+			// An unpaired draw (Sonic: about a third, its geometry rebuilt every frame) takes the motion of a paired draw with
+			// the same matrix this frame. The previous frame's most common motion was a frame late whenever the camera's
+			// motion changed (a bump), and DLSS's history moved such scenery up and down (Matt, headset).
+			// RPCS3_DLSS_STALE_UNMATCHED=1: the previous frame's motion, as before.
+			static const bool s_stale = env("RPCS3_DLSS_STALE_UNMATCHED") != nullptr;
+			const auto& cache = m_frame_motion[view];
+			const auto same = std::find_if(cache.begin(), cache.end(), [&](const std::pair<mat4, mat4>& e) { return near_equal(e.first.m, cur.m); });
+			if (same != cache.end() && m_static_valid[view] && view == (m_eyes_only ? 1u : 0u))
+			{
+				// Dev (RPCS3_DLSS_RSTATS): how far the previous frame's motion is from this frame's for such a draw.
+				f32 d = 0.f;
+				for (u32 i = 0; i < 16; ++i)
+				{
+					d = std::max(d, std::abs(same->second.m[i] - m_static_reproject[view].m[i]));
+				}
+				m_rstats_stale_off += d > 0.001f;
+				m_rstats_stale_max = std::max(m_rstats_stale_max, d);
+			}
+			if (same != cache.end() && !s_stale)
+			{
+				std::memcpy(r, same->second.m, sizeof(r));
+				m_unmatched_fresh += view == (m_eyes_only ? 1u : 0u);
+			}
+			else if (m_static_valid[view])
 			{
 				std::memcpy(r, m_static_reproject[view].m, sizeof(r));
 			}
@@ -2064,8 +2095,10 @@ namespace vk
 			{
 				worst += fmt::format(" %016llx/%u: %u of %u%s;", top[i].first & 0xffffffffffull, static_cast<u32>(top[i].first >> 40), top[i].second.moved, top[i].second.n, top[i].second.alt ? " (fallback)" : "");
 			}
-			dlss_log.notice("Pairing (120 frames): by address %u (%u moved), by the fallback %u (%u moved); most moved (program low bits/elements):%s",
-				m_rstats_n[0], m_rstats_moved[0], m_rstats_n[1], m_rstats_moved[1], worst);
+			dlss_log.notice("Pairing (120 frames): by address %u (%u moved), by the fallback %u (%u moved); unpaired %u (this frame's motion %u; the previous frame's off in %u, by up to %.4f); most moved (program low bits/elements):%s",
+				m_rstats_n[0], m_rstats_moved[0], m_rstats_n[1], m_rstats_moved[1], m_rstats_unpaired, m_rstats_unpaired_fresh, m_rstats_stale_off, m_rstats_stale_max, worst);
+			m_rstats_unpaired = m_rstats_unpaired_fresh = m_rstats_stale_off = 0;
+			m_rstats_stale_max = 0.f;
 			m_rstats.clear();
 			m_rstats_n[0] = m_rstats_n[1] = m_rstats_moved[0] = m_rstats_moved[1] = 0;
 		}
@@ -2089,9 +2122,12 @@ namespace vk
 				}
 			}
 			m_reproject_votes[view].clear();
+			m_frame_motion[view].clear();
 			m_view_draws[view] = 0;
 		}
-		m_matched = m_unmatched = m_camera_draws = 0;
+		m_rstats_unpaired += m_unmatched;
+		m_rstats_unpaired_fresh += m_unmatched_fresh;
+		m_matched = m_unmatched = m_camera_draws = m_unmatched_fresh = 0;
 		{
 			std::lock_guard lock(s_test_mutex);
 			s_test_presented.swap(m_test_draws);

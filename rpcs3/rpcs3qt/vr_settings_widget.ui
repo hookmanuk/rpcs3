@@ -712,6 +712,18 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrFrameGenMultiplier">
+           <property name="title">
+            <string>DLSS Frame Generation Multiplier</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrFrameGenMultiplier_layout">
+            <item>
+             <widget class="QComboBox" name="vrFrameGenMultiplier"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QGroupBox" name="gb_vrFrameGenMotion">
            <property name="title">
             <string>DLSS Frame Generation Motion</string>

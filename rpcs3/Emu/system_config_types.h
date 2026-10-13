@@ -432,6 +432,13 @@ enum class vr_dlss_model
 	m,
 };
 
+// VR fork (framegen): DLSS Frame Generation's frame-rate multiplier.
+enum class vr_framegen_multiplier
+{
+	x2, // one generated frame per rendered frame
+	x3, // two (DLSS multi-frame generation, RTX 50)
+};
+
 // VR fork (framegen): where DLSS Frame Generation's motion comes from.
 enum class vr_framegen_motion
 {

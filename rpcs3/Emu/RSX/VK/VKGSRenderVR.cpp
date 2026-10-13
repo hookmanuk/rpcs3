@@ -4353,9 +4353,18 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 	const bool vr_video_screen = vr_video_refresh && m_vr_video_on_screen;
 	const bool xr_eyes = (info.emu_flip || vr_video_screen) && image_to_flip && vk::xr::publish_eyes(*m_current_command_buffer, image_to_flip, image_to_flip2 && !vr_video_screen ? image_to_flip2 : image_to_flip, m_vr_eye_width, m_vr_eye_height);
 	// framegen (VKFrameGen.h): the generated pair halfway to this flip, shown on the headset frame before it.
-	const bool xr_generated = xr_eyes && info.emu_flip && !vr_video_screen && m_framegen_eyes[0] && m_framegen_eyes[1] &&
-		vk::xr::publish_eyes(*m_current_command_buffer, m_framegen_eyes[0], m_framegen_eyes[1], m_vr_eye_width, m_vr_eye_height, true);
-	m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
+	// (2x: one pair; 3x: two, in order.)
+	u32 xr_generated = 0;
+	for (u32 k = 0; k < m_framegen_count && xr_eyes && info.emu_flip && !vr_video_screen; ++k)
+	{
+		if (!m_framegen_eyes[k][0] || !m_framegen_eyes[k][1] ||
+			!vk::xr::publish_eyes(*m_current_command_buffer, m_framegen_eyes[k][0], m_framegen_eyes[k][1], m_vr_eye_width, m_vr_eye_height, k + 1))
+		{
+			break;
+		}
+		xr_generated = k + 1;
+	}
+	m_framegen_count = 0;
 	ckpt(5);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) are drawn only on
@@ -4436,9 +4445,9 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 					std::clamp((r[0] + r[2]) / out.width, 0.f, 1.f), std::clamp((r[1] + r[3]) / out.height, 0.f, 1.f)};
 			}
 		}
-		if (xr_generated)
+		for (u32 k = 0; k < xr_generated; ++k)
 		{
-			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop, true);
+			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop, k + 1, static_cast<f32>(k + 1) / static_cast<f32>(xr_generated + 1));
 		}
 		vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop);
 		if (vr_tracing())

@@ -298,6 +298,7 @@ namespace vk
 		}
 		m_params = params;
 		framegen_log.success("DLSS Frame Generation available (up to %u generated frames per rendered frame)", std::max(1u, max_count));
+		m_max_frames = std::max(1u, max_count);
 		m_available = 1;
 		return true;
 #else
@@ -311,6 +312,7 @@ namespace vk
 		reset();
 		rsx::vr::set_framegen_active(false);
 	}
+
 
 	void framegen_context::release_features()
 	{
@@ -366,24 +368,26 @@ namespace vk
 		f = {handle, w, h, rw, rh, format};
 		m_have_previous[eye] = false;
 
-		auto& out = m_output[eye];
-		if (out)
+		for (auto& out : m_output[eye])
 		{
-			vk::get_resource_manager()->dispose(out);
+			if (out)
+			{
+				vk::get_resource_manager()->dispose(out);
+			}
+			const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+			out = std::make_unique<vk::viewable_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				VK_IMAGE_TYPE_2D, format, w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, usage,
+				VK_IMAGE_CREATE_ALLOW_NULL_RPCS3, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
+			if (!out->value)
+			{
+				framegen_log.error("Frame generation: no %ux%u output image", w, h);
+				m_disabled = true;
+				rsx::vr::set_framegen_active(false);
+				return false;
+			}
+			out->set_debug_name(eye ? "Frame generation output (right eye)" : "Frame generation output");
 		}
-		const VkImageUsageFlags usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		out = std::make_unique<vk::viewable_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_TYPE_2D, format, w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL, usage,
-			VK_IMAGE_CREATE_ALLOW_NULL_RPCS3, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
-		if (!out->value)
-		{
-			framegen_log.error("Frame generation: no %ux%u output image", w, h);
-			m_disabled = true;
-			rsx::vr::set_framegen_active(false);
-			return false;
-		}
-		rsx::vr::set_framegen_active(true); // the game at half the VR frame rate from here on
-		out->set_debug_name(eye ? "Frame generation output (right eye)" : "Frame generation output");
+		rsx::vr::set_framegen_active(true); // the game at 1/multiplier of the VR frame rate from here on
 		framegen_log.notice("Frame generation feature%s %ux%u (render %ux%u), format %u", eye ? " (right eye)" : "", w, h, rw, rh, static_cast<u32>(format));
 		return true;
 #else
@@ -394,17 +398,28 @@ namespace vk
 #endif
 	}
 
-	vk::viewable_image* framegen_context::evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset)
+	u32 framegen_context::multiplier() const
+	{
+		const u32 wanted = g_cfg.video.vr.frame_generation_multiplier == vr_framegen_multiplier::x3 ? 3 : 2;
+		return std::min(wanted, std::min<u32>(m_max_frames, static_cast<u32>(std::size(m_output[0]))) + 1);
+	}
+
+	vk::viewable_image* framegen_context::evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset, u32 index, u32 count)
 	{
 #ifdef HAVE_DLSS
 		if (m_disabled || eye > 1 || !in.backbuffer || !in.depth || !in.motion || !available() || !ensure_feature(cmd, eye, in))
 		{
 			return nullptr;
 		}
-		const bool first = !m_have_previous[eye] || reset;
-		m_have_previous[eye] = true;
+		index = std::clamp<u32>(index, 1, static_cast<u32>(std::size(m_output[eye])));
+		if (index == 1)
+		{
+			m_first[eye] = !m_have_previous[eye] || reset;
+			m_have_previous[eye] = true;
+		}
+		const bool first = m_first[eye];
 
-		vk::viewable_image* const out = m_output[eye].get();
+		vk::viewable_image* const out = m_output[eye][index - 1].get();
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
@@ -466,8 +481,8 @@ namespace vk
 		eval.pOutputInterpFrame = &output;
 
 		NVSDK_NGX_DLSSG_Opt_Eval_Params opt{};
-		opt.multiFrameCount = 1;
-		opt.multiFrameIndex = 1;
+		opt.multiFrameCount = std::max(count, 1u);
+		opt.multiFrameIndex = index;
 		opt.reset = first;
 		opt.depthInverted = in.depth_inverted;
 		opt.cameraMotionIncluded = true; // the motion vectors carry the camera's motion (VKDLSS: R = M_prev * M_cur^-1 per draw)
