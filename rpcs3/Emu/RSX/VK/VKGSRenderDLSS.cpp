@@ -405,13 +405,13 @@ void VKGSRender::framegen_keep_hudless(vk::viewable_image* image, u32 eye)
 
 namespace
 {
-	// RCAS at four times the strength the CAS slider gives the FSR upscaler (Matt: DLSS's output wants more): VR > DLSS
-	// Sharpening 0..100 is -0..-2 stops (RCAS's own maximum is 0).
+	// RCAS beyond its own maximum (0 stops): VR > DLSS Sharpening 0..100 is 0..-0.36 stops (Matt, headset: past about
+	// -0.36 it looks terrible, and the useful range was the slider's first 18 % at 0..-2 stops).
 	class dlss_rcas_pass : public vk::FidelityFX::rcas_pass
 	{
 		void configure(const vk::command_buffer& cmd) override
 		{
-			const f32 stops = -(g_cfg.video.vr.dlss_sharpening / 50.f);
+			const f32 stops = -(g_cfg.video.vr.dlss_sharpening * 0.18f / 50.f);
 			FsrRcasCon(&m_constants_buf[0], stops);
 			vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, push_constants_size, m_constants_buf.data());
 		}
