@@ -62,6 +62,7 @@ namespace vk::xr
 			f32 tan_half_y = 0.f;
 			std::array<f32, 4> crop{0.f, 0.f, 1.f, 1.f}; // the part of each image the projection layer shows
 			s32 ready = -1; // ready_fences entry signalled after RPCS3's copy into this slot (own queue)
+			bool generated = false; // framegen: a generated pair
 		};
 
 		struct state_t
@@ -138,18 +139,38 @@ namespace vk::xr
 			std::mutex slot_mutex;
 			std::condition_variable slot_cv;
 			u64 commit_seq = 0; // bumped by commit_eyes(); the frame thread paces on it
-			slot_t slots[5]; // framegen: a generated pair and its real pair can both wait besides the ones in use
+			slot_t slots[6]; // framegen: in use, three queued and two being written
 			u32 slot_w = 0;
 			u32 slot_h = 0;
 			VkFormat slot_format = VK_FORMAT_UNDEFINED;
 			s32 latest = -1;  // newest committed slot
 			s32 in_use = -1;  // slot the frame thread is copying from
 			s32 writing = -1; // slot the RSX thread is filling
-			// framegen (VKFrameGen.h): a generated pair, committed just before its real pair, is shown first; the real
-			// pair (latest) follows on the next headset frame without waiting for another commit.
-			s32 generated = -1;            // committed generated slot not shown yet
-			s32 writing_generated = -1;    // generated slot the RSX thread is filling
-			bool show_latest_next = false; // the generated slot was just shown: show latest next
+			// framegen (VKFrameGen.h): each flip commits a generated pair, then its real pair; both go into a queue the frame
+			// thread shows one per headset frame, in order. The thread runs every headset frame and never waits for the GPU (a
+			// thread that waited for each commit and for its GPU work missed headset frames whenever that work ran past one).
+			s32 writing_generated = -1; // generated slot the RSX thread is filling
+			s32 present_queue[3]{-1, -1, -1}; // committed, not shown yet, oldest first (a full queue drops its oldest)
+			u32 present_count = 0;
+			std::chrono::steady_clock::time_point last_generated{}; // the last generated commit
+			bool framegen_active() const { return present_count || std::chrono::steady_clock::now() - last_generated < std::chrono::milliseconds(250); }
+			bool queued(s32 slot) const { return std::find(present_queue, present_queue + present_count, slot) != present_queue + present_count; }
+			void enqueue(s32 slot)
+			{
+				if (present_count == std::size(present_queue))
+				{
+					std::copy(present_queue + 1, present_queue + present_count, present_queue);
+					present_count--;
+				}
+				present_queue[present_count++] = slot;
+			}
+			s32 dequeue()
+			{
+				const s32 slot = present_queue[0];
+				std::copy(present_queue + 1, present_queue + present_count, present_queue);
+				present_count--;
+				return slot;
+			}
 
 			// Presentation of the virtual stereo screen (metres, LOCAL space)
 			f32 screen_distance = 2.0f;
@@ -256,6 +277,12 @@ namespace vk::xr
 		}
 
 		// Frame thread: RPCS3's copy into a slot (signalled by ready fence `ready`) is done.
+		// framegen: the flip's GPU work behind fence 'ready' has finished (or there is none to wait for).
+		bool is_ready(s32 ready)
+		{
+			return ready < 0 || !g_xr.ready_submitted[ready] || vkGetFenceStatus(g_xr.device, g_xr.ready_fences[ready]) == VK_SUCCESS;
+		}
+
 		void wait_ready(s32 ready)
 		{
 			if (g_xr.own_queue && ready >= 0)
@@ -920,9 +947,8 @@ namespace vk::xr
 			g_xr.slot_w = g_xr.slot_h = 0;
 			g_xr.slot_format = VK_FORMAT_UNDEFINED;
 			g_xr.latest = -1;
-			g_xr.generated = -1;
 			g_xr.writing_generated = -1;
-			g_xr.show_latest_next = false;
+			g_xr.present_count = 0;
 		}
 
 		// Device-local transfer image (the frame thread copies it into a swapchain).
@@ -1132,6 +1158,8 @@ namespace vk::xr
 
 			slot_t meta{};
 			s32 index = -1;
+			bool repeat = false; // framegen: show the last frame's layers again (no new image)
+			static slot_t s_last_shown{};
 			bool screen_mode = !g_xr.projection;
 			bool screen_world = true;
 			f32 screen_pos[3] = {0.f, 0.f, -g_xr.screen_distance};
@@ -1163,32 +1191,41 @@ namespace vk::xr
 					screen_pos[2] = -g_xr.screen_distance;
 					screen_width = g_xr.screen_width;
 				}
-				// framegen: a generated pair waiting goes first; the real pair (latest) on the next headset frame.
-				if (g_xr.generated >= 0)
-				{
-					index = g_xr.generated;
-					g_xr.generated = -1;
-					g_xr.show_latest_next = true;
-				}
-				else
+				// framegen: the queue's oldest pair once its GPU work has finished; until then (or with nothing queued) the
+				// headset is shown the last frame again (no new image: the runtime keeps the last released one).
+				const bool framegen = g_xr.framegen_active();
+				if (!framegen)
 				{
 					index = g_xr.latest;
-					g_xr.show_latest_next = false;
 				}
-				if (static u32 s_generated = 0, s_frames = 0; index >= 0)
+				else if (g_xr.present_count && is_ready(g_xr.slots[g_xr.present_queue[0]].ready))
 				{
-					// framegen: how many headset frames showed a generated pair (every 5 s while any do).
-					s_generated += g_xr.show_latest_next;
+					index = g_xr.dequeue();
+				}
+				else if (s_last_shown.pose_valid)
+				{
+					meta = s_last_shown;
+					repeat = true;
+				}
+				const bool want_generated = index >= 0 && g_xr.slots[index].generated;
+				if (static u32 s_generated = 0, s_repeated = 0, s_frames = 0; index >= 0 || repeat)
+				{
+					// framegen: how many headset frames showed a generated pair or the last frame again (every 5 s while active).
+					s_generated += want_generated;
+					s_repeated += repeat;
 					static auto s_since = clk::now();
 					if (++s_frames, clk::now() - s_since >= std::chrono::seconds(5))
 					{
 						if (s_generated)
 						{
-							xr_log.notice("Frame generation: %u of %u headset frames showed a generated pair", s_generated, s_frames);
+							xr_log.notice("Frame generation: %u of %u headset frames showed a generated pair, %u the last frame again", s_generated, s_frames, s_repeated);
 						}
-						s_generated = s_frames = 0;
+						s_generated = s_repeated = s_frames = 0;
 						s_since = clk::now();
 					}
+				}
+				if (index >= 0)
+				{
 					g_xr.in_use = index;
 					meta = g_xr.slots[index];
 				}
@@ -1201,12 +1238,16 @@ namespace vk::xr
 			const XrCompositionLayerBaseHeader* layers[3]{};
 			u32 layer_count = 0;
 
-			if (index >= 0 && frame_state.shouldRender && ensure_swapchains(g_xr.slot_w, g_xr.slot_h, g_xr.slot_format))
+			if ((index >= 0 || repeat) && frame_state.shouldRender && ensure_swapchains(g_xr.slot_w, g_xr.slot_h, g_xr.slot_format))
 			{
 				bool ok = true;
 				t = clk::now();
 				for (auto& eye : g_xr.eyes)
 				{
+					if (repeat)
+					{
+						break;
+					}
 					XrSwapchainImageAcquireInfo acquire{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
 					XrSwapchainImageWaitInfo wait{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
 					wait.timeout = 100'000'000; // 100 ms
@@ -1217,8 +1258,9 @@ namespace vk::xr
 				}
 
 				t_acquire = ms_since(t);
-				if (ok)
+				if (ok && !repeat)
 				{
+					s_last_shown = meta;
 					t = clk::now();
 					wait_ready(meta.ready);
 					t_ready = ms_since(t);
@@ -1403,7 +1445,7 @@ namespace vk::xr
 					g_xr.slot_cv.wait_for(lock, std::chrono::milliseconds(100),
 						[&]
 						{
-							return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.show_latest_next || g_xr.stop.load();
+							return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.framegen_active() || g_xr.stop.load();
 						});
 					presented_seq = g_xr.commit_seq;
 					presented_overlay_seq = g_xr.overlay_seq;
@@ -1528,7 +1570,7 @@ namespace vk::xr
 		}
 
 		s32 slot = 0;
-		while (slot == g_xr.latest || slot == g_xr.in_use || slot == g_xr.generated || slot == g_xr.writing || slot == g_xr.writing_generated)
+		while (slot == g_xr.latest || slot == g_xr.in_use || g_xr.queued(slot) || slot == g_xr.writing || slot == g_xr.writing_generated)
 		{
 			slot++;
 		}
@@ -1659,13 +1701,20 @@ namespace vk::xr
 				}
 			}
 			slot.ready = g_xr.ready_pending; // the real pair's commit takes it
-			g_xr.generated = g_xr.writing_generated;
+			slot.generated = true;
+			g_xr.last_generated = std::chrono::steady_clock::now();
+			g_xr.enqueue(g_xr.writing_generated);
 			g_xr.writing_generated = -1;
 			return;
 		}
 		slot.ready = std::exchange(g_xr.ready_pending, -1);
+		slot.generated = false;
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
+		if (g_xr.framegen_active())
+		{
+			g_xr.enqueue(g_xr.latest);
+		}
 		if (g_xr.overlay_writing >= 0)
 		{
 			// Published in the same flip: show it with these eyes.
