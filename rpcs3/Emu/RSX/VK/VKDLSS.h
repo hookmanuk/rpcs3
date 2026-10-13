@@ -202,6 +202,11 @@ namespace vk
 		void hud_flip_done() { m_hud_pre_target = nullptr; }
 		// on_flip's result was made this call (not the last output shown again, not a debug view).
 		bool output_fresh() const { return m_output_fresh; }
+		// framegen (VKFrameGen.h): this frame's depth and motion vectors for an eye (render size, as DLSS took them) and the
+		// eye's camera motion (clip to previous clip, row-major, column vectors; false when unknown). After on_flip.
+		bool framegen_inputs(u32 eye, vk::viewable_image*& depth, vk::viewable_image*& motion, f32 (&clip_to_prev)[16], bool& have_matrix) const;
+		// The history restarted this frame (boot, a switch between the headset view and the fixed screen).
+		bool history_reset() const { return m_reset_history; }
 		void write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
 			u32 clip_width, u32 clip_height, bool instanced, const void* constants = nullptr, u32 view = 0);
 		// The block for a constant upload outside a draw: no motion written, no jitter, no history.

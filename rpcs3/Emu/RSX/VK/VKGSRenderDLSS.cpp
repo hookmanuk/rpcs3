@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "VKGSRender.h"
 #include "VKDLSS.h"
+#include "VKFrameGen.h"
 #include "VKOpenXR.h"
 
 #include "../Capture/rsx_camera_probe.h"
@@ -28,6 +29,10 @@ void VKGSRender::dlss_init()
 	if (vk::dlss_enabled())
 	{
 		m_dlss = std::make_unique<vk::dlss_context>(*m_device);
+		if (vk::framegen_requested())
+		{
+			m_framegen = std::make_unique<vk::framegen_context>(*m_device);
+		}
 	}
 	rsx::vr::set_dlss_session(m_dlss != nullptr);
 }
@@ -35,6 +40,7 @@ void VKGSRender::dlss_init()
 void VKGSRender::dlss_destroy()
 {
 	rsx::vr::set_dlss_session(false);
+	m_framegen.reset();
 	m_dlss.reset();
 }
 
@@ -345,6 +351,39 @@ bool VKGSRender::dlss_jitter_viewport(VkViewport& viewport) const
 
 // ---- Flip (vr_publish_frame) ---------------------------------------------------------------------------
 
+void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* right)
+{
+	m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
+	if (!left || !right || left == right)
+	{
+		m_framegen->reset();
+		return;
+	}
+	f32 tan_x = 1.f, tan_y = 1.f;
+	rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
+	vk::viewable_image* outs[2]{};
+	vk::viewable_image* const eyes[2] = {left, right};
+	for (u32 eye = 0; eye < 2; ++eye)
+	{
+		vk::framegen_eye_inputs in;
+		in.backbuffer = eyes[eye];
+		in.tan_half_x = tan_x;
+		in.tan_half_y = tan_y;
+		in.depth_inverted = std::getenv("RPCS3_DLSS_DEPTH_INVERTED") != nullptr;
+		if (!m_dlss->framegen_inputs(eye, in.depth, in.motion, in.clip_to_prev_clip, in.have_motion_matrix))
+		{
+			return;
+		}
+		outs[eye] = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset());
+	}
+	if (outs[0] && outs[1])
+	{
+		m_framegen_eyes[0] = outs[0];
+		m_framegen_eyes[1] = outs[1];
+	}
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
+}
+
 void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::avconf& avconfig, vk::viewable_image*& image_to_flip,
 	vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height)
 {
@@ -390,6 +429,10 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 		if (vr_view)
 		{
 			image_to_flip2 = right;
+		}
+		if (m_framegen && vr_view && info.emu_flip && m_dlss->output_fresh())
+		{
+			framegen_on_flip(dlss_image, right); // framegen: the frame halfway to this one, per eye
 		}
 		buffer_width = out_w;
 		buffer_height = out_h;

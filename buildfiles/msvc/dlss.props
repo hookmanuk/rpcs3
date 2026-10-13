@@ -8,6 +8,8 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKDLSS.h" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKDLSS.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKGSRenderDLSS.cpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKFrameGen.h" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKFrameGen.cpp" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(DLSS_SDK)' != ''">
     <ClCompile>
@@ -25,5 +27,6 @@
   <!-- The DLSS runtime goes next to rpcs3.exe (bin\). -->
   <Target Name="CopyDlssRuntime" AfterTargets="Build" Condition="'$(DLSS_SDK)' != '' And Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll')">
     <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll" DestinationFolder="$(SolutionDir)bin\" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll" DestinationFolder="$(SolutionDir)bin\" SkipUnchangedFiles="true" Condition="Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll')" />
   </Target>
 </Project>

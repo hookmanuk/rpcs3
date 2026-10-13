@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "VKMultiviewVR.h"
+#include "VKFrameGen.h"
 
 #include "VKHelpers.h"
 #include "VKPipelineCompiler.h" // vr_interpreter_pipeline_state: pipeline_props
@@ -824,6 +825,7 @@ namespace vk
 
 	void vr_gpu_checkpoints_messenger(VkInstance instance)
 	{
+		vk::framegen_note_instance(instance); // framegen: DLSS-G's device extension query needs it
 		if (!vr_gpu_checkpoints_enabled() || s_abr_messenger)
 		{
 			return;

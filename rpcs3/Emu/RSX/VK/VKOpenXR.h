@@ -65,7 +65,9 @@ namespace vk::xr
 	// RSX thread, at each guest flip: record copies of the generated eyes into a
 	// free eye buffer inside RPCS3's command buffer. right may equal left. If this
 	// returns true, submit the command buffer, then call commit_eyes().
-	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height);
+	// framegen: generated = a generated pair (VKFrameGen.h), published and committed before this flip's real pair and
+	// shown on the headset frame before it.
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, bool generated = false);
 
 	// After submitting a command buffer with published eyes/overlay, before commit_*:
 	// marks the point on RPCS3's queue the frame thread waits for before copying them
@@ -76,7 +78,7 @@ namespace vk::xr
 	// rendered with (pose_id from locate_render_pose; 0 = none) and (game-FOV mode)
 	// its FOV. The frame thread presents it. crop: the part of each eye image the
 	// projection layer shows (x0, y0, x1, y1 as fractions; profile display_rect).
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f});
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f}, bool generated = false);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
 	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)

@@ -138,13 +138,18 @@ namespace vk::xr
 			std::mutex slot_mutex;
 			std::condition_variable slot_cv;
 			u64 commit_seq = 0; // bumped by commit_eyes(); the frame thread paces on it
-			slot_t slots[3];
+			slot_t slots[5]; // framegen: a generated pair and its real pair can both wait besides the ones in use
 			u32 slot_w = 0;
 			u32 slot_h = 0;
 			VkFormat slot_format = VK_FORMAT_UNDEFINED;
 			s32 latest = -1;  // newest committed slot
 			s32 in_use = -1;  // slot the frame thread is copying from
 			s32 writing = -1; // slot the RSX thread is filling
+			// framegen (VKFrameGen.h): a generated pair, committed just before its real pair, is shown first; the real
+			// pair (latest) follows on the next headset frame without waiting for another commit.
+			s32 generated = -1;            // committed generated slot not shown yet
+			s32 writing_generated = -1;    // generated slot the RSX thread is filling
+			bool show_latest_next = false; // the generated slot was just shown: show latest next
 
 			// Presentation of the virtual stereo screen (metres, LOCAL space)
 			f32 screen_distance = 2.0f;
@@ -915,6 +920,9 @@ namespace vk::xr
 			g_xr.slot_w = g_xr.slot_h = 0;
 			g_xr.slot_format = VK_FORMAT_UNDEFINED;
 			g_xr.latest = -1;
+			g_xr.generated = -1;
+			g_xr.writing_generated = -1;
+			g_xr.show_latest_next = false;
 		}
 
 		// Device-local transfer image (the frame thread copies it into a swapchain).
@@ -1155,7 +1163,18 @@ namespace vk::xr
 					screen_pos[2] = -g_xr.screen_distance;
 					screen_width = g_xr.screen_width;
 				}
-				index = g_xr.latest;
+				// framegen: a generated pair waiting goes first; the real pair (latest) on the next headset frame.
+				if (g_xr.generated >= 0)
+				{
+					index = g_xr.generated;
+					g_xr.generated = -1;
+					g_xr.show_latest_next = true;
+				}
+				else
+				{
+					index = g_xr.latest;
+					g_xr.show_latest_next = false;
+				}
 				if (index >= 0)
 				{
 					g_xr.in_use = index;
@@ -1372,7 +1391,7 @@ namespace vk::xr
 					g_xr.slot_cv.wait_for(lock, std::chrono::milliseconds(100),
 						[&]
 						{
-							return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.stop.load();
+							return g_xr.commit_seq != presented_seq || g_xr.overlay_seq != presented_overlay_seq || g_xr.show_latest_next || g_xr.stop.load();
 						});
 					presented_seq = g_xr.commit_seq;
 					presented_overlay_seq = g_xr.overlay_seq;
@@ -1464,7 +1483,7 @@ namespace vk::xr
 		return g_xr.session && g_xr.session_running.load() && !g_xr.lost;
 	}
 
-	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height)
+	bool publish_eyes(const vk::command_buffer& cmd, vk::image* left, vk::image* right, u32 width, u32 height, bool generated)
 	{
 		if (!is_running() || !left || !width || !height)
 		{
@@ -1497,11 +1516,15 @@ namespace vk::xr
 		}
 
 		s32 slot = 0;
-		while (slot == g_xr.latest || slot == g_xr.in_use)
+		while (slot == g_xr.latest || slot == g_xr.in_use || slot == g_xr.generated || slot == g_xr.writing || slot == g_xr.writing_generated)
 		{
 			slot++;
 		}
-		g_xr.writing = slot;
+		if (slot >= static_cast<s32>(std::size(g_xr.slots)))
+		{
+			return false;
+		}
+		(generated ? g_xr.writing_generated : g_xr.writing) = slot;
 		lock.unlock();
 
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -1561,17 +1584,17 @@ namespace vk::xr
 		g_xr.ready_pending = g_xr.ready_submitted[k] ? static_cast<s32>(k) : -1;
 	}
 
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop, bool generated)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
-		if (g_xr.writing < 0)
+		if ((generated ? g_xr.writing_generated : g_xr.writing) < 0)
 		{
 			return;
 		}
 
 		// The pose this frame's draws were rotated by. Too old to be in the history
 		// (or never located): not declared as a projection.
-		auto& slot = g_xr.slots[g_xr.writing];
+		auto& slot = g_xr.slots[generated ? g_xr.writing_generated : g_xr.writing];
 		const bool kept = pose_id && g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id && g_xr.kept_pose.id == pose_id;
 		if (!kept && (!pose_id || g_xr.render_poses[pose_id % std::size(g_xr.render_poses)].id != pose_id))
 		{
@@ -1597,6 +1620,37 @@ namespace vk::xr
 		slot.tan_half_y = tan_half_y;
 		slot.crop = crop;
 
+		if (generated)
+		{
+			// framegen: the generated frame lies halfway in time between the last real frame and this one; it is
+			// declared with the head pose halfway between theirs (the compositor turns it to the display pose).
+			if (g_xr.latest >= 0 && g_xr.slots[g_xr.latest].pose_valid && slot.pose_valid)
+			{
+				const auto& prev = g_xr.slots[g_xr.latest];
+				XrQuaternionf a = prev.orientation, b = slot.orientation;
+				const f32 dot = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+				if (dot < 0.f)
+				{
+					b = {-b.x, -b.y, -b.z, -b.w};
+				}
+				XrQuaternionf q{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f, (a.z + b.z) * 0.5f, (a.w + b.w) * 0.5f};
+				const f32 len = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+				if (len > 1e-6f)
+				{
+					q = {q.x / len, q.y / len, q.z / len, q.w / len};
+					slot.orientation = q;
+				}
+				for (u32 i = 0; i < 2; ++i)
+				{
+					slot.eye_position[i] = {(prev.eye_position[i].x + slot.eye_position[i].x) * 0.5f, (prev.eye_position[i].y + slot.eye_position[i].y) * 0.5f,
+						(prev.eye_position[i].z + slot.eye_position[i].z) * 0.5f};
+				}
+			}
+			slot.ready = g_xr.ready_pending; // the real pair's commit takes it
+			g_xr.generated = g_xr.writing_generated;
+			g_xr.writing_generated = -1;
+			return;
+		}
 		slot.ready = std::exchange(g_xr.ready_pending, -1);
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;

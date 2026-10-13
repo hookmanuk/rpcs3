@@ -13,6 +13,7 @@
 
 #include "../Capture/rsx_camera_probe.h"
 #include "VKDLSS.h" // DLSS test: vk::dlss_context (VKGSRender::m_dlss)
+#include "VKFrameGen.h" // framegen: vk::framegen_context (VKGSRender::m_framegen)
 #include "../gcm_enums.h"
 
 namespace rsx

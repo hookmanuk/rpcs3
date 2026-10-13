@@ -7,6 +7,12 @@
 	// vr_update_multiview_mode, vr_renderpass_key, vr_framebuffer_images, vr_before_draw_setup, the constants tail,
 	// vr_publish_frame) and the shader hooks of VKMultiviewVR.cpp.
 	std::unique_ptr<vk::dlss_context> m_dlss;
+	// framegen (VKFrameGen.h): DLSS Frame Generation; null unless asked for at boot. m_framegen_eyes: this flip's
+	// generated pair (null: none), shown before the real pair.
+	std::unique_ptr<vk::framegen_context> m_framegen;
+	vk::viewable_image* m_framegen_eyes[2]{};
+	u32 m_framegen_pose = 0;
+	void framegen_on_flip(vk::viewable_image* left, vk::viewable_image* right);
 	bool m_dlss_motion_bound = false;          // the bound framebuffer has the motion attachment
 	bool m_dlss_uploading = false;             // dlss_draw_setup(): the draw's own constant upload
 	u32 m_dlss_refused_address = 0;            // a scene target refused this frame (MRT mismatch, no memory): not retried until the flip

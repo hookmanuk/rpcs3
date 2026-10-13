@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "VKDLSS.h"
+#include "VKFrameGen.h"
 
 #include "VKCompute.h"
 #include "VKFramebuffer.h"
@@ -658,6 +659,7 @@ namespace vk
 				dlss_log.warning("Instance extension %s (DLSS) is not supported", ie[i]);
 			}
 		}
+		framegen_instance_extensions(extensions); // framegen: DLSS-G's own (when asked for at boot)
 #else
 		static_cast<void>(extensions);
 #endif
@@ -699,6 +701,7 @@ namespace vk
 				dlss_log.warning("Device extension %s (DLSS) is not supported", de[i]);
 			}
 		}
+		framegen_device_extensions(pdev, extensions); // framegen: DLSS-G's own (when asked for at boot)
 #else
 		static_cast<void>(pdev);
 		static_cast<void>(extensions);
@@ -1217,6 +1220,16 @@ namespace vk
 			m_viewport_xform[3] = so[7];
 			m_viewport_valid = true;
 		}
+	}
+
+	bool dlss_context::framegen_inputs(u32 eye, vk::viewable_image*& depth, vk::viewable_image*& motion, f32 (&clip_to_prev)[16], bool& have_matrix) const
+	{
+		depth = eye ? m_depth_right.get() : m_depth.get();
+		motion = eye ? m_mv_right.get() : m_mv.get();
+		mat4 r{};
+		have_matrix = best_reprojection(eye + 1, r); // views 1 and 2: the eyes
+		std::memcpy(clip_to_prev, r.m, sizeof(clip_to_prev));
+		return depth && motion;
 	}
 
 	bool dlss_context::best_reprojection(u32 view, mat4& out) const
