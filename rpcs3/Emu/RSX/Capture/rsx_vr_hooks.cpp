@@ -370,6 +370,18 @@ namespace rsx::vr
 		s_dlss_motion = enabled;
 	}
 
+	static atomic_t<bool> s_dlss_session = false;
+
+	void set_dlss_session(bool active)
+	{
+		s_dlss_session = active;
+	}
+
+	bool dlss_session()
+	{
+		return s_dlss_session;
+	}
+
 	bool skip_cached_pipeline(u32 vp_ctrl, u32 fp_ctrl)
 	{
 		if (!((vp_ctrl | fp_ctrl) & RSX_SHADER_CONTROL_DLSS_MOTION))

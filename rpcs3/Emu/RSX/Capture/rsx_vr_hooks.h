@@ -54,6 +54,10 @@ namespace rsx::vr
 	// DLSS test: the bound framebuffer has the motion attachment (set by the renderer before the programs are fetched);
 	// set_vr_program_ctrl() then adds RSX_SHADER_CONTROL_DLSS_MOTION.
 	void set_dlss_motion_variant(bool enabled);
+	// DLSS: the renderer made its DLSS context at boot (DLSS was on then). Only such a session can change the DLSS mode
+	// and model live (NGX's Vulkan extensions are enabled at boot), so the home menu offers them only then.
+	void set_dlss_session(bool active);
+	bool dlss_session();
 	// The game window's camera shortcuts: moves the VR camera offset (Video > VR > Camera X/Y/Z Offset) by delta_cm on
 	// axis 0 (x, right), 1 (y, up) or 2 (z, forward); axis 3 puts all three back to 0. Live, like the settings.
 	void nudge_camera(u32 axis, s32 delta_cm);

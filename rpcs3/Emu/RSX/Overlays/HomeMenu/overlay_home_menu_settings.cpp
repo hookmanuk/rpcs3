@@ -235,6 +235,11 @@ namespace rsx
 						return default_fps ? fmt::format("%s (%u FPS)", text, default_fps) : fmt::format("%s (headset refresh rate)", text);
 					});
 			}
+			if (rsx::vr::dlss_session()) // VR fork: DLSS mode and model, live in a session that booted with DLSS on
+			{
+				add_dropdown(&g_cfg.video.vr.dlss, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS);
+				add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
+			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
 			{

@@ -29,10 +29,12 @@ void VKGSRender::dlss_init()
 	{
 		m_dlss = std::make_unique<vk::dlss_context>(*m_device);
 	}
+	rsx::vr::set_dlss_session(m_dlss != nullptr);
 }
 
 void VKGSRender::dlss_destroy()
 {
+	rsx::vr::set_dlss_session(false);
 	m_dlss.reset();
 }
 
