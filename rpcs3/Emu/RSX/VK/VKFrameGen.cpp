@@ -147,17 +147,19 @@ namespace vk
 		return s_mode;
 	}
 
-	bool framegen_requested()
+	bool framegen_possible()
 	{
-		static const bool s_requested = []()
+		const char* v = std::getenv("RPCS3_DLSSG");
+		return !(v && v[0] == '0') && dlss_ngx_possible();
+	}
+
+	bool framegen_enabled()
+	{
+		if (const char* v = std::getenv("RPCS3_DLSSG"); v && *v)
 		{
-			if (const char* v = std::getenv("RPCS3_DLSSG"); v && *v)
-			{
-				return v[0] == '1';
-			}
-			return g_cfg.video.vr.frame_generation.get();
-		}();
-		return s_requested && dlss_ngx_possible();
+			return v[0] == '1';
+		}
+		return g_cfg.video.vr.frame_generation.get();
 	}
 
 	void framegen_note_instance(VkInstance instance)
@@ -168,7 +170,7 @@ namespace vk
 	void framegen_instance_extensions(std::vector<const char*>& extensions)
 	{
 #ifdef HAVE_DLSS
-		if (!framegen_requested())
+		if (!framegen_possible())
 		{
 			return;
 		}
@@ -195,7 +197,7 @@ namespace vk
 	void framegen_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
 #ifdef HAVE_DLSS
-		if (!framegen_requested() || !s_instance)
+		if (!framegen_possible() || !s_instance)
 		{
 			return;
 		}
@@ -301,6 +303,13 @@ namespace vk
 #else
 		return false;
 #endif
+	}
+
+	void framegen_context::disable()
+	{
+		release_features();
+		reset();
+		rsx::vr::set_framegen_active(false);
 	}
 
 	void framegen_context::release_features()

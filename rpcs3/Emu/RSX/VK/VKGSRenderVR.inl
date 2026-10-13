@@ -7,7 +7,7 @@
 	// vr_update_multiview_mode, vr_renderpass_key, vr_framebuffer_images, vr_before_draw_setup, the constants tail,
 	// vr_publish_frame) and the shader hooks of VKMultiviewVR.cpp.
 	std::unique_ptr<vk::dlss_context> m_dlss;
-	// framegen (VKFrameGen.h): DLSS Frame Generation; null unless asked for at boot. m_framegen_eyes: this flip's
+	// framegen (VKFrameGen.h): DLSS Frame Generation; null unless DLSS is on at boot (the setting then works live). m_framegen_eyes: this flip's
 	// generated pair (null: none), shown before the real pair.
 	std::unique_ptr<vk::framegen_context> m_framegen;
 	vk::viewable_image* m_framegen_eyes[2]{};

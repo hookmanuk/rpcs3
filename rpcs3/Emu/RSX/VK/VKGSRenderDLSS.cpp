@@ -29,9 +29,9 @@ void VKGSRender::dlss_init()
 	if (vk::dlss_enabled())
 	{
 		m_dlss = std::make_unique<vk::dlss_context>(*m_device);
-		if (vk::framegen_requested())
+		if (vk::framegen_possible())
 		{
-			m_framegen = std::make_unique<vk::framegen_context>(*m_device);
+			m_framegen = std::make_unique<vk::framegen_context>(*m_device); // used while the setting is on (live)
 		}
 	}
 	rsx::vr::set_dlss_session(m_dlss != nullptr);
@@ -421,6 +421,10 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	vk::viewable_image*& image_to_flip2, bool generated_stereo, u32& buffer_width, u32& buffer_height)
 {
 	// The displayed image through DLSS (or a debug view); both eyes in VR multiview.
+	if (m_framegen && (!vk::framegen_enabled() || !vk::dlss_uses_ngx()))
+	{
+		m_framegen->disable(); // turned off, or DLSS turned off (frees the features once; the game back at the full VR rate)
+	}
 	if (!m_dlss || avconfig.stereo_enabled || (generated_stereo && !m_vr_multiview))
 	{
 		return;
@@ -463,7 +467,7 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 		{
 			image_to_flip2 = right;
 		}
-		if (m_framegen && vr_view && info.emu_flip && m_dlss->output_fresh())
+		if (m_framegen && vk::framegen_enabled() && vr_view && info.emu_flip && m_dlss->output_fresh())
 		{
 			framegen_on_flip(dlss_image, right); // framegen: the frame halfway to this one, per eye
 		}

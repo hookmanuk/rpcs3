@@ -20,8 +20,11 @@ namespace vk
 	class viewable_image;
 	class render_device;
 
-	// DLSS Frame Generation is asked for at boot and NGX can run in this session.
-	bool framegen_requested();
+	// NGX can run in this session (DLSS on at boot): the frame generation context and its Vulkan extensions exist, so the
+	// setting can turn it on and off live. RPCS3_DLSSG=0 rules it out.
+	bool framegen_possible();
+	// Frame generation is on now (VR > DLSS Frame Generation, live; RPCS3_DLSSG=1/0 fixes it).
+	bool framegen_enabled();
 	// The instance the device is created from (for the feature's device extension query).
 	void framegen_note_instance(VkInstance instance);
 	// Before vkCreateInstance / vkCreateDevice: what DLSS-G needs on top of NGX's own list.
@@ -59,6 +62,8 @@ namespace vk
 		vk::viewable_image* evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset);
 		// Forget both eyes' history (the next evaluation generates nothing).
 		void reset() { m_have_previous[0] = m_have_previous[1] = false; }
+		// Turned off (the setting): the features are freed and the game goes back to the full VR frame rate.
+		void disable();
 
 	private:
 		struct feature
