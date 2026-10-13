@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98103",
+  "app_version": "01.10",
+  "name": "Uncharted: Drake's Fortune™",
+  "max_fps": 0,
+  "default_fps": 45,
+  "vblanks_per_frame": 2,
+  "late_readback_lengths": [64],
+  "culling_scale_f32": [{ "address": "0x7cdd80", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 12.0, "mode": "tangent" }],
+
+  "matrix_layout": "column_vectors",
+  "camera_blocks": [0, 16, 256],
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "slot": 20,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0162903,
+    "convergence": 2.56,
+    "eye_offset": "baseline"
+  },
+
+  "screen_space": {
+    "passthrough_hud": true
+  }
+}
