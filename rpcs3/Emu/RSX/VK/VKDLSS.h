@@ -259,6 +259,10 @@ namespace vk
 		// Per-draw history
 		rsx::unordered_map<u64, draw_record> m_prev_draws, m_cur_draws; // dense: no allocation per insert (~10k a frame in GT5)
 		rsx::unordered_map<u64, u32> m_occurrences;
+		struct rstat { u32 n = 0, moved = 0; bool alt = false; };   // dev: RPCS3_DLSS_RSTATS
+		std::unordered_map<u64, rstat> m_rstats;
+		u32 m_rstats_n[2]{}, m_rstats_moved[2]{};
+		u64 m_draw_stat_key = 0;
 		bool m_identify_only = false; // VR multiview: the view-0 call only identifies the draw for its eyes' blocks
 		bool m_eyes_only = false;     // this frame's camera draws were identified only (VR multiview): statistics from the left eye
 		// Per view (0 the game's constants, 1 and 2 the eyes):

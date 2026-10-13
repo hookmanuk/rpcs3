@@ -1473,6 +1473,14 @@ namespace vk
 		{
 			if (s_debug)
 				dlss_log.notice("Draw skipped: no camera matrix (%u constant ids)", static_cast<u32>(constant_count));
+			// Dev (RPCS3_DLSS_RSTATS=1): each program drawn into the scene without a camera matrix (its pixels get the far
+			// background's motion), once.
+			if (static std::set<u64> s_skipped; env("RPCS3_DLSS_RSTATS") && view != 2 && s_skipped.insert(vp_hash).second)
+			{
+				const auto& regs = rsx::method_registers;
+				dlss_log.notice("No camera matrix: program %016llx, %u constant ids, %u elements, depth test %d write %d, blend %d",
+					vp_hash, static_cast<u32>(constant_count), regs.current_draw_clause.vr_total_elements(), regs.depth_test_enabled(), regs.depth_write_enabled(), regs.blend_enabled_mask() != 0);
+			}
 			return;
 		}
 
@@ -1505,9 +1513,10 @@ namespace vk
 			// Sonic & All-Stars Racing Transformed) move every draw's vertices every frame, so the full key never
 			// repeats. Program, element count and repeat number pair most draws with their previous frame's; static
 			// geometry shares the camera's matrix, so a wrong pairing among those changes nothing.
-			key_alt = mix(mix(0x84222325cbf29ce4ull, vp_hash), clause.vr_total_elements());
-			key_alt = mix(key_alt, m_occurrences[key_alt]++);
+			const u64 alt_base = mix(mix(0x84222325cbf29ce4ull, vp_hash), clause.vr_total_elements());
+			key_alt = mix(alt_base, m_occurrences[alt_base]++);
 			m_draw_key_alt = key_alt;
+			m_draw_stat_key = vp_hash ^ (u64{clause.vr_total_elements()} << 40);
 			if (m_identify_only)
 			{
 				m_eyes_only = true; // statistics from the left eye
@@ -1525,10 +1534,12 @@ namespace vk
 		std::memcpy(r, identity4, sizeof(r));
 		bool have_r = false;
 
+		bool by_alt = false;
 		auto found = m_prev_draws.find(key);
 		if (found == m_prev_draws.end())
 		{
 			found = m_prev_draws.find(key_alt);
+			by_alt = found != m_prev_draws.end();
 		}
 		if (found != m_prev_draws.end())
 		{
@@ -1558,6 +1569,23 @@ namespace vk
 					votes.emplace_back(v, 1u);
 				}
 			}
+		}
+
+		// Dev (RPCS3_DLSS_RSTATS=1): paired draws whose motion is not the camera's (in a race only the cars should be).
+		if (static const bool s_rstats = env("RPCS3_DLSS_RSTATS") != nullptr; s_rstats && have_r && view == (m_eyes_only ? 1u : 0u) && m_static_valid[view])
+		{
+			f32 d = 0.f;
+			for (u32 i = 0; i < 16; ++i)
+			{
+				d = std::max(d, std::abs(r[i] - m_static_reproject[view].m[i]));
+			}
+			const bool moved = d > 0.01f;
+			auto& st = m_rstats[m_draw_stat_key];
+			st.n++;
+			st.moved += moved;
+			st.alt |= by_alt;
+			m_rstats_n[by_alt]++;
+			m_rstats_moved[by_alt] += moved;
 		}
 
 		if (!have_r)
@@ -2025,6 +2053,21 @@ namespace vk
 			dlss_log.notice("Frame %llu: scene 0x%x, camera draws %u (matched %u, unmatched %u; eyes %u + %u), static reprojection %s, clip %ux%u, output %s",
 				m_frame, m_forced_address ? m_forced_address : m_scene_address, m_camera_draws, m_matched, m_unmatched, m_view_draws[1], m_view_draws[2],
 				m_static_valid[m_eyes_only ? 1 : 0] ? "found" : "none", m_clip_width, m_clip_height, result ? (result_right ? "replaced (both eyes)" : "replaced") : "unchanged");
+		}
+
+		if (m_frame % 120 == 0 && (m_rstats_n[0] || m_rstats_n[1]))
+		{
+			std::vector<std::pair<u64, rstat>> top(m_rstats.begin(), m_rstats.end());
+			std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second.moved > b.second.moved; });
+			std::string worst;
+			for (usz i = 0; i < std::min<usz>(top.size(), 6) && top[i].second.moved; ++i)
+			{
+				worst += fmt::format(" %016llx/%u: %u of %u%s;", top[i].first & 0xffffffffffull, static_cast<u32>(top[i].first >> 40), top[i].second.moved, top[i].second.n, top[i].second.alt ? " (fallback)" : "");
+			}
+			dlss_log.notice("Pairing (120 frames): by address %u (%u moved), by the fallback %u (%u moved); most moved (program low bits/elements):%s",
+				m_rstats_n[0], m_rstats_moved[0], m_rstats_n[1], m_rstats_moved[1], worst);
+			m_rstats.clear();
+			m_rstats_n[0] = m_rstats_n[1] = m_rstats_moved[0] = m_rstats_moved[1] = 0;
 		}
 
 		m_prev_draws.swap(m_cur_draws);
