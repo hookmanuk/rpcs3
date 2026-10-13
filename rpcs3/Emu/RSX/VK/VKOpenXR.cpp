@@ -153,6 +153,7 @@ namespace vk::xr
 			s32 present_queue[3]{-1, -1, -1}; // committed, not shown yet, oldest first (a full queue drops its oldest)
 			u32 present_count = 0;
 			std::chrono::steady_clock::time_point last_generated{}; // the last generated commit
+			std::atomic<f32> turn_rate{0.f}; // head_turn_rate()
 			bool framegen_active() const { return present_count || std::chrono::steady_clock::now() - last_generated < std::chrono::milliseconds(250); }
 			bool queued(s32 slot) const { return std::find(present_queue, present_queue + present_count, slot) != present_queue + present_count; }
 			void enqueue(s32 slot)
@@ -1711,6 +1712,19 @@ namespace vk::xr
 		slot.generated = false;
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
+		if (slot.pose_valid)
+		{
+			// framegen: the head's turn rate (rotation angle between this frame's pose and the last one's, per second).
+			static XrQuaternionf s_prev{};
+			static std::chrono::steady_clock::time_point s_prev_time{};
+			const auto now = std::chrono::steady_clock::now();
+			const f32 dt = std::chrono::duration<f32>(now - s_prev_time).count();
+			const XrQuaternionf& q = slot.orientation;
+			const f32 dot = std::min(1.f, std::abs(q.x * s_prev.x + q.y * s_prev.y + q.z * s_prev.z + q.w * s_prev.w));
+			g_xr.turn_rate.store(dt > 1e-3f && dt < 0.25f ? 2.f * std::acos(dot) * 57.29578f / dt : 0.f);
+			s_prev = q;
+			s_prev_time = now;
+		}
 		if (g_xr.framegen_active())
 		{
 			g_xr.enqueue(g_xr.latest);
@@ -1999,6 +2013,11 @@ namespace vk::xr
 		mul(sqs, t, tmp);
 		mul(ti, tmp, h);
 		return true;
+	}
+
+	f32 head_turn_rate()
+	{
+		return g_xr.turn_rate.load();
 	}
 
 	f32 render_pose_yaw(u32 pose_id)
