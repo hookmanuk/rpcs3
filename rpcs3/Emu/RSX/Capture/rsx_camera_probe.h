@@ -174,6 +174,11 @@ namespace rsx::vr
 		// up its menus and messages from its rate word, and a dip in that word (a hitch while loading) left the Power Up
 		// screen, the pause menu and tutorial messages black or stuck for the rest of the session.
 		bool game_rate_measured = true;
+		// "vblank_steps": true: the game steps its world once per vblank, by its frame-time word (game_frame_time_f32), and
+		// advances race ticks of 1/60 s per step (Gran Turismo 5). Below 60 FPS the vblank stays at 60 Hz and the frame
+		// limiter holds the VR frame rate, as on a PS3 that drops frames; the frame-time words get the vblank's length (never
+		// the measured rate: a slow frame catches up by vblanks). At a 45 Hz vblank GT5 ran at 0.75x, at 90 Hz with 1/45 at 2x.
+		bool vblank_steps = false;
 		// "display_area_sizes": true: the texture sizes in screen_frame_draws and reduced_scale_frames also match the same size
 		// scaled down uniformly to 0.8. Gran Turismo 5 renders its full-screen 2D targets at its Adjust Display Area setting:
 		// 2560x1440 at 1.0, 2304x1296 at a fresh install's 0.9, where its menus stayed in the headset view.

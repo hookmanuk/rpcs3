@@ -1060,6 +1060,10 @@ namespace rsx::vr
 		{
 			profile->game_rate_measured = measured != "false";
 		}
+		if (std::string steps; read(root, "vblank_steps", steps, false))
+		{
+			profile->vblank_steps = steps == "true";
+		}
 		if (std::string area; read(root, "display_area_sizes", area, false))
 		{
 			profile->display_area_sizes = area == "true";
@@ -1626,7 +1630,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1941,11 +1945,12 @@ namespace rsx::vr
 		return fps;
 	}
 
-	static u64 vr_vblank_rate();
+	static u64 vr_vblank_rate(f64& multiplier);
 
-	u64 effective_vblank_rate()
+	// The vblank rate, and how many vblanks of it make one VR frame-rate frame (multiplier, 1 unless the rate was raised).
+	static u64 vblank_rate_with(f64& multiplier)
 	{
-		const u64 rate = vr_vblank_rate();
+		const u64 rate = vr_vblank_rate(multiplier);
 		// Profile video_vblank_rate: movies at their own pace, whatever the game runs at (applies with VR off too).
 		if (const title_profile* profile = camera_probe::get().profile(); profile && profile->video_vblank_rate && rate > profile->video_vblank_rate)
 		{
@@ -1957,6 +1962,7 @@ namespace rsx::vr
 			}
 			if (video)
 			{
+				multiplier = 1.;
 				return profile->video_vblank_rate;
 			}
 		}
@@ -1980,10 +1986,17 @@ namespace rsx::vr
 			}
 			if (cap && rate > cap)
 			{
+				multiplier = 1.;
 				return cap;
 			}
 		}
 		return rate;
+	}
+
+	u64 effective_vblank_rate()
+	{
+		f64 multiplier = 1.;
+		return vblank_rate_with(multiplier);
 	}
 
 	f64 vr_frame_limit(f64 limit)
@@ -1992,7 +2005,10 @@ namespace rsx::vr
 		{
 			return limit;
 		}
-		const f64 vr = static_cast<f64>(effective_vblank_rate());
+		// The game's flips at the VR frame rate, which can be slower than the vblank (profile vblank_steps: vr_vblank_rate).
+		f64 multiplier = 1.;
+		const u64 vblank = vblank_rate_with(multiplier);
+		const f64 vr = static_cast<f64>(vblank) / multiplier;
 		static atomic_t<u32> s_logged{0};
 		if (const u32 key = static_cast<u32>(limit * 100.) ^ (static_cast<u32>(vr) << 16); s_logged.exchange(key) != key && vr != limit)
 		{
@@ -2001,8 +2017,9 @@ namespace rsx::vr
 		return vr;
 	}
 
-	static u64 vr_vblank_rate()
+	static u64 vr_vblank_rate(f64& multiplier)
 	{
+		multiplier = 1.;
 		const u64 configured = g_cfg.video.vblank_rate;
 		if (!g_cfg.video.vr.enabled || !g_headset_active.load())
 		{
@@ -2015,7 +2032,15 @@ namespace rsx::vr
 		}
 		if (const u32 fps = effective_frame_rate())
 		{
-			return u64{fps} * profile->vblanks_per_frame;
+			const u64 rate = u64{fps} * profile->vblanks_per_frame;
+			// Profile vblank_steps: a game stepping per vblank keeps a 60 Hz vblank below 60 FPS; the frame limiter
+			// (vr_frame_limit) holds the VR frame rate.
+			if (profile->vblank_steps && rate && rate < 60)
+			{
+				multiplier = 60. / static_cast<f64>(rate);
+				return 60;
+			}
+			return rate;
 		}
 		// Unlimited: a game frame per headset refresh, if the runtime reports it (Killzone 2 flips
 		// every second vblank: 180 Hz for a 90 Hz headset).
@@ -2374,18 +2399,20 @@ namespace rsx::vr
 				vr_probe_log.notice("Game frame-rate words: %s (profile frame_rate_draws)", native_only ? "the game's own 60 Hz" : "the VR rate");
 			}
 		}
-		const f32 nominal_rate = native_only ? 60.f / frames_per_vblank : static_cast<f32>(effective_vblank_rate());
+		f64 vblank_multiplier = 1.;
+		const f32 nominal_rate = native_only ? 60.f / frames_per_vblank : static_cast<f32>(vblank_rate_with(vblank_multiplier));
+		const f32 frames_per_vblank_vr = frames_per_vblank / static_cast<f32>(vblank_multiplier); // game frames per emulated vblank
 		static const bool s_nominal_only = std::getenv("RPCS3_VR_NOMINAL_RATE") != nullptr;
 		const f64 frame_interval = g_game_flip_interval.load();
 		f32 rate = nominal_rate;
-		if (!s_nominal_only && profile->game_rate_measured && !native_only && frame_interval > 0.0 && nominal_rate > 0.f)
+		if (!s_nominal_only && profile->game_rate_measured && !profile->vblank_steps && !native_only && frame_interval > 0.0 && nominal_rate > 0.f)
 		{
 			const f32 measured_fps = static_cast<f32>(1.0 / frame_interval);
-			const f32 full_fps = nominal_rate * frames_per_vblank;
+			const f32 full_fps = nominal_rate * frames_per_vblank_vr;
 			const bool slow = measured_fps < full_fps * 0.97f && measured_fps >= full_fps * 0.4f;
 			if (slow)
 			{
-				rate = measured_fps / frames_per_vblank;
+				rate = measured_fps / frames_per_vblank_vr;
 			}
 			static bool s_slow = false;
 			static u32 s_switches = 0;
@@ -2395,7 +2422,7 @@ namespace rsx::vr
 				if (s_switches++ < 20)
 				{
 					vr_probe_log.notice("Game frame rate: %s (%.1f FPS measured, VR rate %.1f FPS)", slow ? "below the VR rate, game timing follows the measured rate" : "back at the VR rate",
-						measured_fps, nominal_rate * frames_per_vblank);
+						measured_fps, nominal_rate * frames_per_vblank_vr);
 				}
 			}
 		}
@@ -2445,12 +2472,13 @@ namespace rsx::vr
 		}
 
 		// The game's frames per second: one frame every vblanks_per_frame vblanks.
-		const f32 fps = rate / static_cast<f32>(std::max<u32>(profile->vblanks_per_frame, 1));
+		const f32 fps = rate * frames_per_vblank_vr;
 		if (fps < 1.f)
 		{
 			return;
 		}
-		const f32 frame_time = 1.f / fps;
+		// Profile vblank_steps: the length of a vblank (one step per vblank).
+		const f32 frame_time = profile->vblank_steps ? 1.f / (rate * frames_per_vblank) : 1.f / fps;
 		for (const auto& target : profile->game_frame_time_f32)
 		{
 			const u32 address = resolve(target);

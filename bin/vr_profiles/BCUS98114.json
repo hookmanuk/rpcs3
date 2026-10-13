@@ -19,6 +19,7 @@
   "max_fps": 0,
   "default_fps": 0,
   "game_frame_time_f32": ["0x184680c", "0x184acc0"],
+  "vblank_steps": true,
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [0, 4],
