@@ -52,16 +52,18 @@ extern thread_local std::chrono::steady_clock::time_point g_vr_readback_start; /
 extern atomic_t<u64> g_vr_readback_pre_ns;
 
 // Profile late_readback_sections (see rsx_camera_probe.h): readbacks whose GPU copy is still pending return at once,
-// leaving the guest memory as it is, and the copy is written there at the next flips once its fence is set. The
-// fence belongs to the section; a section re-created (the game's next copy into it) disposes it through the resource
-// manager, so a pending entry is dropped after three flips (GT5 reuses each of its three slots every third frame).
+// leaving the guest memory as it is, and the copy is written there at the next flips once it has landed. The fence
+// belongs to the section, which disposes it through the resource manager when the game copies into it again: it is
+// freed once the current submit completes, often before the next flip (Uncharted: a crash calling a freed event). So
+// an entry keeps the event counter instead: every submit up to the readback has completed once a later one has. A
+// pending entry is dropped after three flips (GT5 reuses each of its three slots every third frame).
 namespace vk
 {
 	namespace
 	{
 		struct vr_late_readback_t
 		{
-			const event* fence;
+			u64 eid; // vk::current_event_id() at the readback
 			u32 start;
 			u32 length;
 			u32 flips;
@@ -94,7 +96,7 @@ namespace vk
 		}
 		std::lock_guard lock(g_vr_late_mutex);
 		std::erase_if(g_vr_late, [&](const vr_late_readback_t& e) { return e.start == start; });
-		g_vr_late.push_back({fence, start, length, 0});
+		g_vr_late.push_back({vk::current_event_id(), start, length, 0});
 		return true;
 	}
 
@@ -169,7 +171,7 @@ namespace vk
 		std::lock_guard lock(g_vr_late_mutex);
 		std::erase_if(g_vr_late, [](vr_late_readback_t& e)
 		{
-			if (e.fence->status() == VK_EVENT_SET)
+			if (vk::last_completed_event_id() >= e.eid)
 			{
 				vk::flush_dma(e.start, e.length);
 				return true;
