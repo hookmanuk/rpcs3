@@ -537,12 +537,16 @@ namespace vk
 					"layout(set=0, binding=0) uniform sampler2D final_tex;\n"
 					"layout(set=0, binding=1) uniform sampler2D pre_tex;\n"
 					"layout(set=0, binding=2, rgba8) uniform image2D out_img;\n"
-					"layout(push_constant) uniform pc_block { vec4 sizes; vec4 scales; }; // out w, h; final u, v; pre u, v (region / texture)\n"
+					"layout(push_constant) uniform pc_block { vec4 sizes; vec4 scales; vec4 h0, h1, h2; }; // out w, h; final u, v; pre u, v (region / texture); gain\n"
 					"void main()\n"
 					"{\n"
 					"	const ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
 					"	if (p.x >= int(sizes.x) || p.y >= int(sizes.y)) return;\n"
-					"	const vec2 uv = (vec2(p) + 0.5) / sizes.xy;\n"
+					"	// h (rows): this output's uv to the HUD's frame (frame generation: a generated frame at another head pose).\n"
+					"	const vec3 q = vec3(dot(h0.xyz, vec3((vec2(p) + 0.5) / sizes.xy, 1.)), dot(h1.xyz, vec3((vec2(p) + 0.5) / sizes.xy, 1.)), dot(h2.xyz, vec3((vec2(p) + 0.5) / sizes.xy, 1.)));\n"
+					"	if (q.z <= 1e-6) return;\n"
+					"	const vec2 uv = q.xy / q.z;\n"
+					"	if (any(lessThan(uv, vec2(0.))) || any(greaterThan(uv, vec2(1.)))) return;\n"
 					"	const vec3 f = texture(final_tex, uv * sizes.zw).rgb;\n"
 					"	const vec3 b = texture(pre_tex, uv * scales.xy).rgb;\n"
 					"	const vec3 d = abs(f - b);\n"
@@ -555,7 +559,7 @@ namespace vk
 					"}\n";
 				ssbo_count = 0;
 				use_push_constants = true;
-				push_constants_size = 32;
+				push_constants_size = 80;
 				create();
 			}
 
@@ -581,7 +585,7 @@ namespace vk
 				m_program->bind_uniform({*m_out}, 0, 2);
 			}
 
-			void run(const vk::command_buffer& cmd, const vk::image_view* final_view, const vk::image_view* pre, const vk::image_view* out, const f32 pc[8])
+			void run(const vk::command_buffer& cmd, const vk::image_view* final_view, const vk::image_view* pre, const vk::image_view* out, const f32 pc[20])
 			{
 				m_final = final_view;
 				m_pre = pre;
@@ -591,7 +595,7 @@ namespace vk
 					vk::end_renderpass(cmd);
 				}
 				load_program(cmd);
-				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, pc);
+				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 80, pc);
 				vkCmdDispatch(cmd, utils::aligned_div(static_cast<u32>(pc[0]), 16u), utils::aligned_div(static_cast<u32>(pc[1]), 16u), 1);
 			}
 		};
@@ -1853,7 +1857,7 @@ namespace vk
 	}
 
 	void dlss_context::hud_composite(const vk::command_buffer& cmd, vk::viewable_image* out, vk::viewable_image* final_image, u32 final_layer,
-		vk::viewable_image* pre, u32 in_w, u32 in_h)
+		vk::viewable_image* pre, u32 in_w, u32 in_h, const f32* homography)
 	{
 		if (!out || !final_image || !pre || !in_w || !in_h)
 		{
@@ -1866,9 +1870,12 @@ namespace vk
 		out->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
 		const vk::image_view* final_view = final_image->layers() > 1 ?
 			final_image->get_layer_view(identity, VK_IMAGE_ASPECT_COLOR_BIT, final_layer) : final_image->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
-		const f32 pc[8] = {static_cast<f32>(out->width()), static_cast<f32>(out->height()),
+		static const f32 identity_h[9] = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+		const f32* h = homography ? homography : identity_h;
+		const f32 pc[20] = {static_cast<f32>(out->width()), static_cast<f32>(out->height()),
 			static_cast<f32>(in_w) / final_image->width(), static_cast<f32>(in_h) / final_image->height(),
-			static_cast<f32>(in_w) / pre->width(), static_cast<f32>(in_h) / pre->height(), env_f32("RPCS3_DLSS_HUD_GAIN", 20.f), 0.f};
+			static_cast<f32>(in_w) / pre->width(), static_cast<f32>(in_h) / pre->height(), env_f32("RPCS3_DLSS_HUD_GAIN", 20.f), 0.f,
+			h[0], h[1], h[2], 0.f, h[3], h[4], h[5], 0.f, h[6], h[7], h[8], 0.f};
 		vk::get_compute_task<dlss_hud_composite_pass>()->run(cmd, final_view, pre->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT), out->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT), pc);
 		final_image->pop_layout(cmd);
 		vk::insert_global_memory_barrier(cmd);

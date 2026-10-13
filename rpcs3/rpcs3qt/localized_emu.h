@@ -393,6 +393,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_CINEMATIC_SCENES: return tr("Cinematic Scenes", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS: return tr("DLSS (experimental)", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL: return tr("DLSS Model (experimental)", "VR");
+		case localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_SHARPENING: return tr("DLSS Sharpening", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_GENERATION: return tr("DLSS Frame Generation (experimental)", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MOTION: return tr("DLSS Frame Generation Motion", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS: return tr("Reduced-Rate Reflections", "VR");

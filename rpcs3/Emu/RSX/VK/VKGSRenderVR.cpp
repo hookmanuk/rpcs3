@@ -4297,6 +4297,20 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, const rs
 	vr_publish_frame(info, image_to_flip, generated_stereo ? image_to_flip2 : nullptr);
 }
 
+u32 VKGSRender::vr_displayed_pose(const rsx::display_flip_info_t& info)
+{
+	u32 pose = m_vr_applied_pose;
+	if (m_vr_frame_boundaries && info.buffer < display_buffers_count)
+	{
+		if (auto* surface = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
+			surface && surface->vr_pose)
+		{
+			pose = surface->vr_pose;
+		}
+	}
+	return pose;
+}
+
 void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::viewable_image* image_to_flip, vk::viewable_image* image_to_flip2)
 {
 	// Dev GPU checkpoints through the flip: 2 start, 5 eyes copied, 6 overlay drawn, 7 overlay copied, 8 end.
@@ -4407,15 +4421,7 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 		// stretched: the box looked ultrawide and followed the face until the first 3D frame.
 		const bool have_fov = rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y) || vk::xr::hmd_fov();
 		// The pose the displayed image was drawn with, if it can be traced.
-		u32 pose = m_vr_applied_pose;
-		if (m_vr_frame_boundaries && info.buffer < display_buffers_count)
-		{
-			if (auto* surface = m_rtts.get_surface_at(rsx::get_address(display_buffers[info.buffer].offset, CELL_GCM_LOCATION_LOCAL));
-				surface && surface->vr_pose)
-			{
-				pose = surface->vr_pose;
-			}
-		}
+		u32 pose = vr_displayed_pose(info);
 		// Profile display_rect: a 3D frame shows only the part of the display that holds the game's view (God of
 		// War's scene is inset with a black border); frames on the fixed screen show the whole picture.
 		std::array<f32, 4> crop{0.f, 0.f, 1.f, 1.f};

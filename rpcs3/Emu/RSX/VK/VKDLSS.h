@@ -196,8 +196,10 @@ namespace vk
 		// The copy of eye 0 / 1 when flip_image is the image it was taken from, else null.
 		vk::viewable_image* hud_pre(const vk::image* flip_image, u32 eye) const;
 		// Adds final - pre (bilinear, the region in_w x in_h of both) onto out (DLSS's output for that eye).
+		// homography (3x3, rows; null: identity): out's uv to final's and pre's (framegen: the HUD onto a generated frame at the
+		// halfway head pose).
 		void hud_composite(const vk::command_buffer& cmd, vk::viewable_image* out, vk::viewable_image* final_image, u32 final_layer,
-			vk::viewable_image* pre, u32 in_w, u32 in_h);
+			vk::viewable_image* pre, u32 in_w, u32 in_h, const f32* homography = nullptr);
 		// At each flip, after the use: the next HUD draw takes a new copy.
 		void hud_flip_done() { m_hud_pre_target = nullptr; }
 		// on_flip's result was made this call (not the last output shown again, not a debug view).

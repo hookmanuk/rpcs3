@@ -650,6 +650,61 @@
           </widget>
          </item>
          <item>
+          <widget class="QGroupBox" name="gb_vrDlssSharpening">
+           <property name="title">
+            <string>DLSS Sharpening</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrDlssSharpening_layout">
+            <item>
+             <layout class="QHBoxLayout" name="vrDlssSharpeningLayoutTop" stretch="0,1,0">
+              <item>
+               <widget class="QLabel" name="vrDlssSharpeningMin">
+                <property name="text">
+                 <string>0</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSlider" name="vrDlssSharpening">
+                <property name="orientation">
+                 <enum>Qt::Orientation::Horizontal</enum>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="vrDlssSharpeningMax">
+                <property name="text">
+                 <string>100</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="vrDlssSharpeningLayoutBottom" stretch="1,0">
+              <item>
+               <widget class="QLabel" name="vrDlssSharpeningVal">
+                <property name="text">
+                 <string>0</string>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignmentFlag::AlignCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="vrDlssSharpeningReset">
+                <property name="text">
+                 <string>Reset</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
           <widget class="QCheckBox" name="vrFrameGeneration">
            <property name="text">
             <string>DLSS Frame Generation (experimental)</string>

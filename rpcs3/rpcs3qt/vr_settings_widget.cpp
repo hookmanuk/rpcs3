@@ -182,6 +182,8 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 
 		enhance_vr_slider(ui->vrHudScale, ui->vrHudScaleMin, ui->vrHudScaleMax, ui->vrHudScaleVal, ui->vrHudScaleReset,
 			emu_settings_type::VRHudScale, ui->gb_vrHudScale, tooltips.settings.vr_hud_scale, percent_text, 5);
+		enhance_vr_slider(ui->vrDlssSharpening, ui->vrDlssSharpeningMin, ui->vrDlssSharpeningMax, ui->vrDlssSharpeningVal, ui->vrDlssSharpeningReset,
+			emu_settings_type::VRDlssSharpening, ui->gb_vrDlssSharpening, tooltips.settings.vr_dlss_sharpening, percent_text, 5);
 		enhance_vr_slider(ui->vrHudOffsetX, ui->vrHudOffsetXMin, ui->vrHudOffsetXMax, ui->vrHudOffsetXVal, ui->vrHudOffsetXReset,
 			emu_settings_type::VRHudOffsetX, ui->gb_vrHudOffsetX, tooltips.settings.vr_hud_offset, percent_text, 1);
 		enhance_vr_slider(ui->vrHudOffsetY, ui->vrHudOffsetYMin, ui->vrHudOffsetYMax, ui->vrHudOffsetYVal, ui->vrHudOffsetYReset,

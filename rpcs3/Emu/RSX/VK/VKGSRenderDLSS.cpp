@@ -4,6 +4,11 @@
 #include "VKFrameGen.h"
 #include "VKOpenXR.h"
 #include "upscalers/fsr_pass.h"
+
+#define A_CPU 1
+#include "3rdparty/GPUOpen/include/ffx_a.h"
+#include "3rdparty/GPUOpen/include/ffx_fsr1.h"
+#undef A_CPU
 #include "vkutils/image.h"
 
 #include "../Capture/rsx_camera_probe.h"
@@ -398,10 +403,25 @@ void VKGSRender::framegen_keep_hudless(vk::viewable_image* image, u32 eye)
 	m_framegen_hudless_valid[eye] = true;
 }
 
-// RCAS (AMD FidelityFX, as the FSR upscaler's second pass) on a DLSS output, in place. The slider's 0 turns it off.
+namespace
+{
+	// RCAS at four times the strength the CAS slider gives the FSR upscaler (Matt: DLSS's output wants more): VR > DLSS
+	// Sharpening 0..100 is -0..-2 stops (RCAS's own maximum is 0).
+	class dlss_rcas_pass : public vk::FidelityFX::rcas_pass
+	{
+		void configure(const vk::command_buffer& cmd) override
+		{
+			const f32 stops = -(g_cfg.video.vr.dlss_sharpening / 50.f);
+			FsrRcasCon(&m_constants_buf[0], stops);
+			vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, push_constants_size, m_constants_buf.data());
+		}
+	};
+}
+
+// RCAS (AMD FidelityFX, as the FSR upscaler's second pass) on a DLSS output, in place. VR > DLSS Sharpening 0 turns it off.
 void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 {
-	const u32 strength = g_cfg.video.rcas_sharpening_intensity;
+	const u32 strength = g_cfg.video.vr.dlss_sharpening;
 	if (!strength || !image || eye > 1)
 	{
 		return;
@@ -439,7 +459,7 @@ void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 	}
 	image->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	tmp->change_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-	vk::get_compute_task<vk::FidelityFX::rcas_pass>()->run(*m_current_command_buffer, image, tmp.get(), {w, h}, {w, h});
+	vk::get_compute_task<dlss_rcas_pass>()->run(*m_current_command_buffer, image, tmp.get(), {w, h}, {w, h});
 	image->pop_layout(*m_current_command_buffer);
 	vk::insert_global_memory_barrier(*m_current_command_buffer);
 	const areai r{0, 0, static_cast<s32>(w), static_cast<s32>(h)};
@@ -449,7 +469,7 @@ void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 
 // ---- Flip (vr_publish_frame) ---------------------------------------------------------------------------
 
-void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* right)
+void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::viewable_image* left, vk::viewable_image* right)
 {
 	m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
 	if (!left || !right || left == right)
@@ -464,11 +484,13 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 	for (u32 eye = 0; eye < 2; ++eye)
 	{
 		vk::framegen_eye_inputs in;
-		in.backbuffer = eyes[eye];
+		// The image without the HUD when DLSS separated it: the HUD is laid on afterwards at the generated frame's head pose (in
+		// VR the HUD box is fixed in the world; DLSS-G moved it with the scene, or, given a HUD-less input, kept it in place).
+		const bool hud_separate = m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye];
+		in.backbuffer = hud_separate ? m_framegen_hudless[eye].get() : eyes[eye];
 		in.tan_half_x = tan_x;
 		in.tan_half_y = tan_y;
 		in.depth_inverted = std::getenv("RPCS3_DLSS_DEPTH_INVERTED") != nullptr;
-		in.hudless = m_framegen_hudless_valid[eye] ? m_framegen_hudless[eye].get() : nullptr;
 		if (!m_dlss->framegen_inputs(*m_current_command_buffer, eye, vk::framegen_motion_mode() == vk::framegen_motion::hybrid, in.depth, in.motion,
 				in.clip_to_prev_clip, in.have_motion_matrix))
 		{
@@ -476,8 +498,20 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 		}
 		outs[eye] = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset());
 	}
+	const u32 pose = vr_displayed_pose(info);
 	if (outs[0] && outs[1])
 	{
+		// The HUD of this frame onto the generated pair, turned from this frame's head pose to the halfway one.
+		f32 h[9];
+		const bool turned = vk::xr::render_pose_halfway_homography(m_framegen_pose, pose, h);
+		for (u32 eye = 0; eye < 2; ++eye)
+		{
+			if (m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye])
+			{
+				m_dlss->hud_composite(*m_current_command_buffer, outs[eye], m_framegen_hud_final[eye], 0, m_framegen_hud_pre[eye], m_framegen_hud_w, m_framegen_hud_h,
+					turned ? h : nullptr);
+			}
+		}
 		m_framegen_eyes[0] = outs[0];
 		m_framegen_eyes[1] = outs[1];
 		if (static const char* s_only = std::getenv("RPCS3_DLSSG_ONLY"); s_only)
@@ -500,6 +534,7 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 			m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
 		}
 	}
+	m_framegen_pose = pose;
 	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 }
 
@@ -547,7 +582,7 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 	{
 		if (m_dlss->output_fresh())
 		{
-			// Sharpening (Video > FidelityFX CAS Sharpening Intensity): DLSS's own output, before the HUD goes back on and
+			// Sharpening (VR > DLSS Sharpening): DLSS's own output, before the HUD goes back on and
 			// before frame generation. Only a fresh output (one shown again is sharpened already).
 			dlss_sharpen(dlss_image, 0);
 			if (vr_view && right && right != pre_right && right != image_to_flip2)
@@ -561,6 +596,12 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 			// is put back, so DLSS-G leaves the HUD's pixels alone instead of moving them with the world.
 			framegen_keep_hudless(dlss_image, 0);
 			framegen_keep_hudless(pre_right && right != pre_right ? right : nullptr, 1);
+			m_framegen_hud_final[0] = final_left;
+			m_framegen_hud_pre[0] = pre_left;
+			m_framegen_hud_final[1] = pre_right && right != pre_right ? final_right : nullptr;
+			m_framegen_hud_pre[1] = pre_right;
+			m_framegen_hud_w = buffer_width;
+			m_framegen_hud_h = buffer_height;
 		}
 		else
 		{
@@ -581,7 +622,7 @@ void VKGSRender::dlss_on_flip(const rsx::display_flip_info_t& info, const rsx::a
 		}
 		if (m_framegen && vk::framegen_enabled() && vr_view && info.emu_flip && m_dlss->output_fresh())
 		{
-			framegen_on_flip(dlss_image, right); // framegen: the frame halfway to this one, per eye
+			framegen_on_flip(info, dlss_image, right); // framegen: the frame halfway to this one, per eye
 		}
 		buffer_width = out_w;
 		buffer_height = out_h;

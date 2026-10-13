@@ -247,6 +247,7 @@ enum class emu_settings_type
 	VRCinematicScenes,
 	VRDlss,                   // VR fork, DLSS test branch
 	VRDlssModel,
+	VRDlssSharpening,         // VR fork
 	VRFrameGeneration,        // VR fork, framegen
 	VRFrameGenMotion,
 	VRHighestDetailModels,    // VR fork: game options (rules tagged "option" in the VR profile)

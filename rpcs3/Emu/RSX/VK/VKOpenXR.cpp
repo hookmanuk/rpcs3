@@ -1943,6 +1943,8 @@ namespace vk::xr
 		return std::sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y) + (p.z - q.z) * (p.z - q.z)) * 1000.f;
 	}
 
+	static bool pose_homography(const XrQuaternionf& a, const XrQuaternionf& b, const XrFovf (&eye_fov)[2], f32 h[9]);
+
 	bool render_pose_homography(u32 from_id, u32 to_id, f32 h[9])
 	{
 		const auto& from = g_xr.render_poses[from_id % std::size(g_xr.render_poses)];
@@ -1951,10 +1953,37 @@ namespace vk::xr
 		{
 			return false;
 		}
+		return pose_homography(from.orientation, to.orientation, to.eye_fov, h);
+	}
 
+	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9])
+	{
+		const auto& prev = g_xr.render_poses[prev_id % std::size(g_xr.render_poses)];
+		const auto& cur = g_xr.render_poses[cur_id % std::size(g_xr.render_poses)];
+		if (!prev_id || !cur_id || prev.id != prev_id || cur.id != cur_id)
+		{
+			return false;
+		}
+		// The orientation halfway between (as commit_eyes declares a generated frame's).
+		const XrQuaternionf& a = prev.orientation;
+		XrQuaternionf b = cur.orientation;
+		if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.f)
+		{
+			b = {-b.x, -b.y, -b.z, -b.w};
+		}
+		XrQuaternionf m{a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+		const f32 len = std::sqrt(m.x * m.x + m.y * m.y + m.z * m.z + m.w * m.w);
+		if (len < 1e-6f)
+		{
+			return false;
+		}
+		m = {m.x / len, m.y / len, m.z / len, m.w / len};
+		return pose_homography(cur.orientation, m, cur.eye_fov, h);
+	}
+
+	static bool pose_homography(const XrQuaternionf& a, const XrQuaternionf& b, const XrFovf (&eye_fov)[2], f32 h[9])
+	{
 		// Q = R_from^T R_to: directions of the new view expressed in the old one.
-		const XrQuaternionf& a = from.orientation;
-		const XrQuaternionf& b = to.orientation;
 		const f32 ax = -a.x, ay = -a.y, az = -a.z, aw = a.w;
 		const f32 x = aw * b.x + ax * b.w + ay * b.z - az * b.y;
 		const f32 y = aw * b.y - ax * b.z + ay * b.w + az * b.x;
@@ -1968,7 +1997,7 @@ namespace vk::xr
 		// The rendered eye frustum (both eyes averaged): T maps (u, v, 1), v down, to
 		// view tangents (tx, ty, 1); the direction is (tx, ty, -1) = S (tx, ty, 1).
 		f32 l = 0.f, r = 0.f, up = 0.f, dn = 0.f;
-		for (const XrFovf& fov : to.eye_fov)
+		for (const XrFovf& fov : eye_fov)
 		{
 			l += std::tan(fov.angleLeft) * 0.5f;
 			r += std::tan(fov.angleRight) * 0.5f;

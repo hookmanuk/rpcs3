@@ -123,6 +123,8 @@ namespace vk::xr
 	// The same, exactly: a homography h (row-major 3x3) mapping a texture coordinate
 	// (u, v, 1) of the to_id frame to the from_id frame's image (divide by the third).
 	bool render_pose_homography(u32 from_id, u32 to_id, f32 h[9]);
+	// framegen: the same from the cur_id frame to the orientation halfway between prev_id's and cur_id's (a generated frame's).
+	bool render_pose_halfway_homography(u32 prev_id, u32 cur_id, f32 h[9]);
 
 	// Diagnostic: head yaw (degrees) of a pose from locate_render_pose, NaN if no longer kept.
 	f32 render_pose_yaw(u32 pose_id);
