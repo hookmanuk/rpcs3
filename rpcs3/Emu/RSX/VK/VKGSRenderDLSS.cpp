@@ -380,6 +380,16 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 	{
 		m_framegen_eyes[0] = outs[0];
 		m_framegen_eyes[1] = outs[1];
+		if (static const bool s_only = std::getenv("RPCS3_DLSSG_ONLY") != nullptr; s_only)
+		{
+			// Dev: show only generated frames (each in place of its real frame), to look at them.
+			for (u32 eye = 0; eye < 2; ++eye)
+			{
+				const areai r{0, 0, static_cast<s32>(outs[eye]->width()), static_cast<s32>(outs[eye]->height())};
+				vk::copy_image(*m_current_command_buffer, outs[eye], eyes[eye], r, r);
+			}
+			m_framegen_eyes[0] = m_framegen_eyes[1] = nullptr;
+		}
 	}
 	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 }

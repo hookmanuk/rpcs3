@@ -1175,8 +1175,20 @@ namespace vk::xr
 					index = g_xr.latest;
 					g_xr.show_latest_next = false;
 				}
-				if (index >= 0)
+				if (static u32 s_generated = 0, s_frames = 0; index >= 0)
 				{
+					// framegen: how many headset frames showed a generated pair (every 5 s while any do).
+					s_generated += g_xr.show_latest_next;
+					static auto s_since = clk::now();
+					if (++s_frames, clk::now() - s_since >= std::chrono::seconds(5))
+					{
+						if (s_generated)
+						{
+							xr_log.notice("Frame generation: %u of %u headset frames showed a generated pair", s_generated, s_frames);
+						}
+						s_generated = s_frames = 0;
+						s_since = clk::now();
+					}
 					g_xr.in_use = index;
 					meta = g_xr.slots[index];
 				}
