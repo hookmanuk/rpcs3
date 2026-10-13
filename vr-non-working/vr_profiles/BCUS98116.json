@@ -6,6 +6,7 @@
   "max_fps": 0,
   "default_fps": 45,
   "vblanks_per_frame": 2,
+  "hidden_draws": [{ "name": "SPU post: motion blur, depth of field, glow (left eye only)", "program": "e47548c5ac97d027", "texture": "160x90", "hidden": true }],
 
   "matrix_layout": "row_vectors",
   "camera_blocks": [0, 5, 1],
