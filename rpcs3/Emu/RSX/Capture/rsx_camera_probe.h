@@ -169,6 +169,11 @@ namespace rsx::vr
 		// worker thread (Emu/Cell/SPUAsyncCompile.cpp), instead of stopping for the compile. Gran Turismo 5 froze on a fresh
 		// install (empty SPU cache) without it: a job queue's start was lost in that pause. Dev: RPCS3_SPU_ASYNC=0/1.
 		bool spu_async_compile = false;
+		// "game_rate_measured": false: the frame-rate words (game_fps_u32, game_frame_time_f32, ...) always get the VR rate,
+		// never the measured rate of a game running below it. For a game that times slow frames itself: God of War sets
+		// up its menus and messages from its rate word, and a dip in that word (a hitch while loading) left the Power Up
+		// screen, the pause menu and tutorial messages black or stuck for the rest of the session.
+		bool game_rate_measured = true;
 		// "display_area_sizes": true: the texture sizes in screen_frame_draws and reduced_scale_frames also match the same size
 		// scaled down uniformly to 0.8. Gran Turismo 5 renders its full-screen 2D targets at its Adjust Display Area setting:
 		// 2560x1440 at 1.0, 2304x1296 at a fresh install's 0.9, where its menus stayed in the headset view.

@@ -6,6 +6,7 @@
   "max_fps": 0,
   "default_fps": 0,
   "game_fps_u32": ["0x5720f4"],
+  "game_rate_measured": false,
 
   "resolution_scaled_constants": [
     { "program": "c4882b95379447a8", "slots": [466, 467] }
