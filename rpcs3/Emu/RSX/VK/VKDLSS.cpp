@@ -700,15 +700,20 @@ namespace vk
 
 	bool dlss_enabled()
 	{
-		// Parked (2026-10-11): only a session that boots with DLSS on gets the context (no menu offers it; the setting
-		// or RPCS3_DLSS). Live switching from Off needs the context and NGX's extensions from boot: dlss_ngx_possible.
+		// With the SDK the context exists from boot (Off does nothing per draw), so the settings and the home menu can turn
+		// DLSS on live; RPCS3_DLSS=off rules it out. Without an NVIDIA GPU or the runtime NGX fails to start and DLSS
+		// stays off. (Parked 2026-10-11 to boot-only; live again 2026-10-13, Matt.)
+#ifdef HAVE_DLSS
+		return env("RPCS3_DLSS") == nullptr || dlss_configured_mode() != dlss_mode::off;
+#else
 		return dlss_configured_mode() != dlss_mode::off;
+#endif
 	}
 
 	bool dlss_ngx_possible()
 	{
 #ifdef HAVE_DLSS
-		return dlss_uses_ngx();
+		return env("RPCS3_DLSS") == nullptr || dlss_uses_ngx();
 #else
 		return false;
 #endif
@@ -1062,6 +1067,8 @@ namespace vk
 		m_hud_pre_target = nullptr;
 	}
 
+	static f32 dlss_mode_upscale(dlss_mode mode);
+
 	void dlss_context::refresh_mode()
 	{
 		if (env("RPCS3_DLSS"))
@@ -1074,6 +1081,14 @@ namespace vk
 			return;
 		}
 		dlss_log.notice("DLSS mode %u -> %u (setting changed)", static_cast<u32>(m_mode), static_cast<u32>(mode));
+		// The Resolution Scale follows, so the output keeps its size (DLAA -> Quality: 1 / 1.5 of it; Off counts as 1).
+		if (const f32 from = dlss_mode_upscale(m_mode), to = dlss_mode_upscale(mode); from != to && !env("RPCS3_DLSS_VR_SCALE"))
+		{
+			const u32 scale = static_cast<u32>(g_cfg.video.resolution_scale_percent);
+			const u32 scaled = std::clamp<u32>(static_cast<u32>(std::lround(scale * from / to / 5.f) * 5), 25, 800);
+			g_cfg.video.resolution_scale_percent.set(scaled);
+			dlss_log.notice("DLSS: Resolution Scale %u%% -> %u%% (upscale %.2f -> %.2f)", scale, scaled, from, to);
+		}
 		m_mode = mode;
 		m_reset_history = true;
 		m_jitter_phases = 8;
@@ -1685,15 +1700,10 @@ namespace vk
 		return true;
 	}
 
-	f32 dlss_context::vr_output_scale() const
+	// The render scale each mode stands for (NGX's own: 1/1.5, 0.58, 0.5, 1/3 per axis), as an upscale.
+	static f32 dlss_mode_upscale(dlss_mode mode)
 	{
-		if (const f32 forced = env_f32("RPCS3_DLSS_VR_SCALE", 0.f); forced > 0.f)
-		{
-			return std::clamp(forced, 1.f, 3.f);
-		}
-
-		// The render scale each mode stands for (NGX's own: 1/1.5, 0.58, 0.5, 1/3 per axis), as an upscale.
-		switch (m_mode)
+		switch (mode)
 		{
 		case dlss_mode::quality: return 1.5f;
 		case dlss_mode::balanced: return 1.72f;
@@ -1701,6 +1711,15 @@ namespace vk
 		case dlss_mode::ultra_performance: return 3.f;
 		default: return 1.f;
 		}
+	}
+
+	f32 dlss_context::vr_output_scale() const
+	{
+		if (const f32 forced = env_f32("RPCS3_DLSS_VR_SCALE", 0.f); forced > 0.f)
+		{
+			return std::clamp(forced, 1.f, 3.f);
+		}
+		return dlss_mode_upscale(m_mode);
 	}
 
 	void dlss_context::resolve(const vk::command_buffer& cmd, u32 width, u32 height, u32 eye)
