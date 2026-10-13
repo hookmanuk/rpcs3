@@ -750,6 +750,10 @@ namespace rsx::vr
 		{
 			profile->screen_space_hud_keep_depth = keep == "true";
 		}
+		if (std::string over; read(screen_space, "hud_over_scene", over, false))
+		{
+			profile->screen_space_hud_over_scene = over == "true";
+		}
 		if (std::string screen; read(screen_space, "frames_without_3d_as_screen", screen, false))
 		{
 			profile->screen_space_frames_without_3d_as_screen = screen == "true"  ? title_profile::frames_without_3d_mode::always :
@@ -1599,7 +1603,7 @@ namespace rsx::vr
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
-		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
+		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_over_scene", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -4187,10 +4191,15 @@ namespace rsx::vr
 		if (!m_vr_hud_fixed)
 		{
 			// Head-locked: the box stays at the centre of the view.
+			const bool over_scene = m_draw_depth_test && m_profile && m_profile->screen_space_hud_over_scene;
 			for (u32 r = 0; r < 4; ++r)
 			{
 				rows[r][0] = (rows[r][0] * tx + rows[r][3] * (cx + parallax)) * fx + rows[r][3] * ox;
 				rows[r][1] = (rows[r][1] * ty + rows[r][3] * cy) * fy + rows[r][3] * oy;
+				if (over_scene)
+				{
+					rows[r][2] = 1e-4f * rows[r][3];
+				}
 			}
 			undo_viewport(rows, true);
 			return;
@@ -4235,6 +4244,11 @@ namespace rsx::vr
 			if (!m_draw_depth_test)
 			{
 				rows[r][2] = 0.5f * v2;
+			}
+			else if (m_profile && m_profile->screen_space_hud_over_scene)
+			{
+				// Profile hud_over_scene: just in front of the near plane, over the scene's depth.
+				rows[r][2] = 1e-4f * v2;
 			}
 		}
 		undo_viewport(rows, true);

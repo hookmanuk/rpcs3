@@ -411,6 +411,12 @@ namespace rsx::vr
 		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
 		// menu layers. Off by default: it broke ICO's HUD box.
 		bool screen_space_hud_keep_depth = false;
+		// screen_space.hud_over_scene: depth-tested HUD-box draws through the orthographic block go just in front of the
+		// near plane, so the scene never covers the box. The game depth-tests its menu against the scene's depth with its
+		// own (deep) z, which passes on the flat screen; in the headset the box covers other scenery, and near rock hid
+		// all but strips of Prince of Persia's pause menu as the head turned. The draws still test among themselves (in
+		// draw order: they share one depth).
+		bool screen_space_hud_over_scene = false;
 		// Frames without 3D (splash screens, videos, 2D menus) are shown on the fixed screen (where the HUD box is)
 		// instead of over the whole view, where they followed the head. Unset (auto): frames with no camera draws whose
 		// displayed buffer holds no 3D content either; a paused game re-showing its last 3D frame (Pure, WipEout: the

@@ -348,7 +348,7 @@ namespace rsx::vr
 		   << ",\"vertex_draw_count\":" << in.vertex_draw_count
 		   << ",\"pass_count\":" << in.pass_count;
 
-		// Enabled fragment textures: guest address, size and format.
+		// Enabled fragment textures: guest address, size, format and the raw control, remap, filter and colour-key registers.
 		os << ",\"textures\":[";
 		for (u32 i = 0, n = 0; i < rsx::limits::fragment_textures_count; ++i)
 		{
@@ -358,7 +358,9 @@ namespace rsx::vr
 			if (n++)
 				os << ',';
 			os << "{\"unit\":" << i << ",\"address\":" << rsx::get_address(tex.offset(), tex.location())
-			   << ",\"width\":" << tex.width() << ",\"height\":" << tex.height() << ",\"format\":" << static_cast<u32>(tex.format()) << '}';
+			   << ",\"width\":" << tex.width() << ",\"height\":" << tex.height() << ",\"format\":" << static_cast<u32>(tex.format())
+			   << ",\"control0\":" << regs.registers[NV4097_SET_TEXTURE_CONTROL0 + i * 8] << ",\"remap\":" << regs.registers[NV4097_SET_TEXTURE_CONTROL1 + i * 8]
+			   << ",\"filter\":" << regs.registers[NV4097_SET_TEXTURE_FILTER + i * 8] << ",\"color_key\":" << regs.registers[NV4097_SET_COLOR_KEY_COLOR + i] << '}';
 		}
 		os << ']';
 
@@ -406,6 +408,9 @@ namespace rsx::vr
 		   << ",\"depth_write\":" << (regs.depth_write_enabled() ? "true" : "false")
 		   << ",\"depth_func\":" << static_cast<u32>(regs.depth_func())
 		   << ",\"blend\":" << (regs.blend_enabled() ? "true" : "false")
+		   << ",\"alpha_test\":" << regs.registers[NV4097_SET_ALPHA_TEST_ENABLE] << ",\"alpha_func\":" << regs.registers[NV4097_SET_ALPHA_FUNC]
+		   << ",\"alpha_ref\":" << regs.registers[NV4097_SET_ALPHA_REF] << ",\"blend_sfactor\":" << regs.registers[NV4097_SET_BLEND_FUNC_SFACTOR]
+		   << ",\"blend_dfactor\":" << regs.registers[NV4097_SET_BLEND_FUNC_DFACTOR]
 		   << "}";
 
 		// Transform constants, by ORIGINAL guest index (c[0]..c[467]).
