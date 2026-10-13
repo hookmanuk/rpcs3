@@ -8,6 +8,7 @@
 #include "vkutils/device.h"
 #include "vkutils/image.h"
 #include "Emu/system_config.h"
+#include "Emu/RSX/Capture/rsx_camera_probe.h"
 #include "Utilities/StrFmt.h"
 #include "Utilities/File.h"
 
@@ -117,6 +118,35 @@ namespace vk
 #endif
 	}
 
+	framegen_motion framegen_motion_mode()
+	{
+		static const framegen_motion s_env = []()
+		{
+			const char* v = std::getenv("RPCS3_DLSSG_MV");
+			const std::string_view s = v ? v : "";
+			return s == "own" || s == "invalid" ? framegen_motion::own : s == "game" ? framegen_motion::game : framegen_motion::hybrid;
+		}();
+		if (std::getenv("RPCS3_DLSSG_MV"))
+		{
+			return s_env;
+		}
+		// The setting (VR > DLSS Frame Generation Motion, live); the dev files for headset tests win (checked every 90 calls).
+		static framegen_motion s_mode = framegen_motion::hybrid;
+		if (static u32 s_calls = 0; s_calls++ % 90 == 0)
+		{
+			const char* temp = std::getenv("TEMP");
+			const std::string dir = temp ? std::string(temp) + "/rpcs3-vrprofile/" : std::string();
+			const framegen_motion setting = g_cfg.video.vr.frame_generation_motion == vr_framegen_motion::game ? framegen_motion::game : framegen_motion::hybrid;
+			const framegen_motion now = temp && fs::is_file(dir + "DLSSG_MV_OWN") ? framegen_motion::own : temp && fs::is_file(dir + "DLSSG_MV_GAME") ? framegen_motion::game : setting;
+			if (now != s_mode)
+			{
+				framegen_log.notice("Frame generation motion: %s", now == framegen_motion::own ? "DLSS-G's own estimate" : now == framegen_motion::game ? "the game's vectors" : "hybrid (the game's vectors on static world)");
+				s_mode = now;
+			}
+		}
+		return s_mode;
+	}
+
 	bool framegen_requested()
 	{
 		static const bool s_requested = []()
@@ -220,6 +250,7 @@ namespace vk
 
 	framegen_context::~framegen_context()
 	{
+		rsx::vr::set_framegen_active(false);
 		release_features();
 #ifdef HAVE_DLSS
 		if (m_params)
@@ -320,6 +351,7 @@ namespace vk
 		{
 			framegen_log.error("Creating the frame generation feature failed (%s), %ux%u (render %ux%u) format %u", result_name(r), w, h, rw, rh, static_cast<u32>(format));
 			m_disabled = true;
+			rsx::vr::set_framegen_active(false);
 			return false;
 		}
 		f = {handle, w, h, rw, rh, format};
@@ -338,8 +370,10 @@ namespace vk
 		{
 			framegen_log.error("Frame generation: no %ux%u output image", w, h);
 			m_disabled = true;
+			rsx::vr::set_framegen_active(false);
 			return false;
 		}
+		rsx::vr::set_framegen_active(true); // the game at half the VR frame rate from here on
 		out->set_debug_name(eye ? "Frame generation output (right eye)" : "Frame generation output");
 		framegen_log.notice("Frame generation feature%s %ux%u (render %ux%u), format %u", eye ? " (right eye)" : "", w, h, rw, rh, static_cast<u32>(format));
 		return true;
@@ -365,24 +399,11 @@ namespace vk
 		const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
 		const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-		// DLSS-G's own motion estimate by default (the game's motion vectors all marked invalid): our vectors give objects the
-		// game moves itself (MotorStorm's car, built on the SPU) the world's motion, and DLSS-G ghosted their edges (Matt,
-		// headset, 2026-10-13: "much better"). RPCS3_DLSSG_MV=game|invalid fixes it; without the variable the file
-		// %TEMP%/rpcs3-vrprofile/DLSSG_MV_GAME switches to the game's vectors live (checked every 45 frames).
+		// framegen_motion::own: every vector marked invalid (DLSS-G's own estimate). Our vectors give objects the game moves
+		// itself (MotorStorm's car, built on the SPU) the world's motion and DLSS-G ghosted their edges; its own estimate
+		// ghosted every car on head turns (Matt, headset, 2026-10-13). Hybrid (the default, VKDLSS framegen_inputs) does both.
 		vk::viewable_image* motion_img = in.motion;
-		static const char* s_mv_env = std::getenv("RPCS3_DLSSG_MV");
-		static bool s_invalid = !s_mv_env || std::string_view(s_mv_env) != "game";
-		if (static u32 s_check = 0; !s_mv_env && eye == 0 && s_check++ % 45 == 0)
-		{
-			const char* temp = std::getenv("TEMP");
-			const bool now = !(temp && fs::is_file(std::string(temp) + "/rpcs3-vrprofile/DLSSG_MV_GAME"));
-			if (now != s_invalid)
-			{
-				framegen_log.notice("Frame generation motion vectors: %s", now ? "none (DLSS-G's own flow)" : "the game's");
-				s_invalid = now;
-			}
-		}
-		if (s_invalid)
+		if (framegen_motion_mode() == framegen_motion::own)
 		{
 			if (!m_invalid_mv || m_invalid_mv->width() != in.motion->width() || m_invalid_mv->height() != in.motion->height())
 			{

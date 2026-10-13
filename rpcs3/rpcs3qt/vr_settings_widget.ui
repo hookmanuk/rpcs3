@@ -649,6 +649,25 @@
            </layout>
           </widget>
          </item>
+         <item>
+          <widget class="QCheckBox" name="vrFrameGeneration">
+           <property name="text">
+            <string>DLSS Frame Generation (experimental)</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="gb_vrFrameGenMotion">
+           <property name="title">
+            <string>DLSS Frame Generation Motion</string>
+           </property>
+           <layout class="QVBoxLayout" name="gb_vrFrameGenMotion_layout">
+            <item>
+             <widget class="QComboBox" name="vrFrameGenMotion"/>
+            </item>
+           </layout>
+          </widget>
+         </item>
            </layout>
           </widget>
          </item>

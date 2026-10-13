@@ -432,3 +432,10 @@ enum class vr_dlss_model
 	m,
 };
 
+// VR fork (framegen): where DLSS Frame Generation's motion comes from.
+enum class vr_framegen_motion
+{
+	hybrid, // the game's motion vectors where a depth check says the pixel is static world, DLSS-G's own estimate elsewhere
+	game,   // the game's motion vectors everywhere
+};
+

@@ -840,6 +840,21 @@ void fmt_class_string<vr_dlss_model>::format(std::string& out, u64 arg)
 }
 
 template <>
+void fmt_class_string<vr_framegen_motion>::format(std::string& out, u64 arg)
+{
+	format_enum(out, arg, [](vr_framegen_motion value)
+	{
+		switch (value)
+		{
+		case vr_framegen_motion::hybrid: return "Hybrid";
+		case vr_framegen_motion::game: return "Game";
+		}
+
+		return unknown;
+	});
+}
+
+template <>
 void fmt_class_string<vr_frame_rate>::format(std::string& out, u64 arg)
 {
 	format_enum(out, arg, [](vr_frame_rate value)

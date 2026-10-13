@@ -214,6 +214,9 @@ namespace rsx::vr
 		// Uncharted's resolve pass (the same program) copies a sample of the 2x MSAA depth into such a colour target, which the
 		// sun-shadow pass reads. -1 = none.
 		s32 depth_remap_packed_unit = -1;
+		// dlss_jitter: DLSS's sub-pixel jitter amplitude (1 = full, 0 = none). MotorStorm's ground went black in patches with
+		// it (a pass that compares the jittered depth with something unjittered; exact pass not found), clean without.
+		f32 dlss_jitter = 1.f;
 		// depth_remap_volume_programs: other programs drawing the remap passes' volumes (Sonic's stencil pre-pass
 		// 2fe8ebfb47d877be): they take the scene camera's eye transform as the remap passes do.
 		std::vector<u64> depth_remap_volume_programs;
@@ -694,6 +697,10 @@ namespace rsx::vr
 	// runs; 0 clears it.
 	void set_headset_refresh_rate(u32 hz);
 
+	// framegen: DLSS Frame Generation runs (VKFrameGen.h): the game renders at half the VR frame rate (the headset still
+	// gets every frame, half of them generated).
+	void set_framegen_active(bool active);
+
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);
 
@@ -731,7 +738,7 @@ namespace rsx::vr
 	// The Frame Rate option for this rate (0 = Unlimited), umax if none.
 	u32 frame_rate_option_for_fps(u32 fps);
 
-	// The running game's frame rate in VR (0 = the headset's refresh rate).
+	// The running game's frame rate in VR (0 = the headset's refresh rate). Halved while frame generation runs.
 	u32 effective_frame_rate();
 
 	// effective_vblank_rate(): declared in rsx_vr_hooks.h.

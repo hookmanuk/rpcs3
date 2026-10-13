@@ -28,6 +28,12 @@ namespace vk
 	void framegen_instance_extensions(std::vector<const char*>& extensions);
 	void framegen_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions);
 
+	// Where DLSS-G's motion comes from: hybrid (default) the game's vectors where a depth check says the pixel is static
+	// world, DLSS-G's own estimate elsewhere; own: DLSS-G's own estimate everywhere; game: the game's vectors everywhere.
+	// RPCS3_DLSSG_MV=hybrid|own|game fixes it; otherwise the files %TEMP%/rpcs3-vrprofile/DLSSG_MV_OWN or DLSSG_MV_GAME switch it live.
+	enum class framegen_motion { hybrid, own, game };
+	framegen_motion framegen_motion_mode();
+
 	// One eye's inputs for an evaluation.
 	struct framegen_eye_inputs
 	{

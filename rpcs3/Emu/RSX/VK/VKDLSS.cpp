@@ -244,7 +244,7 @@ namespace vk
 					"	const vec2 uv = (vec2(p) + 0.5) / sizes.zw;\n"
 					"	const ivec2 sp = clamp(ivec2(uv * sizes.xy), ivec2(0), ivec2(sizes.xy) - 1);\n"
 					"	const vec4 m = texelFetch(motion_src, sp, 0);\n"
-					"	const bool covered = m.w > 0.5;\n"
+					"	const bool covered = m.w > 0.;\n"
 					"	// Not covered (the sky, drawn without depth): the camera's motion at the far plane (VR head turns move it).\n"
 					"	vec2 cam = vec2(0.);\n"
 					"	if (!covered && params.w > 0.5)\n"
@@ -254,8 +254,12 @@ namespace vk
 					"		const vec4 pg = vec4(dot(r0, g), dot(r1, g), dot(r2, g), dot(r3, g));\n"
 					"		if (pg.w > 1e-6) cam = (vec2(vp.x * pg.x / pg.w + vp.y, vp.z * pg.y / pg.w + vp.w) - ndc) * 0.5;\n"
 					"	}\n"
-					"	const vec2 mv = (covered ? m.xy : cam) * sizes.zw * params.xy;\n"
-					"	const float d = covered ? 1. - m.z : 1.;\n"
+					"	vec2 mv = (covered ? m.xy : cam) * sizes.zw * params.xy;\n"
+					"	float d = covered ? 1. - m.z : 1.;\n"
+					"	// Never NaN, infinite or absurd (a degenerate matrix in a draw's R): NGX keeps such a pixel in its history and\n"
+					"	// spreads it into black blocks (Matt, headset, MotorStorm paused with the head moving).\n"
+					"	if (!(abs(mv.x) <= sizes.z * 4.) || !(abs(mv.y) <= sizes.w * 4.)) mv = vec2(0.);\n"
+					"	d = (d >= 0. && d <= 1.) ? d : 1.;\n"
 					"	imageStore(mv_out, p, vec4(mv, 0., 0.));\n"
 					"	imageStore(depth_out, p, vec4(d));\n"
 					"	if (params.z == 1.)\n"
@@ -322,6 +326,102 @@ namespace vk
 
 				load_program(cmd);
 				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 112, constants);
+				vkCmdDispatch(cmd, utils::aligned_div(static_cast<u32>(constants[2]), 16u), utils::aligned_div(static_cast<u32>(constants[3]), 16u), 1);
+			}
+		};
+
+		// Frame generation (VKFrameGen.h): the game's motion vectors where they describe a static point, "invalid" elsewhere.
+		// A static point at the previous position (p + mv) had, last frame, the view depth R predicts (k = w' / w, from the
+		// draw: the motion image's w); a point that moved by itself (MotorStorm's car, built on the SPU: its vectors are the
+		// world's) finds something at another depth there. Depth ratios from window depth: 1 - z is about n / w.
+		struct dlss_framegen_check_pass : public compute_task
+		{
+			const vk::image_view* m_motion = nullptr;
+			const vk::image_view* m_mv = nullptr;
+			const vk::image_view* m_depth = nullptr;
+			const vk::image_view* m_prev_depth = nullptr;
+			const vk::image_view* m_out = nullptr;
+			std::unique_ptr<vk::sampler> m_nearest;
+
+			dlss_framegen_check_pass()
+			{
+				m_src =
+					"#version 450\n"
+					"layout(local_size_x = 16, local_size_y = 16) in;\n"
+					"layout(set=0, binding=0) uniform sampler2D motion_src;\n"
+					"layout(set=0, binding=1) uniform sampler2D mv_tex;\n"
+					"layout(set=0, binding=2) uniform sampler2D depth_tex;\n"
+					"layout(set=0, binding=3) uniform sampler2D prev_depth_tex;\n"
+					"layout(set=0, binding=4, rg32f) uniform writeonly image2D mv_out;\n"
+					"layout(push_constant) uniform pc_block\n"
+					"{\n"
+					"	vec4 sizes;  // motion image region w, h; output w, h\n"
+					"	vec4 params; // tolerance, 1: the previous depth is valid, invalid value\n"
+					"};\n"
+					"void main()\n"
+					"{\n"
+					"	const ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
+					"	if (p.x >= int(sizes.z) || p.y >= int(sizes.w)) return;\n"
+					"	const vec2 uv = (vec2(p) + 0.5) / sizes.zw;\n"
+					"	const ivec2 sp = clamp(ivec2(uv * sizes.xy), ivec2(0), ivec2(sizes.xy) - 1);\n"
+					"	const float k = texelFetch(motion_src, sp, 0).w;\n"
+					"	vec2 mv = texelFetch(mv_tex, p, 0).xy;\n"
+					"	const float d = texelFetch(depth_tex, p, 0).x;\n"
+					"	const ivec2 q = ivec2(floor(vec2(p) + 0.5 + mv));\n"
+					"	if (params.y > 0.5 && k > 0. && d < 0.9999 && all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, ivec2(sizes.zw))))\n"
+					"	{\n"
+					"		const float dp = texelFetch(prev_depth_tex, q, 0).x;\n"
+					"		const float found = (1. - d) / max(1. - dp, 1e-9); // view depth there last frame over this pixel's\n"
+					"		if (dp >= 0.9999 || abs(found / k - 1.) > params.x) mv = vec2(params.z);\n"
+					"	}\n"
+					"	imageStore(mv_out, p, vec4(mv, 0., 0.));\n"
+					"}\n";
+				ssbo_count = 0;
+				use_push_constants = true;
+				push_constants_size = 32;
+				create();
+			}
+
+			std::vector<glsl::program_input> get_inputs() override
+			{
+				auto result = compute_task::get_inputs();
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "motion_src", vk::glsl::input_type_texture, 0, 0));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "mv_tex", vk::glsl::input_type_texture, 0, 1));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "depth_tex", vk::glsl::input_type_texture, 0, 2));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "prev_depth_tex", vk::glsl::input_type_texture, 0, 3));
+				result.push_back(glsl::program_input::make(::glsl::program_domain::glsl_compute_program, "mv_out", vk::glsl::input_type_storage_texture, 0, 4));
+				return result;
+			}
+
+			void bind_resources(const vk::command_buffer& /*cmd*/) override
+			{
+				if (!m_nearest)
+				{
+					m_nearest = std::make_unique<vk::sampler>(*vk::get_current_renderer(),
+						VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+						VK_FALSE, 0.f, 1.f, 0.f, 0.f, VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK);
+				}
+				m_program->bind_uniform({*m_motion, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 0);
+				m_program->bind_uniform({*m_mv, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 1);
+				m_program->bind_uniform({*m_depth, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 2);
+				m_program->bind_uniform({*m_prev_depth, *m_nearest, VK_IMAGE_LAYOUT_GENERAL}, 0, 3);
+				m_program->bind_uniform({*m_out}, 0, 4);
+			}
+
+			void run(const vk::command_buffer& cmd, const vk::image_view* motion, const vk::image_view* mv, const vk::image_view* depth,
+				const vk::image_view* prev_depth, const vk::image_view* out, const f32 constants[8])
+			{
+				m_motion = motion;
+				m_mv = mv;
+				m_depth = depth;
+				m_prev_depth = prev_depth;
+				m_out = out;
+				if (vk::is_renderpass_open(cmd))
+				{
+					vk::end_renderpass(cmd);
+				}
+				load_program(cmd);
+				vkCmdPushConstants(cmd, m_program->layout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, 32, constants);
 				vkCmdDispatch(cmd, utils::aligned_div(static_cast<u32>(constants[2]), 16u), utils::aligned_div(static_cast<u32>(constants[3]), 16u), 1);
 			}
 		};
@@ -856,7 +956,10 @@ namespace vk
 		OS << "	{\n";
 		OS << "		const vec2 dlss_c = dlss_cur.xy / dlss_cur.w;\n";
 		OS << "		const vec2 dlss_p = dlss_prev.w > 1e-6 ? dlss_prev.xy / dlss_prev.w : dlss_c;\n";
-		OS << "		dlss_motion = vec4((dlss_p - dlss_c) * 0.5, 1. - gl_FragCoord.z, dlss_cover);\n";
+		OS << "		// w: covered, as this point's view depth last frame over this frame's (R's w over p's: frame generation's\n";
+		OS << "		// static-world check, VKFrameGen.h); 0: not covered.\n";
+		OS << "		const float dlss_k = dlss_prev.w > 1e-6 && dlss_cur.w > 1e-6 ? clamp(dlss_prev.w / dlss_cur.w, 1e-3, 1e3) : 1.;\n";
+		OS << "		dlss_motion = vec4((dlss_p - dlss_c) * 0.5, 1. - gl_FragCoord.z, dlss_cover > 0.5 ? dlss_k : 0.);\n";
 		OS << "	}\n";
 	}
 
@@ -989,8 +1092,11 @@ namespace vk
 			return;
 		}
 		const u32 index = static_cast<u32>(m_frame % m_jitter_phases) + 1;
-		m_jitter_px[0] = (halton(index, 2) - 0.5f) * m_jitter_scale;
-		m_jitter_px[1] = (halton(index, 3) - 0.5f) * m_jitter_scale;
+		// The title's VR profile can scale it down (dlss_jitter; RPCS3_DLSS_JITTER_SCALE overrides).
+		const auto* profile = rsx::vr::camera_probe::get().profile();
+		const f32 scale = std::getenv("RPCS3_DLSS_JITTER_SCALE") || !profile ? m_jitter_scale : profile->dlss_jitter;
+		m_jitter_px[0] = (halton(index, 2) - 0.5f) * scale;
+		m_jitter_px[1] = (halton(index, 3) - 0.5f) * scale;
 	}
 
 	bool dlss_context::find_camera_matrix(const u16* ids, usz count, mat4& out, const void* constants) const
@@ -1222,14 +1328,67 @@ namespace vk
 		}
 	}
 
-	bool dlss_context::framegen_inputs(u32 eye, vk::viewable_image*& depth, vk::viewable_image*& motion, f32 (&clip_to_prev)[16], bool& have_matrix) const
+	bool dlss_context::framegen_inputs(const vk::command_buffer& cmd, u32 eye, bool checked, vk::viewable_image*& depth, vk::viewable_image*& motion,
+		f32 (&clip_to_prev)[16], bool& have_matrix)
 	{
 		depth = eye ? m_depth_right.get() : m_depth.get();
 		motion = eye ? m_mv_right.get() : m_mv.get();
 		mat4 r{};
 		have_matrix = best_reprojection(eye + 1, r); // views 1 and 2: the eyes
 		std::memcpy(clip_to_prev, r.m, sizeof(clip_to_prev));
-		return depth && motion;
+		if (!depth || !motion)
+		{
+			return false;
+		}
+
+		const u32 e = eye ? 1 : 0;
+		auto& prev_depth = m_fg_prev_depth[e];
+		auto& out = m_fg_mv[e];
+		const u32 w = depth->width(), h = depth->height();
+		bool have_prev = m_fg_have_prev[e];
+		for (auto* image : {&prev_depth, &out})
+		{
+			if (!*image || (*image)->width() != w || (*image)->height() != h)
+			{
+				if (*image)
+				{
+					vk::get_resource_manager()->dispose(*image);
+				}
+				const bool is_depth = image == &prev_depth;
+				*image = std::make_unique<vk::viewable_image>(m_device, m_device.get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+					VK_IMAGE_TYPE_2D, is_depth ? VK_FORMAT_R32_SFLOAT : VK_FORMAT_R32G32_SFLOAT, w, h, 1, 1, 1, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+					VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+					0, VMM_ALLOCATION_POOL_SWAPCHAIN, RSX_FORMAT_CLASS_COLOR);
+				have_prev = false;
+			}
+		}
+
+		// The motion image keeps the draws' depth ratios until the next frame's first motion draw clears it.
+		if (checked && m_motion && m_motion->samples() == 1)
+		{
+			const auto identity = rsx::default_remap_vector.with_encoding(VK_REMAP_IDENTITY);
+			const u32 layer = m_motion->layers() > 1 ? eye : u32{umax};
+			m_motion->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			depth->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			motion->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			prev_depth->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			out->change_layout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+			vk::insert_global_memory_barrier(cmd);
+			const f32 src_w = static_cast<f32>(std::min<u32>(m_clip_width ? m_clip_width : m_motion->width(), m_motion->width()));
+			const f32 src_h = static_cast<f32>(std::min<u32>(m_clip_height ? m_clip_height : m_motion->height(), m_motion->height()));
+			static const f32 s_tolerance = env_f32("RPCS3_DLSSG_DEPTH_TOLERANCE", 0.04f);
+			const f32 constants[8] = {src_w, src_h, static_cast<f32>(w), static_cast<f32>(h), s_tolerance, have_prev ? 1.f : 0.f, std::numeric_limits<f32>::max(), 0.f};
+			vk::get_compute_task<dlss_framegen_check_pass>()->run(cmd, m_motion->get_layer_view(identity, VK_IMAGE_ASPECT_COLOR_BIT, layer), motion->get_view(identity),
+				depth->get_view(identity), prev_depth->get_view(identity), out->get_view(identity), constants);
+			vk::insert_global_memory_barrier(cmd);
+			motion = out.get();
+		}
+
+		// This frame's depth for the next frame's check.
+		const areai rect{0, 0, static_cast<s32>(w), static_cast<s32>(h)};
+		vk::copy_image(cmd, depth, prev_depth.get(), rect, rect);
+		m_fg_have_prev[e] = true;
+		return true;
 	}
 
 	bool dlss_context::best_reprojection(u32 view, mat4& out) const

@@ -1563,6 +1563,13 @@ QString emu_settings::GetLocalizedSetting(const QString& original, emu_settings_
 		case vr_dlss_model::m: return tr("M: transformer (Performance default)", "DLSS model");
 		}
 		break;
+	case emu_settings_type::VRFrameGenMotion:
+		switch (static_cast<vr_framegen_motion>(index))
+		{
+		case vr_framegen_motion::hybrid: return tr("Hybrid (recommended)", "Frame generation motion");
+		case vr_framegen_motion::game: return tr("Game motion vectors", "Frame generation motion");
+		}
+		break;
 	default:
 		break;
 	}

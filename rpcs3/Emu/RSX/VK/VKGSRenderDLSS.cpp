@@ -334,6 +334,19 @@ void VKGSRender::dlss_hud_snapshot(u32 color_index)
 // instead, the same shift the shader gives the colour passes.
 bool VKGSRender::dlss_jitter_viewport(VkViewport& viewport) const
 {
+	if (static const bool s_debug = std::getenv("RPCS3_DLSS_DEBUG") != nullptr; s_debug && m_dlss && !m_dlss_motion_bound && !m_draw_buffers.empty() &&
+		m_framebuffer_layout.zeta_address && m_framebuffer_layout.zeta_address == m_dlss->scene_depth() && rsx::method_registers.depth_test_enabled())
+	{
+		// Dev: colour passes on the scene's depth without the motion attachment (no jitter from the shader or the viewport).
+		static std::set<u64> s_seen;
+		const u64 hash = const_cast<VKGSRender*>(this)->vr_vertex_program_hash();
+		if (s_seen.insert(hash).second)
+		{
+			const auto& r = rsx::method_registers;
+			rsx_log.notice("DLSS unjittered pass on the scene depth: program %016llx, colour 0x%x, depth write %d func %u, blend %d",
+				hash, m_framebuffer_layout.color_addresses[0], r.depth_write_enabled(), static_cast<u32>(r.depth_func()), r.blend_enabled_mask() != 0);
+		}
+	}
 	if (!m_dlss || m_dlss_motion_bound || !m_draw_buffers.empty() || !m_framebuffer_layout.zeta_address ||
 		m_framebuffer_layout.zeta_address != m_dlss->scene_depth() || !rsx::method_registers.depth_test_enabled())
 	{
@@ -370,7 +383,8 @@ void VKGSRender::framegen_on_flip(vk::viewable_image* left, vk::viewable_image* 
 		in.tan_half_x = tan_x;
 		in.tan_half_y = tan_y;
 		in.depth_inverted = std::getenv("RPCS3_DLSS_DEPTH_INVERTED") != nullptr;
-		if (!m_dlss->framegen_inputs(eye, in.depth, in.motion, in.clip_to_prev_clip, in.have_motion_matrix))
+		if (!m_dlss->framegen_inputs(*m_current_command_buffer, eye, vk::framegen_motion_mode() == vk::framegen_motion::hybrid, in.depth, in.motion,
+				in.clip_to_prev_clip, in.have_motion_matrix))
 		{
 			return;
 		}

@@ -204,7 +204,9 @@ namespace vk
 		bool output_fresh() const { return m_output_fresh; }
 		// framegen (VKFrameGen.h): this frame's depth and motion vectors for an eye (render size, as DLSS took them) and the
 		// eye's camera motion (clip to previous clip, row-major, column vectors; false when unknown). After on_flip.
-		bool framegen_inputs(u32 eye, vk::viewable_image*& depth, vk::viewable_image*& motion, f32 (&clip_to_prev)[16], bool& have_matrix) const;
+		// checked: the motion vectors through a static-world check (pixels that moved by themselves marked invalid for DLSS-G).
+		bool framegen_inputs(const vk::command_buffer& cmd, u32 eye, bool checked, vk::viewable_image*& depth, vk::viewable_image*& motion,
+			f32 (&clip_to_prev)[16], bool& have_matrix);
 		// The history restarted this frame (boot, a switch between the headset view and the fixed screen).
 		bool history_reset() const { return m_reset_history; }
 		void write_draw_block(void* dst, const u16* constant_ids, usz constant_count, u64 vp_hash,
@@ -279,6 +281,8 @@ namespace vk
 		std::unique_ptr<vk::viewable_image> m_mv, m_depth, m_debug, m_output;
 		std::unique_ptr<vk::viewable_image> m_mv_right, m_depth_right, m_debug_right, m_output_right;
 		std::unique_ptr<vk::viewable_image> m_warp_prev[2], m_warp_prev2[2], m_warp_prev_mv[2]; // debug_warp: each eye's inputs and motion before
+		std::unique_ptr<vk::viewable_image> m_fg_prev_depth[2], m_fg_mv[2]; // framegen_inputs: each eye's last depth, its checked vectors
+		bool m_fg_have_prev[2]{};
 		std::unique_ptr<vk::viewable_image> m_hud_pre[2]; // hud_snapshot's copies (eye 0, 1)
 		const vk::image* m_hud_pre_target = nullptr;      // the image they were taken from, until the flip
 		u32 m_hud_pre_layers = 0;

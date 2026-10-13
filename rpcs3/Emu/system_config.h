@@ -284,6 +284,7 @@ struct cfg_root : cfg::node
 			cfg::_enum<vr_dlss_mode> dlss{ this, "DLSS (experimental)", vr_dlss_mode::off, true };         // VR fork: DLSS (env RPCS3_DLSS overrides); live
 			cfg::_enum<vr_dlss_model> dlss_model{ this, "DLSS Model (experimental)", vr_dlss_model::default_model, true }; // the NGX render preset (env RPCS3_DLSS_PRESET overrides); live
 			cfg::_bool frame_generation{ this, "DLSS Frame Generation (experimental)", false };    // VR fork (framegen): NGX DLSS-G, 2x; needs DLSS on; read at boot (env RPCS3_DLSSG=1 overrides)
+			cfg::_enum<vr_framegen_motion> frame_generation_motion{ this, "DLSS Frame Generation Motion", vr_framegen_motion::hybrid, true }; // VR fork (framegen): live
 
 		} vr{ this };
 
