@@ -63,6 +63,7 @@ namespace vk::xr
 			std::array<f32, 4> crop{0.f, 0.f, 1.f, 1.f}; // the part of each image the projection layer shows
 			s32 ready = -1; // ready_fences entry signalled after RPCS3's copy into this slot (own queue)
 			bool generated = false; // framegen: a generated pair
+			std::chrono::steady_clock::time_point committed{}; // framegen: when it was queued (its wait is logged)
 		};
 
 		struct state_t
@@ -153,12 +154,14 @@ namespace vk::xr
 			s32 present_queue[4]{-1, -1, -1, -1}; // committed, not shown yet, oldest first (a full queue drops its oldest)
 			u32 present_count = 0;
 			std::chrono::steady_clock::time_point last_generated{}; // the last generated commit
+			u32 queue_dropped = 0; // pairs dropped from a full queue (logged with the frame generation counts)
 			bool framegen_active() const { return present_count || std::chrono::steady_clock::now() - last_generated < std::chrono::milliseconds(250); }
 			bool queued(s32 slot) const { return std::find(present_queue, present_queue + present_count, slot) != present_queue + present_count; }
 			void enqueue(s32 slot)
 			{
 				if (present_count == std::size(present_queue))
 				{
+					queue_dropped++;
 					std::copy(present_queue + 1, present_queue + present_count, present_queue);
 					present_count--;
 				}
@@ -1215,6 +1218,13 @@ namespace vk::xr
 				{
 					index = g_xr.dequeue();
 				}
+				// framegen: how long a shown pair waited in the queue (commit to now) and how many stayed behind it.
+				f32 queue_wait_ms = -1.f;
+				const u32 queue_left = g_xr.present_count;
+				if (framegen && index >= 0)
+				{
+					queue_wait_ms = std::chrono::duration<f32, std::milli>(clk::now() - g_xr.slots[index].committed).count();
+				}
 				else if (s_last_shown.pose_valid)
 				{
 					meta = s_last_shown;
@@ -1223,7 +1233,18 @@ namespace vk::xr
 				const bool want_generated = index >= 0 && g_xr.slots[index].generated;
 				if (static u32 s_generated = 0, s_repeated = 0, s_frames = 0; index >= 0 || repeat)
 				{
-					// framegen: how many headset frames showed a generated pair or the last frame again (every 5 s while active).
+					// framegen: how many headset frames showed a generated pair or the last frame again (every 5 s while active), how
+					// long the shown pairs waited in the queue, how many were queued behind them, and how many a full queue dropped.
+					static f64 s_wait_sum = 0., s_left_sum = 0.;
+					static f32 s_wait_max = 0.f;
+					static u32 s_waits = 0;
+					if (queue_wait_ms >= 0.f)
+					{
+						s_wait_sum += queue_wait_ms;
+						s_wait_max = std::max(s_wait_max, queue_wait_ms);
+						s_left_sum += queue_left;
+						s_waits++;
+					}
 					s_generated += want_generated;
 					s_repeated += repeat;
 					static auto s_since = clk::now();
@@ -1231,8 +1252,12 @@ namespace vk::xr
 					{
 						if (s_generated)
 						{
-							xr_log.notice("Frame generation: %u of %u headset frames showed a generated pair, %u the last frame again", s_generated, s_frames, s_repeated);
+							xr_log.notice("Frame generation: %u of %u headset frames showed a generated pair, %u the last frame again; queued %.1f ms on average (max %.1f), %.2f behind, %u dropped (queue full)",
+								s_generated, s_frames, s_repeated, s_waits ? s_wait_sum / s_waits : 0., s_wait_max, s_waits ? s_left_sum / s_waits : 0., std::exchange(g_xr.queue_dropped, 0));
 						}
+						s_wait_sum = s_left_sum = 0.;
+						s_wait_max = 0.f;
+						s_waits = 0;
 						s_generated = s_repeated = s_frames = 0;
 						s_since = clk::now();
 					}
@@ -1721,6 +1746,7 @@ namespace vk::xr
 				}
 			}
 			slot.ready = g_xr.ready_pending; // the real pair's commit takes it
+			slot.committed = std::chrono::steady_clock::now();
 			slot.generated = true;
 			g_xr.last_generated = std::chrono::steady_clock::now();
 			g_xr.enqueue(g_xr.writing_generated[generated - 1]);
@@ -1728,6 +1754,7 @@ namespace vk::xr
 			return;
 		}
 		slot.ready = std::exchange(g_xr.ready_pending, -1);
+		slot.committed = std::chrono::steady_clock::now();
 		slot.generated = false;
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
