@@ -77,3 +77,35 @@ PPU-a5e547ce3ce25092ac6cae85631f50ba5d9ea914:
       - [ be32, 0x0091c238, 0xc1828ec4 ]  # lfs f12,-0x713c(r2) = 0.0 (was lfs f12,0xc(r31): x jitter)
       - [ be32, 0x0091c264, 0xc0028ec4 ]  # lfs f0,-0x713c(r2) = 0.0 (was lfs f0,0x18(r31): y jitter, per projection scale)
       - [ be32, 0x0091c26c, 0xc1628ec4 ]  # lfs f11,-0x713c(r2) = 0.0 (was lfs f11,0x10(r31): y jitter)
+
+  "Race ticks follow the frame time":
+    Games:
+      "Gran Turismo 5":
+        BCUS98114: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The race adds one 1/60 s tick per step (the race clock, lap and sector times). Above 60 steps a second the clock ran fast (1.5x at 90 FPS). The ticks now follow the step length (the frame-time word the VR profile writes): 60 a second at any frame rate. The physics step is the profile's (game_frame_time_f32)."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x01782500, 0x3d600184 ]  # lis r11, 0x184
+      - [ be32, 0x01782504, 0xc00b680c ]  # lfs f0, 0x680c(r11)
+      - [ be32, 0x01782508, 0x3d800178 ]  # lis r12, 0x178
+      - [ be32, 0x0178250c, 0xc1ac25f0 ]  # lfs f13, 0x25f0(r12)
+      - [ be32, 0x01782510, 0xec000372 ]  # fmuls f0, f0, f13
+      - [ be32, 0x01782514, 0xfc00001c ]  # fctiw f0, f0
+      - [ be32, 0x01782518, 0x3d8001a5 ]  # lis r12, 0x1a5
+      - [ be32, 0x0178251c, 0x398c8220 ]  # addi r12, r12, -0x7de0
+      - [ be32, 0x01782520, 0x7c0067ae ]  # stfiwx f0, 0, r12
+      - [ be32, 0x01782524, 0x800c0000 ]  # lwz r0, 0(r12)
+      - [ be32, 0x01782528, 0x816c0004 ]  # lwz r11, 4(r12)
+      - [ be32, 0x0178252c, 0x7d6b0214 ]  # add r11, r11, r0
+      - [ be32, 0x01782530, 0x5560043e ]  # clrlwi r0, r11, 0x10
+      - [ be32, 0x01782534, 0x900c0004 ]  # stw r0, 4(r12)
+      - [ be32, 0x01782538, 0x556b843e ]  # srwi r11, r11, 0x10
+      - [ be32, 0x0178253c, 0x801a01e0 ]  # lwz r0, 0x1e0(r26)
+      - [ be32, 0x01782540, 0x7c005a14 ]  # add r0, r0, r11
+      - [ be32, 0x01782544, 0x901a01e0 ]  # stw r0, 0x1e0(r26)
+      - [ be32, 0x01782548, 0x4ac8bf40 ]  # b 0x40e488
+      - [ be32, 0x017825f0, 0x4a700000 ]  # 60 x 65536: ticks a second, 16-bit fraction
+      - [ be32, 0x0040e420, 0x493740e0 ]  # b cave (was lwz r0,0x1e0(r26): the race tick count += ticks)

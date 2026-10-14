@@ -18,7 +18,7 @@
   "car_draw_limit": { "option": "distant_cars", "full_nearest": 1, "tiers": [{ "cars": 0 }, { "cars": 0, "keep_percent": 85, "min_distance": 30 }, { "cars": 0, "keep_percent": 70, "min_distance": 45 }], "body_programs": ["84b91fd2a878d672", "47aeae27a85d4863"] },
   "max_fps": 0,
   "default_fps": 0,
-  "game_frame_time_f32": ["0x184680c", "0x184acc0"],
+  "game_frame_time_f32": ["0x184680c", "0x184acc0", "0x185f64c"],
   "vblank_steps": true,
 
   "matrix_layout": "column_vectors",
