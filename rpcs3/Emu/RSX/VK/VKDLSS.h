@@ -204,6 +204,11 @@ namespace vk
 		void hud_flip_done() { m_hud_pre_target = nullptr; }
 		// on_flip's result was made this call (not the last output shown again, not a debug view).
 		bool output_fresh() const { return m_output_fresh; }
+		// This frame's resolved motion vectors (RG32F, render pixels) and depth (R32F) of an eye (dev dumps).
+		vk::viewable_image* resolved_motion(u32 eye) const { return eye ? m_mv_right.get() : m_mv.get(); }
+		vk::viewable_image* resolved_depth(u32 eye) const { return eye ? m_depth_right.get() : m_depth.get(); }
+		vk::viewable_image* raw_motion() const { return m_motion.get(); }
+		u64 frame() const { return m_frame; }
 		// framegen (VKFrameGen.h): this frame's depth and motion vectors for an eye (render size, as DLSS took them) and the
 		// eye's camera motion (clip to previous clip, row-major, column vectors; false when unknown). After on_flip.
 		// checked: the motion vectors through a static-world check (pixels that moved by themselves marked invalid for DLSS-G).
@@ -262,10 +267,6 @@ namespace vk
 		struct rstat { u32 n = 0, moved = 0; bool alt = false; };   // dev: RPCS3_DLSS_RSTATS
 		std::unordered_map<u64, rstat> m_rstats;
 		u32 m_rstats_n[2]{}, m_rstats_moved[2]{};
-		u32 m_rstats_unpaired = 0, m_rstats_unpaired_fresh = 0, m_unmatched_fresh = 0;
-		u32 m_rstats_stale_off = 0;
-		f32 m_rstats_stale_max = 0.f;
-		std::array<std::vector<std::pair<mat4, mat4>>, 3> m_frame_motion; // per view: this frame's (matrix, motion) of paired draws
 		u64 m_draw_stat_key = 0;
 		bool m_identify_only = false; // VR multiview: the view-0 call only identifies the draw for its eyes' blocks
 		bool m_eyes_only = false;     // this frame's camera draws were identified only (VR multiview): statistics from the left eye

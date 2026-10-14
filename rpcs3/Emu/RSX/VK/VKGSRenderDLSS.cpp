@@ -457,7 +457,14 @@ void VKGSRender::dlss_dump_sequence(vk::viewable_image* input, u32 in_w, u32 in_
 	const s32 ix = static_cast<s32>(s_x * sx), iy = static_cast<s32>(s_y * sy);
 	const s32 iw = std::max<s32>(1, static_cast<s32>(s_w * sx)), ih = std::max<s32>(1, static_cast<s32>(s_h * sy));
 	const usz out_size = static_cast<usz>(s_w) * s_h * 4, in_size = static_cast<usz>(iw) * ih * 4;
-	vk::buffer buffer(*m_device, utils::align(out_size + in_size, 0x10000), m_device->get_memory_mapping().host_visible_coherent,
+	// The input's motion vectors (RG32F) and depth (R32F) too, when DLSS resolved them this frame.
+	vk::viewable_image* const mv = input != output && m_dlss ? m_dlss->resolved_motion(0) : nullptr;
+	vk::viewable_image* const depth = mv ? m_dlss->resolved_depth(0) : nullptr;
+	const bool with_mv = mv && depth && mv->width() >= static_cast<u32>(ix + iw) && mv->height() >= static_cast<u32>(iy + ih);
+	const usz mv_size = with_mv ? in_size * 2 : 0, depth_size = with_mv ? in_size : 0;
+	vk::viewable_image* const raw = with_mv ? m_dlss->raw_motion() : nullptr;
+	const usz raw_size = raw && raw->samples() == 1 && raw->format() == VK_FORMAT_R32G32B32A32_SFLOAT && raw->width() >= static_cast<u32>(ix + iw) ? in_size * 4 : 0;
+	vk::buffer buffer(*m_device, utils::align(out_size + in_size + mv_size + depth_size + raw_size, 0x10000), m_device->get_memory_mapping().host_visible_coherent,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
 	const auto copy = [&](vk::viewable_image* image, s32 x, s32 y, s32 w, s32 h, usz offset)
 	{
@@ -472,10 +479,32 @@ void VKGSRender::dlss_dump_sequence(vk::viewable_image* input, u32 in_w, u32 in_
 	};
 	copy(output, s_x, s_y, s_w, s_h, 0);
 	copy(input, ix, iy, iw, ih, out_size);
+	if (with_mv)
+	{
+		copy(mv, ix, iy, iw, ih, out_size + in_size);
+		copy(depth, ix, iy, iw, ih, out_size + in_size + mv_size);
+	}
+	if (raw_size)
+	{
+		copy(raw, ix, iy, iw, ih, out_size + in_size + mv_size + depth_size);
+	}
 	flush_command_queue(true);
-	const u8* data = static_cast<const u8*>(buffer.map(0, out_size + in_size));
+	const u8* data = static_cast<const u8*>(buffer.map(0, out_size + in_size + mv_size + depth_size + raw_size));
 	fs::write_file(fmt::format("%s.%03d.out", s_path, s_index), fs::rewrite, data, out_size);
 	fs::write_file(fmt::format("%s.%03d.in", s_path, s_index), fs::rewrite, data + out_size, in_size);
+	if (m_dlss)
+	{
+		fs::write_file(fmt::format("%s.%03d.f", s_path, s_index), fs::rewrite, std::to_string(m_dlss->frame()));
+	}
+	if (with_mv)
+	{
+		fs::write_file(fmt::format("%s.%03d.mv", s_path, s_index), fs::rewrite, data + out_size + in_size, mv_size);
+		fs::write_file(fmt::format("%s.%03d.z", s_path, s_index), fs::rewrite, data + out_size + in_size + mv_size, depth_size);
+	}
+	if (raw_size)
+	{
+		fs::write_file(fmt::format("%s.%03d.raw", s_path, s_index), fs::rewrite, data + out_size + in_size + mv_size + depth_size, raw_size);
+	}
 	buffer.unmap();
 	if (s_index == 0)
 	{
