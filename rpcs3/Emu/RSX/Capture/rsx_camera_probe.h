@@ -577,6 +577,11 @@ namespace rsx::vr
 			// small head movements leave it (and the game's shadow-map fit to its frustum: Gran Turismo 5) unchanged.
 			// 0: continuous (up at once, down 0.01 a frame).
 			f32 step = 0.f;
+			// "head_turn_only": true: widen by the head turn alone, the game's own half-angle around the direction the
+			// head looks (straight ahead: the game's culling, so the headset view's edges can miss scenery). Gran
+			// Turismo 5 looking ahead: scale 1.0 instead of 2.0, ~1.2 ms of the RSX thread on a busy race. Default: the
+			// whole headset view at the current pose plus margin_deg (MotorStorm: Pacific Rift, SEGA Rally's scenery).
+			bool head_turn_only = false;
 		};
 		std::vector<culling_scale_rule> culling_scale_f32;
 		// option_f32: { "address": "0x...", "option": "highest_detail", "on": -8, "off": 100 }. A patch's word written each

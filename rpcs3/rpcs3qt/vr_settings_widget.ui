@@ -77,13 +77,6 @@
              </widget>
             </item>
             <item>
-             <widget class="QCheckBox" name="vrWiderView">
-              <property name="text">
-               <string>Wider View</string>
-              </property>
-             </widget>
-            </item>
-            <item>
              <widget class="QGroupBox" name="gb_vrCinematicScenes">
               <property name="title">
                <string>Cinematic Scenes</string>

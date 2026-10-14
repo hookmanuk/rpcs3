@@ -7,6 +7,7 @@
 
 #include "Emu/GameInfo.h"
 #include "Emu/System.h"
+#include "Emu/system_config_types.h"
 #include "Emu/RSX/Capture/rsx_camera_probe.h"
 
 #include <QSignalBlocker>
@@ -74,11 +75,6 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 		game_option(ui->vrReducedRateReflections, emu_settings_type::VRReducedRateReflections, "reflections", tooltips.settings.vr_reduced_rate_reflections);
 		game_option(ui->vrReducedRateMirror, emu_settings_type::VRReducedRateMirror, "mirror", tooltips.settings.vr_reduced_rate_mirror);
 		game_option(ui->vrSimplerDistantCars, emu_settings_type::VRSimplerDistantCars, "distant_cars", tooltips.settings.vr_simpler_distant_cars);
-		// Wider View: for a profile whose culling widens with the head (culling_scale_f32)
-		enhance_checkbox(emu_settings_type::VRWiderView, ui->vrWiderView, tooltips.settings.vr_wider_view);
-		const bool wider = vr_profile && !vr_profile->culling_scale_f32.empty();
-		ui->vrWiderView->setVisible(wider);
-		any |= wider;
 		ui->gb_vrGame->setVisible(any);
 	}
 	{
@@ -186,6 +182,23 @@ void vr_settings_widget::init(std::shared_ptr<emu_settings> emu_settings, const 
 			emu_settings_type::VRHudScale, ui->gb_vrHudScale, tooltips.settings.vr_hud_scale, percent_text, 5);
 		enhance_vr_slider(ui->vrDlssSharpening, ui->vrDlssSharpeningMin, ui->vrDlssSharpeningMax, ui->vrDlssSharpeningVal, ui->vrDlssSharpeningReset,
 			emu_settings_type::VRDlssSharpening, ui->gb_vrDlssSharpening, tooltips.settings.vr_dlss_sharpening, percent_text, 5);
+		// DLSS Off: its sub-settings are turned off (frame generation, sharpening) and hidden.
+		const auto dlss_changed = [this]()
+		{
+			const bool dlss = ui->vrDlss->currentData().toList().value(1).toInt() != static_cast<int>(vr_dlss_mode::off);
+			if (!dlss)
+			{
+				ui->vrFrameGeneration->setChecked(false);
+				ui->vrDlssSharpening->setValue(0);
+			}
+			for (QWidget* widget : {static_cast<QWidget*>(ui->gb_vrDlssModel), static_cast<QWidget*>(ui->gb_vrDlssSharpening),
+				static_cast<QWidget*>(ui->vrFrameGeneration), static_cast<QWidget*>(ui->gb_vrFrameGenMultiplier), static_cast<QWidget*>(ui->gb_vrFrameGenMotion)})
+			{
+				widget->setVisible(dlss);
+			}
+		};
+		connect(ui->vrDlss, &QComboBox::currentIndexChanged, this, dlss_changed);
+		dlss_changed();
 		enhance_vr_slider(ui->vrHudOffsetX, ui->vrHudOffsetXMin, ui->vrHudOffsetXMax, ui->vrHudOffsetXVal, ui->vrHudOffsetXReset,
 			emu_settings_type::VRHudOffsetX, ui->gb_vrHudOffsetX, tooltips.settings.vr_hud_offset, percent_text, 1);
 		enhance_vr_slider(ui->vrHudOffsetY, ui->vrHudOffsetYMin, ui->vrHudOffsetYMax, ui->vrHudOffsetYVal, ui->vrHudOffsetYReset,

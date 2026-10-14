@@ -315,9 +315,9 @@ measured yet.
   The VR build is made for disc version 01.00 (the frame-rate patch does not match 2.11). The first boot also
   compiles the game's code for a few minutes; new menus and races load a little slower the first time they are seen.
 - **Frame rate:** the patch *Pre-race at full frame rate* is on by default and the game runs at the headset rate.
-- **VR patch (on by default):** *VR: Wider view (head-driven culling)* draws the scenery beside a turned head;
-  the **Wider View** setting (home menu, VR page) chooses how much: off (the default for this game) widens the view
-  only as far as you turn your head, on draws the whole headset view (slower). *VR: No camera jitter* is off by default.
+- **VR patches (on by default):** *VR: Wider view (head-driven culling)* widens the game's view as far as you turn
+  your head, so the scenery beside you is drawn. *VR: Sharp shadows further out* moves the step from sharp to soft
+  shadows about 2.5x further ahead. *VR: No camera jitter* is off by default.
 - **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
   reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
   Fixed Screen (default, fastest) or Full Quality around you.
@@ -345,7 +345,12 @@ Defaults, all changeable per game:
 ---
 
 
-## Frame generation (OFXR Bridge)
+## Frame generation
+
+On an RTX 40 or newer, the build's own **DLSS Frame Generation** (VR settings, experimental; needs DLSS on) doubles
+the headset frames: see [vr-settings.md](vr-settings.md). OFXR Bridge also works:
+
+### OFXR Bridge
 
 [OFXR Bridge](https://github.com/djules75/OFXR-Bridge) 0.2.7 or later works with this build: turn on its
 **Vulkan support** option. It adds one generated frame after every game frame, so the game must run at exactly
