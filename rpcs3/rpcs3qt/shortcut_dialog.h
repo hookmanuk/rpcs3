@@ -16,6 +16,7 @@ class shortcut_dialog : public QDialog
 public:
 	explicit shortcut_dialog(const std::shared_ptr<gui_settings> gui_settings, QWidget* parent = nullptr);
 	~shortcut_dialog();
+	void vr_fit_to_screen(); // VR fork
 
 Q_SIGNALS:
 	void saved();

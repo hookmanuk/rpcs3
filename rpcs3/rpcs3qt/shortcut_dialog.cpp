@@ -8,6 +8,8 @@
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QHBoxLayout>
+#include <QScreen> // VR fork
+#include <QScrollBar> // VR fork
 
 shortcut_dialog::shortcut_dialog(const std::shared_ptr<gui_settings> gui_settings, QWidget* parent)
 	: QDialog(parent), ui(new Ui::shortcut_dialog), m_gui_settings(gui_settings)
@@ -80,6 +82,18 @@ shortcut_dialog::shortcut_dialog(const std::shared_ptr<gui_settings> gui_setting
 
 	ui->main_window_group_box->setMinimumWidth(min_width);
 	ui->game_window_group_box->setMinimumWidth(min_width);
+	vr_fit_to_screen(); // VR fork: the lists scroll; full height where the screen has room
+}
+
+void shortcut_dialog::vr_fit_to_screen()
+{
+	// VR fork. Both columns side by side without a horizontal scroll bar, and as tall as the lists up to 90 % of the
+	// screen (the game window list outgrew small screens).
+	ui->scroll_area->setMinimumWidth(ui->scroll_contents->minimumSizeHint().width() + ui->scroll_area->verticalScrollBar()->sizeHint().width());
+	const QMargins m = layout()->contentsMargins();
+	const int full = ui->scroll_contents->sizeHint().height() + ui->buttonBox->sizeHint().height() + layout()->spacing() + m.top() + m.bottom();
+	const QScreen* s = screen();
+	resize(width(), s ? std::min(full, s->availableGeometry().height() * 9 / 10) : full);
 }
 
 shortcut_dialog::~shortcut_dialog()
