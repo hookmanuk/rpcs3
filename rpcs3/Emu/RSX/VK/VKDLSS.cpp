@@ -1555,12 +1555,12 @@ namespace vk
 		auto found = m_prev_draws.find(key);
 		const f32* prev_m = found != m_prev_draws.end() ? found->second.m : nullptr;
 		const u64 match_key = mix(m_draw_match_base, 0x5eed0000ull + view);
-		// Profile dlss_pair_nearest. Dev RPCS3_DLSS_PAIR=order: by draw order as other games; =alt: by draw order on odd frames
-		// (a same-run A/B with tools/re/mvcheck.py and parity3.py).
+		// Profile dlss_pair_nearest. Dev RPCS3_DLSS_PAIR (any game): =order by draw order; =nearest by matrix; =alt by draw order on
+		// odd frames and by matrix on even ones (a same-run A/B with tools/re/mvcheck.py and parity3.py).
 		const auto* pair_profile = rsx::vr::camera_probe::get().profile();
 		static const char* const s_pair_env = env("RPCS3_DLSS_PAIR");
-		const bool by_order = !pair_profile || !pair_profile->dlss_pair_nearest ||
-			(s_pair_env && (std::string_view(s_pair_env) != "alt" || (m_frame & 1)));
+		const bool by_order = s_pair_env ? (std::string_view(s_pair_env) == "order" || (std::string_view(s_pair_env) == "alt" && (m_frame & 1)))
+			: (!pair_profile || !pair_profile->dlss_pair_nearest);
 		if (!prev_m && !by_order)
 		{
 			// Where this frame's camera motion puts the draw's matrix last frame (exact for a static object: a paused scene's
