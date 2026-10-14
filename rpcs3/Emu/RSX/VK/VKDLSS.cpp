@@ -142,6 +142,22 @@ namespace vk
 
 		constexpr f32 identity4[16] = {1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
 
+		// The same motion within float rounding: the main view's draws, whose motions differ by rounding (up to ~1e-3) during a head
+		// turn. At near_equal's 1e-4 they split into several votes, and a pass with its own camera (Gran Turismo 5's rear-view
+		// mirror, ~290 draws without head motion) won: every draw falling back on the camera's motion lost the head turn, and
+		// GT5's cars smeared in frame generation in proportion to head speed.
+		bool same_motion(const f32 a[16], const f32 b[16])
+		{
+			for (int i = 0; i < 16; ++i)
+			{
+				if (std::abs(a[i] - b[i]) > 2e-3f * std::max(1.f, std::abs(a[i])))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
 		bool near_equal(const f32 a[16], const f32 b[16])
 		{
 			for (int i = 0; i < 16; ++i)
@@ -1515,6 +1531,7 @@ namespace vk
 			// geometry shares the camera's matrix, so a wrong pairing among those changes nothing.
 			const u64 alt_base = mix(mix(0x84222325cbf29ce4ull, vp_hash), clause.vr_total_elements());
 			key_alt = mix(alt_base, m_occurrences[alt_base]++);
+			m_draw_match_base = mix(0x2545f4914f6cdd1dull, vp_hash); // the program only: GT5's cars change element counts as the SPUs cull
 			m_draw_key_alt = key_alt;
 			m_draw_stat_key = vp_hash ^ (u64{clause.vr_total_elements()} << 40);
 			if (m_identify_only)
@@ -1536,26 +1553,82 @@ namespace vk
 
 		bool by_alt = false;
 		auto found = m_prev_draws.find(key);
-		if (found == m_prev_draws.end())
+		const f32* prev_m = found != m_prev_draws.end() ? found->second.m : nullptr;
+		const u64 match_key = mix(m_draw_match_base, 0x5eed0000ull + view);
+		// Profile dlss_pair_nearest. Dev RPCS3_DLSS_PAIR=order: by draw order as other games; =alt: by draw order on odd frames
+		// (a same-run A/B with tools/re/mvcheck.py and parity3.py).
+		const auto* pair_profile = rsx::vr::camera_probe::get().profile();
+		static const char* const s_pair_env = env("RPCS3_DLSS_PAIR");
+		const bool by_order = !pair_profile || !pair_profile->dlss_pair_nearest ||
+			(s_pair_env && (std::string_view(s_pair_env) != "alt" || (m_frame & 1)));
+		if (!prev_m && !by_order)
+		{
+			// Where this frame's camera motion puts the draw's matrix last frame (exact for a static object: a paused scene's
+			// cars at any head speed), then the previous frame's matrix of this program nearest to that, when near (5 % of the
+			// matrix's scale) and clearly the nearest (the next one twice as far).
+			f32 cam[16];
+			std::memcpy(cam, identity4, sizeof(cam));
+			u32 cam_votes = 0;
+			for (const auto& [m, n] : m_reproject_votes[view])
+			{
+				if (n > cam_votes) { cam_votes = n; std::memcpy(cam, m.m, sizeof(cam)); }
+			}
+			if (cam_votes < 3 && m_static_valid[view])
+			{
+				std::memcpy(cam, m_static_reproject[view].m, sizeof(cam));
+			}
+			f32 expected[16];
+			mul4(cam, cur.m, expected);
+			if (const auto list = m_prev_matrices.find(match_key); list != m_prev_matrices.end())
+			{
+				f32 scale = 1.f;
+				for (const f32 v : expected) scale = std::max(scale, std::abs(v));
+				f32 best_d = std::numeric_limits<f32>::max(), next_d = std::numeric_limits<f32>::max();
+				const f32* best = nullptr;
+				for (const auto& m : list->second)
+				{
+					f32 d = 0.f;
+					for (u32 i = 0; i < 16; ++i) d = std::max(d, std::abs(m.m[i] - expected[i]));
+					if (d < best_d) { next_d = best_d; best_d = d; best = m.m; }
+					else if (d < next_d) { next_d = d; }
+				}
+				if (best && best_d <= 0.05f * scale && next_d >= 2.f * best_d)
+				{
+					prev_m = best;
+					by_alt = true;
+				}
+			}
+		}
+		else if (!prev_m)
 		{
 			found = m_prev_draws.find(key_alt);
 			by_alt = found != m_prev_draws.end();
+			prev_m = by_alt ? found->second.m : nullptr;
 		}
-		if (found != m_prev_draws.end())
+		const u32 pair_kind = !prev_m ? 3u : !by_alt ? 0u : by_order ? 2u : 1u; // address, nearest, draw order, none
+		if (prev_m)
 		{
 			f32 inv[16];
 			if (invert4(cur.m, inv))
 			{
-				mul4(found->second.m, inv, r);
+				mul4(prev_m, inv, r);
 				have_r = true;
 				m_matched += view == (m_eyes_only ? 1u : 0u);
 
-				// Votes for the camera-only reprojection (the same for every static object).
+				// Votes for the camera-only reprojection (the same for every static object), from the main view only: a draw
+				// through a viewport covering under a quarter of the target is an inset with its own camera (GT5's rear-view
+				// mirror, 448x86 of 1280x720, which does not turn with the head).
+				const f32 vp_area = 4.f * std::abs(regs.viewport_scale_x() * regs.viewport_scale_y());
+				const f32 target_area = static_cast<f32>(regs.surface_clip_width()) * regs.surface_clip_height();
 				auto& votes = m_reproject_votes[view];
-				bool voted = false;
+				bool voted = vp_area < 0.25f * target_area;
 				for (auto& [m, n] : votes)
 				{
-					if (near_equal(m.m, r))
+					if (voted)
+					{
+						break;
+					}
+					if (same_motion(m.m, r))
 					{
 						n++;
 						voted = true;
@@ -1591,12 +1664,35 @@ namespace vk
 		if (!have_r)
 		{
 			m_unmatched += view == (m_eyes_only ? 1u : 0u);
-			if (m_static_valid[view])
+			// Profile dlss_pair_nearest: this frame's camera motion once the main view has settled it (3 votes); the previous
+			// frame's is a frame late on every head turn. Otherwise the previous frame's (measured better for Sonic).
+			const mat4* fresh = nullptr;
+			if (!by_order)
+			{
+				u32 best = 2;
+				for (const auto& [m, n] : m_reproject_votes[view])
+				{
+					if (n > best) { best = n; fresh = &m; }
+				}
+			}
+			if (fresh)
+			{
+				std::memcpy(r, fresh->m, sizeof(r));
+			}
+			else if (m_static_valid[view])
 			{
 				std::memcpy(r, m_static_reproject[view].m, sizeof(r));
 			}
 		}
 
+		// Dev RPCS3_DLSS_STATIC_CHECK=1: in a paused scene every draw's motion is the camera's; logs per program, every 120
+		// frames, how many draws' motion was not (by how each was paired), and the camera-motion votes.
+		if (static const bool s_static_check = env("RPCS3_DLSS_STATIC_CHECK") != nullptr; s_static_check && view == (m_eyes_only ? 1u : 0u))
+		{
+			static_check_draw e{vp_hash, pair_kind, {}};
+			std::memcpy(e.r.m, r, sizeof(r));
+			m_static_check.push_back(e);
+		}
 		if (s_debug)
 		{
 			const auto prev_it = m_prev_draws.find(key);
@@ -1620,6 +1716,10 @@ namespace vk
 		std::memcpy(rec.m, cur.m, sizeof(rec.m));
 		m_cur_draws[key] = rec;
 		m_cur_draws[key_alt] = rec;
+		if (auto& list = m_cur_matrices[match_key]; list.size() < 64 && std::none_of(list.begin(), list.end(), [&](const mat4& m) { return near_equal(m.m, cur.m); }))
+		{
+			list.push_back(cur);
+		}
 
 		// Coverage: opaque surfaces (depth writes) and unblended depth-tested ones (the sky). Blended draws without depth
 		// writes (particles, glass) keep the motion of what is behind them.
@@ -2072,9 +2172,59 @@ namespace vk
 
 		m_prev_draws.swap(m_cur_draws);
 		m_cur_draws.clear();
+		m_prev_matrices.swap(m_cur_matrices);
+		m_cur_matrices.clear();
 		m_occurrences.clear();
 		m_draw_key = 0;
 
+		if (!m_static_check.empty())
+		{
+			const u32 v = m_eyes_only ? 1u : 0u;
+			const mat4* cam = nullptr;
+			u32 best = 0;
+			for (const auto& [m, n] : m_reproject_votes[v]) if (n > best) { best = n; cam = &m; }
+			if (static u32 s_vote_log = 0; cam && m_frame % 30 == 0 && s_vote_log++ < 40)
+			{
+				std::vector<std::pair<u32, f32>> clusters;
+				for (const auto& [m, n] : m_reproject_votes[v])
+				{
+					f32 di = 0.f;
+					for (u32 i = 0; i < 16; ++i) di = std::max(di, std::abs(m.m[i] - identity4[i]));
+					clusters.emplace_back(n, di);
+				}
+				std::sort(clusters.begin(), clusters.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+				std::string line;
+				for (usz i = 0; i < std::min<usz>(clusters.size(), 6); ++i) fmt::append(line, " %u draws |R-I| %.4f;", clusters[i].first, clusters[i].second);
+				dlss_log.notice("Motion votes frame %llu (%u clusters):%s", m_frame, static_cast<u32>(clusters.size()), line);
+			}
+			if (cam)
+			{
+				for (const auto& e : m_static_check)
+				{
+					f32 d = 0.f;
+					for (u32 i = 0; i < 16; ++i) d = std::max(d, std::abs(e.r.m[i] - cam->m[i]));
+					auto& st = m_static_check_stats[e.program];
+					st[e.kind]++;
+					st[4 + e.kind] += d > 0.003f;
+				}
+			}
+			m_static_check.clear();
+			if (m_frame % 120 == 0)
+			{
+				std::vector<std::pair<u64, std::array<u32, 8>>> top(m_static_check_stats.begin(), m_static_check_stats.end());
+				std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second[4] + a.second[5] + a.second[6] + a.second[7] > b.second[4] + b.second[5] + b.second[6] + b.second[7]; });
+				std::string line;
+				u32 tot[8]{};
+				for (const auto& [p, st] : top) for (u32 i = 0; i < 8; ++i) tot[i] += st[i];
+				for (usz i = 0; i < std::min<usz>(top.size(), 8); ++i)
+				{
+					const auto& st = top[i].second;
+					fmt::append(line, " %016llx: addr %u/%u nearest %u/%u order %u/%u none %u/%u;", top[i].first, st[4], st[0], st[5], st[1], st[6], st[2], st[7], st[3]);
+				}
+				dlss_log.notice("Static check (120 frames, wrong/draws): all addr %u/%u nearest %u/%u order %u/%u none %u/%u; worst programs:%s", tot[4], tot[0], tot[5], tot[1], tot[6], tot[2], tot[7], tot[3], line);
+				m_static_check_stats.clear();
+			}
+		}
 		for (u32 view = 0; view < 3; ++view)
 		{
 			m_static_valid[view] = false;

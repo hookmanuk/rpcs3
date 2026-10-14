@@ -24,6 +24,7 @@
 
   "matrix_layout": "column_vectors",
   "camera_blocks": [0, 4],
+  "dlss_pair_nearest": true,
   "output_aspect_tolerance": 0.08,
 
   "camera_position": {

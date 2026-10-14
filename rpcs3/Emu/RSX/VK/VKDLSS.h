@@ -263,8 +263,17 @@ namespace vk
 
 		// Per-draw history
 		rsx::unordered_map<u64, draw_record> m_prev_draws, m_cur_draws; // dense: no allocation per insert (~10k a frame in GT5)
+		// Per program and view: the distinct matrices drawn with, to pair a draw whose address key did not repeat
+		// with the nearest one (Gran Turismo 5 rebuilds its cars' vertex data every frame, and all its cars share meshes).
+		std::unordered_map<u64, std::vector<mat4>> m_prev_matrices, m_cur_matrices;
+		u64 m_draw_match_base = 0; // the draw's program (view 0), for m_cur_matrices
 		rsx::unordered_map<u64, u32> m_occurrences;
 		struct rstat { u32 n = 0, moved = 0; bool alt = false; };   // dev: RPCS3_DLSS_RSTATS
+		// Dev RPCS3_DLSS_STATIC_CHECK: this frame's left-eye draws (program, pairing kind, motion), checked against the
+		// frame's camera motion at its end (in a paused scene every draw's motion is the camera's).
+		struct static_check_draw { u64 program; u32 kind; mat4 r; };
+		std::vector<static_check_draw> m_static_check;
+		std::unordered_map<u64, std::array<u32, 8>> m_static_check_stats; // per program: [kind] draws, [4 + kind] wrong
 		std::unordered_map<u64, rstat> m_rstats;
 		u32 m_rstats_n[2]{}, m_rstats_moved[2]{};
 		u64 m_draw_stat_key = 0;

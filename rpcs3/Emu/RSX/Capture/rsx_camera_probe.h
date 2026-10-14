@@ -222,6 +222,11 @@ namespace rsx::vr
 		// dlss_jitter: DLSS's sub-pixel jitter amplitude (1 = full, 0 = none). MotorStorm's ground went black in patches with
 		// it (a pass that compares the jittered depth with something unjittered; exact pass not found), clean without.
 		f32 dlss_jitter = 1.f;
+		// dlss_pair_nearest: a draw whose address key did not repeat is paired with the previous frame's draw of the same
+		// program whose matrix is nearest to where this frame's camera motion puts it (instead of by draw order). Gran Turismo 5
+		// rebuilds its cars' vertex data every frame, its cars share meshes, and their triangle counts change with the view: by
+		// draw order half the car draws took another car's motion or none, and the cars smeared in frame generation on head turns.
+		bool dlss_pair_nearest = false;
 		// depth_remap_volume_programs: other programs drawing the remap passes' volumes (Sonic's stencil pre-pass
 		// 2fe8ebfb47d877be): they take the scene camera's eye transform as the remap passes do.
 		std::vector<u64> depth_remap_volume_programs;
