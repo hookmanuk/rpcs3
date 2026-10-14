@@ -2308,8 +2308,24 @@ namespace vk
 
 		const VkPhysicalDevice pdev = m_device.gpu();
 		const VkInstance instance = m_device.gpu();
+		// Dev: RPCS3_NGX_LOG=1 puts NGX's own verbose log (and its features', e.g. the driver profile keys DLSS-G reads) into RPCS3.log.
+		NVSDK_NGX_FeatureCommonInfo common{};
+		const bool ngx_log = std::getenv("RPCS3_NGX_LOG") != nullptr;
+		if (ngx_log)
+		{
+			common.LoggingInfo.LoggingCallback = [](const char* message, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature feature)
+			{
+				std::string text = message ? message : "";
+				while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+				{
+					text.pop_back();
+				}
+				dlss_log.notice("NGX [%d]: %s", static_cast<s32>(feature), text);
+			};
+			common.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
+		}
 		NVSDK_NGX_Result r = NVSDK_NGX_VULKAN_Init_with_ProjectID("6b1f3c5e-2d4a-4e8b-9f17-3a5c7e9d1b20", NVSDK_NGX_ENGINE_TYPE_CUSTOM, "1.0",
-			wdir.c_str(), instance, pdev, m_device, vkGetInstanceProcAddr, vkGetDeviceProcAddr);
+			wdir.c_str(), instance, pdev, m_device, vkGetInstanceProcAddr, vkGetDeviceProcAddr, ngx_log ? &common : nullptr);
 		if (NVSDK_NGX_FAILED(r))
 		{
 			dlss_log.error("NVSDK_NGX_VULKAN_Init failed (%s): is nvngx_dlss.dll next to rpcs3.exe, and the driver recent?", ngx_result_name(r));
