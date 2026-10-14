@@ -207,6 +207,8 @@ measured yet.
 - **Frame rate:** the headset's refresh rate, at real-time speed (the VR profile sets the game's frame rate). The
   VR build's patch *QTE button mashing at any frame rate (VR)* (on by default) keeps the button-mashing QTEs (the
   Hydra and others) winnable above 60 FPS. Patches apply when the game boots.
+- **VR patch (on by default):** *VR: Wider view (head-driven culling)* stops the game leaving out scenery and objects
+  at the edges of the headset view and beside a turned head (the game draws only its own narrow 54-degree view).
 - **In the headset:** the menus, the pause menu and the Power Up screen show on a flat screen in front of you.
   The game draws its scene inside a black border; the headset shows only the scene.
 - **Recommended settings:** `Resolution Scale` 300% held 120 FPS in testing.
@@ -318,8 +320,8 @@ measured yet.
 - **VR patches (on by default):** *VR: Wider view (head-driven culling)* widens the game's view as far as you turn
   your head, so the scenery beside you is drawn. *VR: Sharp shadows further out* moves the step from sharp to soft
   shadows about 2.5x further ahead. *VR: No camera jitter* is off by default.
-- **Game options (home menu, VR page):** *Simpler Distant Cars* and *Reduced-Rate Reflections* (both on: car paint
-  reflections can lag by up to 2 frames). **Cinematic Scenes** chooses how the pre-race views and flybys show:
+- **Game options (home menu, VR page):** *Reduced-Rate Reflections* (on: car paint reflections can lag by up to
+  2 frames) and *Simpler Distant Cars* (off: turn it on for a higher frame rate with many cars in view). **Cinematic Scenes** chooses how the pre-race views and flybys show:
   Fixed Screen (default, fastest) or Full Quality around you.
 - **Settings shipped for this game** (its per-game configuration): `MSAA` Disabled (the game draws 4x MSAA on top of
   the Resolution Scale; without it the pre-race views and flybys run at about 90 FPS at 400% instead of 5-30), Resolution

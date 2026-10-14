@@ -11,3 +11,38 @@ PPU-62bdceafa94def55faf877062b4485fde547b35d: # GOW1.self (God of War, God of Wa
     Enabled By Default: true
     Patch:
       - [ be32, 0x000e8410, 0x3860003c ] # li r3, 60 (was bl 0x1c3d68, the frame-rate getter) in the mash minigame's drain
+  "VR: Wider view (head-driven culling)":
+    Games:
+      "God of War Collection":
+        BCES00800: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "God of War draws only what its own camera sees (about 54 by 32 degrees), so in the headset scenery and objects at the edges of the view, and beside a turned head, were missing. This widens the culling frustum only (the side planes built at 0x1a3748 from the camera's tangents), not the picture: each tangent is multiplied by a scale word (0x4ccff0, in the code segment's zero padding) that the VR profile sets every frame to cover the whole headset view at the current head pose (culling_scale_f32). Off or without VR the word stays 1.0, the game's own culling."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x004ccf00, 0xc0030380 ]  # lfs f0,0x380(r3)
+      - [ be32, 0x004ccf04, 0x3d80004d ]  # lis r12,0x4d
+      - [ be32, 0x004ccf08, 0xc10ccff0 ]  # lfs f8,-12304(r12)  # the scale word
+      - [ be32, 0x004ccf0c, 0xec000232 ]  # fmuls f0,f0,f8
+      - [ be32, 0x004ccf10, 0x4bcd683c ]  # b 0x1a374c
+      - [ be32, 0x004ccf14, 0xc1a30384 ]  # lfs f13,0x384(r3)
+      - [ be32, 0x004ccf18, 0x3d80004d ]  # lis r12,0x4d
+      - [ be32, 0x004ccf1c, 0xc10ccff0 ]  # lfs f8,-12304(r12)  # the scale word
+      - [ be32, 0x004ccf20, 0xedad0232 ]  # fmuls f13,f13,f8
+      - [ be32, 0x004ccf24, 0x4bcd6868 ]  # b 0x1a378c
+      - [ be32, 0x004ccf28, 0xc0030390 ]  # lfs f0,0x390(r3)
+      - [ be32, 0x004ccf2c, 0x3d80004d ]  # lis r12,0x4d
+      - [ be32, 0x004ccf30, 0xc10ccff0 ]  # lfs f8,-12304(r12)  # the scale word
+      - [ be32, 0x004ccf34, 0xec000232 ]  # fmuls f0,f0,f8
+      - [ be32, 0x004ccf38, 0x4bcd6880 ]  # b 0x1a37b8
+      - [ be32, 0x004ccf3c, 0xc1a30394 ]  # lfs f13,0x394(r3)
+      - [ be32, 0x004ccf40, 0x3d80004d ]  # lis r12,0x4d
+      - [ be32, 0x004ccf44, 0xc10ccff0 ]  # lfs f8,-12304(r12)  # the scale word
+      - [ be32, 0x004ccf48, 0xedad0232 ]  # fmuls f13,f13,f8
+      - [ be32, 0x004ccf4c, 0x4bcd6894 ]  # b 0x1a37e0
+      - [ be32, 0x004ccff0, 0x3f800000 ]  # 1.0 (written each frame by the VR profile, culling_scale_f32)
+      - [ be32, 0x001a3748, 0x483297b8 ]  # b 0x4ccf00 (was lfs f0,0x380(r3))
+      - [ be32, 0x001a3788, 0x4832978c ]  # b 0x4ccf14 (was lfs f13,0x384(r3))
+      - [ be32, 0x001a37b4, 0x48329774 ]  # b 0x4ccf28 (was lfs f0,0x390(r3))
+      - [ be32, 0x001a37dc, 0x48329760 ]  # b 0x4ccf3c (was lfs f13,0x394(r3))

@@ -7,6 +7,7 @@
   "default_fps": 0,
   "game_fps_u32": ["0x531dd0"],
   "game_rate_measured": false,
+  "culling_scale_f32": [{ "address": "0x4ccff0", "fov_deg": 32.27, "aspect": 1.7775, "margin_deg": 10, "min": 1.0, "max": 8.0, "mode": "tangent", "step": 0.25 }],
 
   "resolution_scaled_constants": [
     { "program": "c4882b95379447a8", "slots": [466, 467] }
