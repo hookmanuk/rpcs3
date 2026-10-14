@@ -276,7 +276,7 @@ struct cfg_root : cfg::node
 			// Performance options a VR profile can offer (its rules tagged "option"); shown in the home menu for those games only.
 			cfg::_bool reduced_rate_reflections{ this, "Reduced-Rate Reflections", true, true }; // "reflections": reflection maps redrawn in turns
 			cfg::_bool reduced_rate_mirror{ this, "Reduced-Rate Mirror", true, true };           // "mirror": the rear-view mirror redrawn every other frame
-			cfg::_bool simpler_distant_cars{ this, "Simpler Distant Cars", true, true };         // "distant_cars": car_draw_limit
+			cfg::_bool simpler_distant_cars{ this, "Simpler Distant Cars", false, true };         // "distant_cars": car_draw_limit
 			cfg::_bool highest_detail_models{ this, "Highest Detail Models", true, true };       // VR fork: "highest_detail": option_f32 (MotorStorm's LOD)
 			cfg::_bool simpler_vehicles{ this, "Simpler Other Vehicles", true, true };           // VR fork: "simpler_vehicles": option_f32
 			cfg::_bool fewer_shadows{ this, "Fewer Shadows", true, true };                       // VR fork: "fewer_shadows": option_f32

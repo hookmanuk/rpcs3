@@ -236,11 +236,14 @@ namespace rsx
 			if (rsx::vr::dlss_session()) // VR fork: DLSS mode and model, live in a session that booted with DLSS on
 			{
 				add_dropdown(&g_cfg.video.vr.dlss, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS);
-				add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
-				add_unsigned_slider(&g_cfg.video.vr.dlss_sharpening, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_SHARPENING, " %", 5); // VR fork
-				add_checkbox(&g_cfg.video.vr.frame_generation, localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_GENERATION); // VR fork (framegen)
-				add_dropdown(&g_cfg.video.vr.frame_generation_multiplier, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MULTIPLIER);
-				add_dropdown(&g_cfg.video.vr.frame_generation_motion, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MOTION);
+				if (g_cfg.video.vr.dlss != vr_dlss_mode::off) // DLSS's own options only with DLSS on (the menu is built when it opens)
+				{
+					add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
+					add_unsigned_slider(&g_cfg.video.vr.dlss_sharpening, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_SHARPENING, " %", 5); // VR fork
+					add_checkbox(&g_cfg.video.vr.frame_generation, localized_string_id::HOME_MENU_SETTINGS_VR_FRAME_GENERATION); // VR fork (framegen)
+					add_dropdown(&g_cfg.video.vr.frame_generation_multiplier, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MULTIPLIER);
+					add_dropdown(&g_cfg.video.vr.frame_generation_motion, localized_string_id::HOME_MENU_SETTINGS_VR_FRAMEGEN_MOTION);
+				}
 			}
 			add_unsigned_slider(&g_cfg.video.vr.world_scale, localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE, " %", 5);
 			add_unsigned_slider(&g_cfg.video.vr.hud_scale, localized_string_id::HOME_MENU_SETTINGS_VR_HUD_SCALE, " %", 5);
