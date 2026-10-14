@@ -78,6 +78,26 @@ PPU-a5e547ce3ce25092ac6cae85631f50ba5d9ea914:
       - [ be32, 0x0091c264, 0xc0028ec4 ]  # lfs f0,-0x713c(r2) = 0.0 (was lfs f0,0x18(r31): y jitter, per projection scale)
       - [ be32, 0x0091c26c, 0xc1628ec4 ]  # lfs f11,-0x713c(r2) = 0.0 (was lfs f11,0x10(r31): y jitter)
 
+  "VR: Sharp shadows further out":
+    Games:
+      "Gran Turismo 5":
+        BCUS98114: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Gran Turismo 5 draws shadows in three steps of detail by distance (cascades). The sharpest one ends about 9 units from the camera, so in the headset shadows visibly turn softer a short way ahead. This moves that step 2.5x further out (about 22 units); the next steps stay where they are. The closest shadows get a little softer in exchange (the same shadow map covers more ground). Untick to go back to the game's split."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x01782600, 0xec3f0072 ]  # cave: fmuls f1,f31,f1     split i = the view's shadow scale x the split's factor (as before)
+      - [ be32, 0x01782604, 0x2f9f0000 ]  #       cmpwi cr7,r31,0      split 0 (the sharpest cascade's end)?
+      - [ be32, 0x01782608, 0x4c9e0020 ]  #       bnelr cr7
+      - [ be32, 0x0178260c, 0x3d800178 ]  #       lis r12,0x178
+      - [ be32, 0x01782610, 0xc00c2620 ]  #       lfs f0,0x2620(r12)   the factor below
+      - [ be32, 0x01782614, 0xec210032 ]  #       fmuls f1,f1,f0
+      - [ be32, 0x01782618, 0x4e800020 ]  #       blr
+      - [ be32, 0x01782620, 0x40200000 ]  # 2.5: how much further the sharpest cascade reaches
+      - [ be32, 0x004c1df4, 0x492c080d ]  # bl cave (was fmuls f1,f31,f1 in the split loop 0x4c1dec, setter 0x91b6c4 -> 0x965094)
+
   "Race ticks follow the frame time":
     Games:
       "Gran Turismo 5":
