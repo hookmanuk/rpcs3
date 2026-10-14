@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- DLSS test (fork), imported by VKGSRender.vcxproj (its one line for all of this): VKDLSS's sources, and the NVIDIA DLSS
-     SDK when the DLSS_SDK environment variable (or MSBuild property) names its folder (a clone or release of
-     https://github.com/NVIDIA/DLSS: include\, lib\Windows_x86_64\). Without the SDK, RPCS3_DLSS only gives the motion
-     vector debug views. -->
+<!-- DLSS (fork), imported by VKGSRender.vcxproj (its one line for all of this): VKDLSS's and VKFrameGen's sources, and
+     the DLSS plugin's build when the DLSS_SDK environment variable (or MSBuild property) names the NVIDIA DLSS SDK folder
+     (a clone or release of https://github.com/NVIDIA/DLSS: include\, lib\Windows_x86_64\). -->
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKDLSS.h" />
@@ -11,22 +10,10 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKFrameGen.h" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\rpcs3\Emu\RSX\VK\VKFrameGen.cpp" />
   </ItemGroup>
-  <ItemDefinitionGroup Condition="'$(DLSS_SDK)' != ''">
-    <ClCompile>
-      <PreprocessorDefinitions>HAVE_DLSS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(DLSS_SDK)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ClCompile>
-    <!-- VKGSRender is a static library: NGX's library goes into it, and so into rpcs3.exe.
-         Release builds use the static CRT (/MT), Debug the dynamic debug CRT (/MDd). -->
-    <Lib>
-      <AdditionalLibraryDirectories>$(DLSS_SDK)\lib\Windows_x86_64\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies Condition="$(Configuration.Contains('Release'))">nvsdk_ngx_s.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalDependencies Condition="$(Configuration.Contains('Debug'))">nvsdk_ngx_d_dbg.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Lib>
-  </ItemDefinitionGroup>
-  <!-- The DLSS runtime goes next to rpcs3.exe (bin\). -->
-  <Target Name="CopyDlssRuntime" AfterTargets="Build" Condition="'$(DLSS_SDK)' != '' And Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll')">
-    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll" DestinationFolder="$(SolutionDir)bin\" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll" DestinationFolder="$(SolutionDir)bin\" SkipUnchangedFiles="true" Condition="Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll')" />
+  <!-- NVIDIA DLSS is the optional plugin rpcs3_ngx.dll (rpcs3/ngx_plugin, MIT): rpcs3.exe links no NVIDIA code and loads
+       the plugin at run time. With DLSS_SDK set, building VKGSRender also builds the plugin (and copies NVIDIA's runtime)
+       into bin\. -->
+  <Target Name="BuildNgxPlugin" AfterTargets="Build" Condition="'$(DLSS_SDK)' != '' And $(Configuration.Contains('Release'))">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\..\rpcs3\ngx_plugin\rpcs3_ngx.vcxproj" Properties="Configuration=Release;Platform=x64" />
   </Target>
 </Project>

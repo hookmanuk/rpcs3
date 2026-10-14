@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- rpcs3_ngx.dll (VR fork): the optional NVIDIA DLSS plugin, MIT licensed (LICENSE). Not part of rpcs3.sln: build it on
+     its own with the NVIDIA DLSS SDK named by DLSS_SDK (a clone or release of https://github.com/NVIDIA/DLSS) and the
+     Vulkan SDK by VULKAN_SDK:
+       MSBuild rpcs3\ngx_plugin\rpcs3_ngx.vcxproj /p:Configuration=Release /p:Platform=x64
+     It goes into bin\ next to rpcs3.exe, with NVIDIA's runtime (nvngx_dlss.dll, nvngx_dlssg.dll). -->
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6B1F3C5E-2D4A-4E8B-9F17-3A5C7E9D1B21}</ProjectGuid>
+    <RootNamespace>rpcs3_ngx</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>$(DefaultPlatformToolset)</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <OutDir>$(MSBuildThisFileDirectory)..\..\bin\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\..\build\tmp\rpcs3_ngx\</IntDir>
+    <TargetName>rpcs3_ngx</TargetName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <Optimization>MaxSpeed</Optimization>
+      <WarningLevel>Level3</WarningLevel>
+      <AdditionalIncludeDirectories>$(DLSS_SDK)\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(DLSS_SDK)\lib\Windows_x86_64\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>nvsdk_ngx_s.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="rpcs3_ngx.h" />
+    <ClCompile Include="rpcs3_ngx.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="CheckDlssSdk" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(DLSS_SDK)' == '' Or !Exists('$(DLSS_SDK)\include\nvsdk_ngx_vk.h')" Text="Set DLSS_SDK to the NVIDIA DLSS SDK folder (include\, lib\Windows_x86_64\)." />
+  </Target>
+  <!-- NVIDIA's runtime next to the plugin. -->
+  <Target Name="CopyDlssRuntime" AfterTargets="Build">
+    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlss.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(DLSS_SDK)\lib\Windows_x86_64\rel\nvngx_dlssg.dll')" />
+  </Target>
+</Project>

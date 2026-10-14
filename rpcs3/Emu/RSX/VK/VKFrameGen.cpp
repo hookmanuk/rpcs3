@@ -12,18 +12,8 @@
 #include "Utilities/StrFmt.h"
 #include "Utilities/File.h"
 
-#ifdef HAVE_DLSS
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
-#endif
-#include <nvsdk_ngx_vk.h>
-#include <nvsdk_ngx_helpers_vk.h>
-#include <nvsdk_ngx_helpers_dlssg_vk.h>
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-#endif
+// DLSS-G runs in the optional plugin rpcs3_ngx.dll (MIT, rpcs3/ngx_plugin): this file has no NVIDIA code.
+#include "../../../ngx_plugin/rpcs3_ngx.h"
 
 #include <cstring>
 
@@ -41,24 +31,6 @@ namespace vk
 			{
 				extensions.push_back(name);
 			}
-		}
-
-#ifdef HAVE_DLSS
-		NVSDK_NGX_FeatureDiscoveryInfo discovery_info(NVSDK_NGX_ProjectIdDescription& project, NVSDK_NGX_FeatureCommonInfo& common)
-		{
-			// As the DLSS context's NVSDK_NGX_VULKAN_Init_with_ProjectID (VKDLSS.cpp).
-			project.ProjectId = "6b1f3c5e-2d4a-4e8b-9f17-3a5c7e9d1b20";
-			project.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
-			project.EngineVersion = "1.0";
-			common = {};
-			NVSDK_NGX_FeatureDiscoveryInfo info{};
-			info.SDKVersion = NVSDK_NGX_Version_API;
-			info.FeatureID = NVSDK_NGX_Feature_FrameGeneration;
-			info.Identifier.IdentifierType = NVSDK_NGX_Application_Identifier_Type_Project_Id;
-			info.Identifier.v.ProjectDesc = project;
-			info.ApplicationDataPath = L".";
-			info.FeatureInfo = &common;
-			return info;
 		}
 
 		// Row-major, column vectors (ours) to NGX's row-major post-multiplication: the transpose.
@@ -109,13 +81,12 @@ namespace vk
 			return true;
 		}
 
-		const char* result_name(NVSDK_NGX_Result r)
+		const char* result_name(u32 r)
 		{
 			static thread_local std::string s;
-			s = fmt::format("0x%08x", static_cast<u32>(r));
+			s = fmt::format("0x%08x", r);
 			return s.c_str();
 		}
-#endif
 	}
 
 	framegen_motion framegen_motion_mode()
@@ -169,17 +140,13 @@ namespace vk
 
 	void framegen_instance_extensions(std::vector<const char*>& extensions)
 	{
-#ifdef HAVE_DLSS
 		if (!framegen_possible())
 		{
 			return;
 		}
-		NVSDK_NGX_ProjectIdDescription project{};
-		NVSDK_NGX_FeatureCommonInfo common{};
-		const NVSDK_NGX_FeatureDiscoveryInfo info = discovery_info(project, common);
 		u32 count = 0;
 		VkExtensionProperties* props = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_GetFeatureInstanceExtensionRequirements(&info, &count, &props)))
+		if (RPCS3_NGX_FAILED(ngx_plugin()->framegen_instance_extensions(&count, &props)))
 		{
 			framegen_log.warning("Frame generation: no instance extension requirements");
 			return;
@@ -189,27 +156,22 @@ namespace vk
 			framegen_log.notice("Frame generation needs instance extension %s", props[i].extensionName);
 			add_extension(extensions, props[i].extensionName);
 		}
-#else
-		static_cast<void>(extensions);
-#endif
 	}
 
 	void framegen_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
-#ifdef HAVE_DLSS
 		if (!framegen_possible() || !s_instance)
 		{
 			return;
 		}
-		NVSDK_NGX_ProjectIdDescription project{};
-		NVSDK_NGX_FeatureCommonInfo common{};
-		const NVSDK_NGX_FeatureDiscoveryInfo info = discovery_info(project, common);
+		const rpcs3_ngx_api* const ngx = ngx_plugin();
 
-		NVSDK_NGX_FeatureRequirement requirement{};
-		if (NVSDK_NGX_SUCCEED(NVSDK_NGX_VULKAN_GetFeatureRequirements(s_instance, pdev, &info, &requirement)))
+		u32 feature_supported = 0, min_architecture = 0;
+		char min_os[256]{};
+		if (!RPCS3_NGX_FAILED(ngx->framegen_requirements(s_instance, pdev, &feature_supported, &min_architecture, min_os, sizeof(min_os))))
 		{
 			framegen_log.notice("Frame generation support on this GPU: 0x%x (0 = supported), min architecture 0x%x, min OS %s",
-				static_cast<u32>(requirement.FeatureSupported), requirement.MinHWArchitecture, requirement.MinOSVersion);
+				feature_supported, min_architecture, min_os);
 		}
 
 		u32 supported_count = 0;
@@ -219,7 +181,7 @@ namespace vk
 
 		u32 count = 0;
 		VkExtensionProperties* props = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_GetFeatureDeviceExtensionRequirements(s_instance, pdev, &info, &count, &props)))
+		if (RPCS3_NGX_FAILED(ngx->framegen_device_extensions(s_instance, pdev, &count, &props)))
 		{
 			framegen_log.warning("Frame generation: no device extension requirements");
 			return;
@@ -239,10 +201,6 @@ namespace vk
 				add_extension(extensions, name);
 			}
 		}
-#else
-		static_cast<void>(pdev);
-		static_cast<void>(extensions);
-#endif
 	}
 
 	framegen_context::framegen_context(const vk::render_device& dev)
@@ -253,58 +211,39 @@ namespace vk
 	framegen_context::~framegen_context()
 	{
 		rsx::vr::set_framegen_active(false);
-		release_features();
-#ifdef HAVE_DLSS
-		if (m_params)
-		{
-			NVSDK_NGX_VULKAN_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_params));
-			m_params = nullptr;
-		}
-#endif
+		release_features(); // the plugin's own parameters go with the NGX session (VKDLSS's shutdown)
 	}
 
 	bool framegen_context::available()
 	{
-#ifdef HAVE_DLSS
 		if (m_available >= 0)
 		{
 			return m_available == 1;
 		}
 		m_available = 0;
-		NVSDK_NGX_Parameter* caps = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_GetCapabilityParameters(&caps)) || !caps)
+		const rpcs3_ngx_api* const ngx = ngx_plugin();
+		if (!ngx)
 		{
-			framegen_log.error("Frame generation: NGX has no capability parameters (is DLSS on?)");
 			return false;
 		}
-		int ok = 0, needs_driver = 0, init_result = 0;
+		s32 ok = 0, needs_driver = 0, init_result = 0;
 		u32 max_count = 0;
-		NVSDK_NGX_Parameter_GetI(caps, NVSDK_NGX_Parameter_FrameGeneration_Available, &ok);
-		NVSDK_NGX_Parameter_GetI(caps, NVSDK_NGX_Parameter_FrameGeneration_NeedsUpdatedDriver, &needs_driver);
-		NVSDK_NGX_Parameter_GetI(caps, NVSDK_NGX_Parameter_FrameGeneration_FeatureInitResult, &init_result);
-		NVSDK_NGX_Parameter_GetUI(caps, NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, &max_count);
-		NVSDK_NGX_VULKAN_DestroyParameters(caps);
+		if (const u32 r = ngx->framegen_capabilities(&ok, &needs_driver, &init_result, &max_count); RPCS3_NGX_FAILED(r))
+		{
+			framegen_log.error("Frame generation: NGX has no capability parameters (is DLSS on?) (%s)", result_name(r));
+			return false;
+		}
 		if (!ok)
 		{
 			framegen_log.error("DLSS Frame Generation is not available (needs a newer driver: %d, init result 0x%08x): is nvngx_dlssg.dll next to rpcs3.exe?",
 				needs_driver, static_cast<u32>(init_result));
 			return false;
 		}
-		NVSDK_NGX_Parameter* params = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_AllocateParameters(&params)) || !params)
-		{
-			framegen_log.error("Frame generation: NVSDK_NGX_VULKAN_AllocateParameters failed");
-			return false;
-		}
-		m_params = params;
 		framegen_log.success("DLSS Frame Generation available (up to %u generated frames per rendered frame)", std::max(1u, max_count));
 		m_max_frames = std::max(1u, max_count);
 		rsx::vr::set_framegen_max_generated(std::min<u32>(m_max_frames, static_cast<u32>(std::size(m_output[0]))));
 		m_available = 1;
 		return true;
-#else
-		return false;
-#endif
 	}
 
 	void framegen_context::disable()
@@ -317,7 +256,6 @@ namespace vk
 
 	void framegen_context::release_features()
 	{
-#ifdef HAVE_DLSS
 		if (std::any_of(std::begin(m_features), std::end(m_features), [](const feature& f) { return f.handle != nullptr; }))
 		{
 			vkDeviceWaitIdle(m_device);
@@ -325,17 +263,15 @@ namespace vk
 			{
 				if (f.handle)
 				{
-					NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(f.handle));
+					ngx_plugin()->release(f.handle);
 				}
 				f = {};
 			}
 		}
-#endif
 	}
 
 	bool framegen_context::ensure_feature(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in)
 	{
-#ifdef HAVE_DLSS
 		auto& f = m_features[eye];
 		const u32 w = in.backbuffer->width(), h = in.backbuffer->height();
 		const u32 rw = in.depth->width(), rh = in.depth->height();
@@ -347,19 +283,13 @@ namespace vk
 		if (f.handle)
 		{
 			vkDeviceWaitIdle(m_device);
-			NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(f.handle));
+			ngx_plugin()->release(f.handle);
 			f = {};
 		}
-		NVSDK_NGX_DLSSG_Create_Params create{};
-		create.Width = w;
-		create.Height = h;
-		create.NativeBackbufferFormat = static_cast<unsigned int>(format);
-		create.RenderWidth = rw;
-		create.RenderHeight = rh;
-		create.DynamicResolutionScaling = false;
-		NVSDK_NGX_Handle* handle = nullptr;
-		const NVSDK_NGX_Result r = NGX_VK_CREATE_DLSSG(cmd, 1, 1, &handle, static_cast<NVSDK_NGX_Parameter*>(m_params), &create);
-		if (NVSDK_NGX_FAILED(r) || !handle)
+		const rpcs3_ngx_framegen_create create{w, h, format, rw, rh};
+		void* handle = nullptr;
+		const u32 r = ngx_plugin()->framegen_create(cmd, &create, &handle);
+		if (RPCS3_NGX_FAILED(r) || !handle)
 		{
 			framegen_log.error("Creating the frame generation feature failed (%s), %ux%u (render %ux%u) format %u", result_name(r), w, h, rw, rh, static_cast<u32>(format));
 			m_disabled = true;
@@ -391,12 +321,6 @@ namespace vk
 		rsx::vr::set_framegen_active(true); // the game at 1/multiplier of the VR frame rate from here on
 		framegen_log.notice("Frame generation feature%s %ux%u (render %ux%u), format %u", eye ? " (right eye)" : "", w, h, rw, rh, static_cast<u32>(format));
 		return true;
-#else
-		static_cast<void>(cmd);
-		static_cast<void>(eye);
-		static_cast<void>(in);
-		return false;
-#endif
 	}
 
 	u32 framegen_context::multiplier() const
@@ -407,7 +331,6 @@ namespace vk
 
 	vk::viewable_image* framegen_context::evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset, u32 index, u32 count)
 	{
-#ifdef HAVE_DLSS
 		if (m_disabled || eye > 1 || !in.backbuffer || !in.depth || !in.motion || !available() || !ensure_feature(cmd, eye, in))
 		{
 			return nullptr;
@@ -462,41 +385,24 @@ namespace vk
 		const vk::image_view* mv_view = motion_img->get_view(identity);
 		const vk::image_view* out_view = out->get_view(identity);
 
-		NVSDK_NGX_Resource_VK backbuffer = NVSDK_NGX_Create_ImageView_Resource_VK(bb_view->value, in.backbuffer->value, range, bb_view->info.format, in.backbuffer->width(), in.backbuffer->height(), false);
-		NVSDK_NGX_Resource_VK depth = NVSDK_NGX_Create_ImageView_Resource_VK(depth_view->value, in.depth->value, range, VK_FORMAT_R32_SFLOAT, in.depth->width(), in.depth->height(), false);
-		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, motion_img->value, range, VK_FORMAT_R32G32_SFLOAT, motion_img->width(), motion_img->height(), false);
-		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, out->value, range, out->format(), out->width(), out->height(), true);
-
-		NVSDK_NGX_Resource_VK hudless_res{};
+		rpcs3_ngx_framegen_eval opt{};
+		opt.backbuffer = {bb_view->value, in.backbuffer->value, bb_view->info.format, in.backbuffer->width(), in.backbuffer->height()};
+		opt.depth = {depth_view->value, in.depth->value, VK_FORMAT_R32_SFLOAT, in.depth->width(), in.depth->height()};
+		opt.motion = {mv_view->value, motion_img->value, VK_FORMAT_R32G32_SFLOAT, motion_img->width(), motion_img->height()};
+		opt.output = {out_view->value, out->value, out->format(), out->width(), out->height()};
 		if (hudless)
 		{
 			const vk::image_view* hl_view = hudless->get_view(identity, VK_IMAGE_ASPECT_COLOR_BIT);
-			hudless_res = NVSDK_NGX_Create_ImageView_Resource_VK(hl_view->value, hudless->value, range, hl_view->info.format, hudless->width(), hudless->height(), false);
+			opt.hudless = {hl_view->value, hudless->value, hl_view->info.format, hudless->width(), hudless->height()};
 		}
 
-		NVSDK_NGX_VK_DLSSG_Eval_Params eval{};
-		eval.pBackbuffer = &backbuffer;
-		eval.pHudless = hudless ? &hudless_res : nullptr;
-		eval.pDepth = &depth;
-		eval.pMVecs = &motion;
-		eval.pOutputInterpFrame = &output;
-
-		NVSDK_NGX_DLSSG_Opt_Eval_Params opt{};
-		opt.multiFrameCount = std::max(count, 1u);
-		opt.multiFrameIndex = index;
-		opt.reset = first;
-		opt.depthInverted = in.depth_inverted;
-		opt.cameraMotionIncluded = true; // the motion vectors carry the camera's motion (VKDLSS: R = M_prev * M_cur^-1 per draw)
-		opt.mvecScale[0] = 1.f;          // render pixels, as DLSS takes them (MVLowRes, scale 1)
-		opt.mvecScale[1] = 1.f;
-		opt.jitterOffset[0] = 0.f;       // the output of DLSS has no jitter left
-		opt.jitterOffset[1] = 0.f;
-		opt.colorBuffersHDR = false;
-		opt.motionVectorsDilated = false;
-		opt.menuDetectionEnabled = false;
-		opt.notRenderingGameFrames = false;
-		opt.orthoProjection = false;
-		opt.motionVectorsInvalidValue = std::numeric_limits<f32>::max(); // never written (0 marked every still pixel invalid: the car under a chase camera ghosted)
+		// The plugin passes these on (camera motion included in the vectors: VKDLSS's R = M_prev * M_cur^-1 per draw;
+		// render pixels at scale 1, as DLSS takes them; no jitter left after DLSS).
+		opt.multi_frame_count = std::max(count, 1u);
+		opt.multi_frame_index = index;
+		opt.reset = first ? 1 : 0;
+		opt.depth_inverted = in.depth_inverted ? 1 : 0;
+		opt.motion_vectors_invalid_value = std::numeric_limits<f32>::max(); // never written (0 marked every still pixel invalid: the car under a chase camera ghosted)
 
 		// The eye's projection: symmetric half tangents, a nominal depth range (the depth flag is what DLSS-G's output
 		// depends on most; the motion vectors carry the motion).
@@ -509,43 +415,31 @@ namespace vk
 		proj[14] = 1.f;
 		f32 proj_inv[16]{};
 		invert(proj, proj_inv);
-		to_ngx(proj, opt.cameraViewToClip);
-		to_ngx(proj_inv, opt.clipToCameraView);
+		to_ngx(proj, opt.camera_view_to_clip);
+		to_ngx(proj_inv, opt.clip_to_camera_view);
 		f32 identity_m[16]{1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f};
-		to_ngx(identity_m, opt.clipToLensClip);
+		to_ngx(identity_m, opt.clip_to_lens_clip);
 		f32 prev_to_clip[16]{};
 		if (in.have_motion_matrix && invert(in.clip_to_prev_clip, prev_to_clip))
 		{
-			to_ngx(in.clip_to_prev_clip, opt.clipToPrevClip);
-			to_ngx(prev_to_clip, opt.prevClipToClip);
+			to_ngx(in.clip_to_prev_clip, opt.clip_to_prev_clip);
+			to_ngx(prev_to_clip, opt.prev_clip_to_clip);
 		}
 		else
 		{
-			to_ngx(identity_m, opt.clipToPrevClip);
-			to_ngx(identity_m, opt.prevClipToClip);
+			to_ngx(identity_m, opt.clip_to_prev_clip);
+			to_ngx(identity_m, opt.prev_clip_to_clip);
 		}
-		opt.cameraPos[0] = opt.cameraPos[1] = opt.cameraPos[2] = 0.f;
-		opt.cameraRight[0] = 1.f; opt.cameraRight[1] = 0.f; opt.cameraRight[2] = 0.f;
-		opt.cameraUp[0] = 0.f; opt.cameraUp[1] = 1.f; opt.cameraUp[2] = 0.f;
-		opt.cameraFwd[0] = 0.f; opt.cameraFwd[1] = 0.f; opt.cameraFwd[2] = 1.f;
-		opt.cameraNear = n;
-		opt.cameraFar = f_;
-		opt.cameraFOV = 2.f * std::atan(in.tan_half_y);
-		opt.cameraAspectRatio = in.tan_half_y > 0.f ? in.tan_half_x / in.tan_half_y : 1.f;
-		opt.mvecsSubrectSize = {in.motion->width(), in.motion->height()};
-		opt.depthSubrectSize = {in.depth->width(), in.depth->height()};
-		opt.backbufferSubrectSize = {in.backbuffer->width(), in.backbuffer->height()};
-		if (hudless)
-		{
-			opt.hudLessSubrectSize = {hudless->width(), hudless->height()};
-		}
+		opt.camera_near = n;
+		opt.camera_far = f_;
+		opt.camera_fov = 2.f * std::atan(in.tan_half_y);
+		opt.camera_aspect = in.tan_half_y > 0.f ? in.tan_half_x / in.tan_half_y : 1.f;
 		if (static bool s_logged = false; hudless && !std::exchange(s_logged, true))
 		{
 			framegen_log.notice("Frame generation: HUD-less input on (the VR HUD box's separation)");
 		}
-		opt.outputInterpSubrectSize = {out->width(), out->height()};
 
-		const NVSDK_NGX_Result r = NGX_VK_EVALUATE_DLSSG(cmd, static_cast<NVSDK_NGX_Handle*>(m_features[eye].handle), static_cast<NVSDK_NGX_Parameter*>(m_params), &eval, &opt);
+		const u32 r = ngx_plugin()->framegen_evaluate(cmd, m_features[eye].handle, &opt);
 		motion_img->pop_layout(cmd);
 		in.depth->pop_layout(cmd);
 		if (hudless)
@@ -555,7 +449,7 @@ namespace vk
 		in.backbuffer->pop_layout(cmd);
 		vk::insert_global_memory_barrier(cmd);
 
-		if (NVSDK_NGX_FAILED(r))
+		if (RPCS3_NGX_FAILED(r))
 		{
 			static u32 s_failures = 0;
 			if (s_failures++ < 10)
@@ -571,12 +465,5 @@ namespace vk
 			framegen_log.success("First generated frame (eye %u)", eye);
 		}
 		return first ? nullptr : out;
-#else
-		static_cast<void>(cmd);
-		static_cast<void>(eye);
-		static_cast<void>(in);
-		static_cast<void>(reset);
-		return nullptr;
-#endif
 	}
 }

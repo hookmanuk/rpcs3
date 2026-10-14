@@ -61,6 +61,8 @@
 #include <unordered_map>
 #include <vector>
 
+struct rpcs3_ngx_api; // rpcs3/ngx_plugin/rpcs3_ngx.h
+
 namespace vk
 {
 	class command_buffer;
@@ -109,6 +111,8 @@ namespace vk
 	bool dlss_uses_ngx();
 	// NGX may run in this session: its Vulkan extensions are enabled at boot.
 	bool dlss_ngx_possible();
+	// The DLSS plugin (rpcs3_ngx.dll beside rpcs3.exe, rpcs3/ngx_plugin), loaded at the first call; null without it.
+	const rpcs3_ngx_api* ngx_plugin();
 
 	// ---- Vulkan instance and device (vkutils/instance.cpp, vkutils/device.cpp) -----------------------------
 	void dlss_instance_extensions(std::vector<const char*>& extensions);
@@ -319,13 +323,12 @@ namespace vk
 		// NGX: a feature per eye (index 0 also the flat image's); each keeps its own history
 		struct ngx_feature
 		{
-			void* handle = nullptr; // NVSDK_NGX_Handle*
+			void* handle = nullptr; // the plugin's feature
 			u32 in[2]{}, out[2]{};
 			u32 quality = 0;
 			u32 preset = 0;     // render preset letter (0: NGX's default)
 			bool fresh = false; // created since its last evaluation: no history yet
 		};
-		void* m_ngx_params = nullptr;  // NVSDK_NGX_Parameter*
 		std::array<ngx_feature, 2> m_ngx_features{};
 		bool m_ngx_ready = false;
 

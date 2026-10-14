@@ -22,6 +22,7 @@ about_dialog::about_dialog(QWidget* parent) : QDialog(parent), ui(new Ui::about_
 		"Our developers and contributors are always working hard to ensure this project is the best that it can be.\n"
 		"There are still plenty of implementations to make and optimizations to do.")
 		.arg(gui::utils::make_link(tr("Patreon"), "https://rpcs3.net/patreon"))));
+	ui->description->setText(ui->description->text() + gui::utils::make_paragraph(tr("VR build: NVIDIA DLSS and DLSS Frame Generation (NVIDIA RTX) through the optional rpcs3_ngx plugin. NVIDIA, GeForce RTX, RTX and DLSS are trademarks of NVIDIA Corporation."))); // VR fork: DLSS attribution
 
 	// Events
 	connect(ui->gitHub, &QPushButton::clicked, [] { QDesktopServices::openUrl(QUrl("https://www.github.com/RPCS3")); });

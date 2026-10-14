@@ -24,18 +24,10 @@
 
 #include <set>
 
-#ifdef HAVE_DLSS
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-#pragma GCC diagnostic ignored "-Wmissing-declarations"
-#pragma GCC diagnostic ignored "-Wunused-parameter"
-#endif
-#include <nvsdk_ngx_vk.h>
-#include <nvsdk_ngx_helpers_vk.h>
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
+// NVIDIA DLSS runs in the optional plugin rpcs3_ngx.dll (MIT, rpcs3/ngx_plugin): this file has no NVIDIA code.
+#include "../../../ngx_plugin/rpcs3_ngx.h"
+#ifdef _WIN32
+#include <Windows.h>
 #endif
 
 #include <algorithm>
@@ -653,15 +645,44 @@ namespace vk
 			}
 		}
 
-#ifdef HAVE_DLSS
-		const char* ngx_result_name(NVSDK_NGX_Result r)
+		const char* ngx_result_name(u32 r)
 		{
 			static thread_local std::string s;
-			s = fmt::format("0x%08x", static_cast<u32>(r));
+			s = fmt::format("0x%08x", r);
 			return s.c_str();
 		}
-#endif
 	} // namespace
+
+	const rpcs3_ngx_api* ngx_plugin()
+	{
+		static const rpcs3_ngx_api* s_api = []() -> const rpcs3_ngx_api*
+		{
+#ifdef _WIN32
+			wchar_t exe_path[MAX_PATH]{};
+			GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+			std::wstring path(exe_path);
+			path = path.substr(0, path.find_last_of(L"\\/") + 1) + L"rpcs3_ngx.dll";
+			const HMODULE module = LoadLibraryW(path.c_str());
+			if (!module)
+			{
+				dlss_log.notice("No DLSS plugin (rpcs3_ngx.dll): DLSS is unavailable");
+				return nullptr;
+			}
+			const auto get_api = reinterpret_cast<rpcs3_ngx_get_api_fn>(GetProcAddress(module, "rpcs3_ngx_get_api"));
+			const rpcs3_ngx_api* api = get_api ? get_api() : nullptr;
+			if (!api || api->version != RPCS3_NGX_API_VERSION)
+			{
+				dlss_log.error("rpcs3_ngx.dll is from another build (interface %u, this build needs %u): DLSS is unavailable", api ? api->version : 0, RPCS3_NGX_API_VERSION);
+				return nullptr;
+			}
+			dlss_log.notice("DLSS plugin loaded (rpcs3_ngx.dll)");
+			return api;
+#else
+			return nullptr;
+#endif
+		}();
+		return s_api;
+	}
 
 	namespace
 	{
@@ -721,20 +742,17 @@ namespace vk
 		// With the SDK the context exists from boot (Off does nothing per draw), so the settings and the home menu can turn
 		// DLSS on live; RPCS3_DLSS=off rules it out. Without an NVIDIA GPU or the runtime NGX fails to start and DLSS
 		// stays off. (Parked 2026-10-11 to boot-only; live again 2026-10-13, Matt.)
-#ifdef HAVE_DLSS
+		// Without the plugin only the debug and jitter-only modes run.
+		if (!ngx_plugin())
+		{
+			return dlss_configured_mode() != dlss_mode::off && !dlss_uses_ngx();
+		}
 		return env("RPCS3_DLSS") == nullptr || dlss_configured_mode() != dlss_mode::off;
-#else
-		return dlss_configured_mode() != dlss_mode::off;
-#endif
 	}
 
 	bool dlss_ngx_possible()
 	{
-#ifdef HAVE_DLSS
-		return env("RPCS3_DLSS") == nullptr || dlss_uses_ngx();
-#else
-		return false;
-#endif
+		return ngx_plugin() && (env("RPCS3_DLSS") == nullptr || dlss_uses_ngx());
 	}
 
 	bool dlss_uses_ngx()
@@ -756,7 +774,6 @@ namespace vk
 
 	void dlss_instance_extensions(std::vector<const char*>& extensions)
 	{
-#ifdef HAVE_DLSS
 		if (!dlss_ngx_possible())
 		{
 			return;
@@ -767,10 +784,10 @@ namespace vk
 		std::vector<VkExtensionProperties> supported(count);
 		vkEnumerateInstanceExtensionProperties(nullptr, &count, supported.data());
 
-		unsigned int ic = 0, dc = 0;
+		u32 ic = 0, dc = 0;
 		const char** ie = nullptr;
 		const char** de = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_RequiredExtensions(&ic, &ie, &dc, &de)))
+		if (RPCS3_NGX_FAILED(ngx_plugin()->dlss_required_extensions(&ic, &ie, &dc, &de)))
 		{
 			dlss_log.error("NVSDK_NGX_VULKAN_RequiredExtensions failed");
 			return;
@@ -787,14 +804,10 @@ namespace vk
 			}
 		}
 		framegen_instance_extensions(extensions); // framegen: DLSS-G's own (when asked for at boot)
-#else
-		static_cast<void>(extensions);
-#endif
 	}
 
 	void dlss_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
-#ifdef HAVE_DLSS
 		if (!dlss_ngx_possible())
 		{
 			return;
@@ -805,10 +818,10 @@ namespace vk
 		std::vector<VkExtensionProperties> supported(count);
 		vkEnumerateDeviceExtensionProperties(pdev, nullptr, &count, supported.data());
 
-		unsigned int ic = 0, dc = 0;
+		u32 ic = 0, dc = 0;
 		const char** ie = nullptr;
 		const char** de = nullptr;
-		if (NVSDK_NGX_FAILED(NVSDK_NGX_VULKAN_RequiredExtensions(&ic, &ie, &dc, &de)))
+		if (RPCS3_NGX_FAILED(ngx_plugin()->dlss_required_extensions(&ic, &ie, &dc, &de)))
 		{
 			return;
 		}
@@ -829,15 +842,10 @@ namespace vk
 			}
 		}
 		framegen_device_extensions(pdev, extensions); // framegen: DLSS-G's own (when asked for at boot)
-#else
-		static_cast<void>(pdev);
-		static_cast<void>(extensions);
-#endif
 	}
 
 	void dlss_device_chain(VkPhysicalDevice pdev, VkDeviceCreateInfo& info)
 	{
-#ifdef HAVE_DLSS
 		if (!dlss_ngx_possible() || !pdev)
 		{
 			return;
@@ -855,10 +863,6 @@ namespace vk
 				reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(next)->bufferDeviceAddress = VK_TRUE;
 			}
 		}
-#else
-		static_cast<void>(pdev);
-		static_cast<void>(info);
-#endif
 	}
 
 	// ---- Pipelines --------------------------------------------------------------------------------------------
@@ -1035,13 +1039,11 @@ namespace vk
 
 		dlss_log.notice("DLSS test: mode %u (RPCS3_DLSS or VR / DLSS (test)), scene target %s", static_cast<u32>(m_mode),
 			m_forced_address ? fmt::format("0x%x", m_forced_address) : std::string("found per frame"));
-#ifndef HAVE_DLSS
-		if (dlss_uses_ngx())
+		if (!ngx_plugin() && dlss_uses_ngx())
 		{
-			dlss_log.error("This build has no DLSS SDK (HAVE_DLSS): motion vectors and jitter run, the image is shown without DLSS%s",
+			dlss_log.error("No DLSS plugin (rpcs3_ngx.dll): motion vectors and jitter run, the image is shown without DLSS%s",
 				env("RPCS3_DLSS_STANDIN") ? " (RPCS3_DLSS_STANDIN: upscaled)" : "");
 		}
-#endif
 	}
 
 	dlss_context::~dlss_context()
@@ -1052,18 +1054,11 @@ namespace vk
 	void dlss_context::destroy()
 	{
 		ngx_release_features();
-#ifdef HAVE_DLSS
-		if (m_ngx_params)
-		{
-			NVSDK_NGX_VULKAN_DestroyParameters(static_cast<NVSDK_NGX_Parameter*>(m_ngx_params));
-			m_ngx_params = nullptr;
-		}
 		if (m_ngx_ready)
 		{
-			NVSDK_NGX_VULKAN_Shutdown1(m_device);
+			ngx_plugin()->shutdown(m_device);
 			m_ngx_ready = false;
 		}
-#endif
 		m_last_result = nullptr;
 		m_last_right = nullptr;
 		m_motion.reset();
@@ -2292,7 +2287,11 @@ namespace vk
 
 	bool dlss_context::ngx_init()
 	{
-#ifdef HAVE_DLSS
+		const rpcs3_ngx_api* const ngx = ngx_plugin();
+		if (!ngx)
+		{
+			return false;
+		}
 		if (m_ngx_ready)
 		{
 			return true;
@@ -2309,24 +2308,10 @@ namespace vk
 		const VkPhysicalDevice pdev = m_device.gpu();
 		const VkInstance instance = m_device.gpu();
 		// Dev: RPCS3_NGX_LOG=1 puts NGX's own verbose log (and its features', e.g. the driver profile keys DLSS-G reads) into RPCS3.log.
-		NVSDK_NGX_FeatureCommonInfo common{};
 		const bool ngx_log = std::getenv("RPCS3_NGX_LOG") != nullptr;
-		if (ngx_log)
-		{
-			common.LoggingInfo.LoggingCallback = [](const char* message, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature feature)
-			{
-				std::string text = message ? message : "";
-				while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
-				{
-					text.pop_back();
-				}
-				dlss_log.notice("NGX [%d]: %s", static_cast<s32>(feature), text);
-			};
-			common.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_VERBOSE;
-		}
-		NVSDK_NGX_Result r = NVSDK_NGX_VULKAN_Init_with_ProjectID("6b1f3c5e-2d4a-4e8b-9f17-3a5c7e9d1b20", NVSDK_NGX_ENGINE_TYPE_CUSTOM, "1.0",
-			wdir.c_str(), instance, pdev, m_device, vkGetInstanceProcAddr, vkGetDeviceProcAddr, ngx_log ? &common : nullptr);
-		if (NVSDK_NGX_FAILED(r))
+		const rpcs3_ngx_log_fn log = [](const char* message) { dlss_log.notice("NGX %s", message); };
+		const u32 r = ngx->init(wdir.c_str(), instance, pdev, m_device, vkGetInstanceProcAddr, vkGetDeviceProcAddr, ngx_log ? log : nullptr);
+		if (RPCS3_NGX_FAILED(r))
 		{
 			dlss_log.error("NVSDK_NGX_VULKAN_Init failed (%s): is nvngx_dlss.dll next to rpcs3.exe, and the driver recent?", ngx_result_name(r));
 			m_disabled = true;
@@ -2334,23 +2319,10 @@ namespace vk
 		}
 		m_ngx_ready = true;
 
-		NVSDK_NGX_Parameter* params = nullptr;
-		r = NVSDK_NGX_VULKAN_GetCapabilityParameters(&params);
-		if (NVSDK_NGX_FAILED(r) || !params)
-		{
-			dlss_log.error("NVSDK_NGX_VULKAN_GetCapabilityParameters failed (%s)", ngx_result_name(r));
-			m_disabled = true;
-			return false;
-		}
-		m_ngx_params = params;
-
-		int available = 0, needs_driver = 0;
-		NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_Available, &available);
-		NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_NeedsUpdatedDriver, &needs_driver);
+		s32 available = 0, needs_driver = 0, feature_result = 0;
+		ngx->dlss_capabilities(&available, &needs_driver, &feature_result);
 		if (!available)
 		{
-			int feature_result = 0;
-			NVSDK_NGX_Parameter_GetI(params, NVSDK_NGX_Parameter_SuperSampling_FeatureInitResult, &feature_result);
 			dlss_log.error("DLSS is not available (needs a newer driver: %d, init result 0x%08x)", needs_driver, static_cast<u32>(feature_result));
 			m_disabled = true;
 			return false;
@@ -2358,14 +2330,10 @@ namespace vk
 
 		dlss_log.success("DLSS (NGX) ready");
 		return true;
-#else
-		return false;
-#endif
 	}
 
 	void dlss_context::ngx_release_features()
 	{
-#ifdef HAVE_DLSS
 		if (std::any_of(m_ngx_features.begin(), m_ngx_features.end(), [](const ngx_feature& f) { return f.handle != nullptr; }))
 		{
 			vkDeviceWaitIdle(m_device);
@@ -2373,12 +2341,11 @@ namespace vk
 			{
 				if (f.handle)
 				{
-					NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(f.handle));
+					ngx_plugin()->release(f.handle);
 				}
 				f = {};
 			}
 		}
-#endif
 	}
 
 	bool dlss_context::standin_evaluate(const vk::command_buffer& cmd, u32 eye, vk::viewable_image* source, u32 in_w, u32 in_h, u32 out_w, u32 out_h)
@@ -2420,23 +2387,22 @@ namespace vk
 			return standin_evaluate(cmd, eye, source, in_w, in_h, out_w, out_h);
 		}
 
-#ifdef HAVE_DLSS
 		if (!ngx_init())
 		{
 			return false;
 		}
+		const rpcs3_ngx_api* const ngx = ngx_plugin();
 
-		NVSDK_NGX_PerfQuality_Value quality = NVSDK_NGX_PerfQuality_Value_DLAA;
+		u32 quality = RPCS3_NGX_QUALITY_DLAA;
 		switch (m_mode)
 		{
-		case dlss_mode::quality: quality = NVSDK_NGX_PerfQuality_Value_MaxQuality; break;
-		case dlss_mode::balanced: quality = NVSDK_NGX_PerfQuality_Value_Balanced; break;
-		case dlss_mode::performance: quality = NVSDK_NGX_PerfQuality_Value_MaxPerf; break;
-		case dlss_mode::ultra_performance: quality = NVSDK_NGX_PerfQuality_Value_UltraPerformance; break;
+		case dlss_mode::quality: quality = RPCS3_NGX_QUALITY_QUALITY; break;
+		case dlss_mode::balanced: quality = RPCS3_NGX_QUALITY_BALANCED; break;
+		case dlss_mode::performance: quality = RPCS3_NGX_QUALITY_PERFORMANCE; break;
+		case dlss_mode::ultra_performance: quality = RPCS3_NGX_QUALITY_ULTRA_PERFORMANCE; break;
 		default: break;
 		}
 
-		auto* params = static_cast<NVSDK_NGX_Parameter*>(m_ngx_params);
 		ngx_feature& feature = m_ngx_features[eye];
 
 		// The render preset for every mode: VR / DLSS Model (test), or RPCS3_DLSS_PRESET=<letter> (310: J, K transformer;
@@ -2453,43 +2419,31 @@ namespace vk
 		}
 
 		if (!feature.handle || feature.in[0] != in_w || feature.in[1] != in_h || feature.out[0] != out_w || feature.out[1] != out_h ||
-			feature.quality != static_cast<u32>(quality) || feature.preset != letter)
+			feature.quality != quality || feature.preset != letter)
 		{
 			if (feature.handle)
 			{
 				vkDeviceWaitIdle(m_device);
-				NVSDK_NGX_VULKAN_ReleaseFeature(static_cast<NVSDK_NGX_Handle*>(feature.handle));
+				ngx->release(feature.handle);
 				feature = {};
 			}
 
-			NVSDK_NGX_DLSS_Create_Params create{};
-			create.Feature.InWidth = in_w;
-			create.Feature.InHeight = in_h;
-			create.Feature.InTargetWidth = out_w;
-			create.Feature.InTargetHeight = out_h;
-			create.Feature.InPerfQualityValue = quality;
-			create.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
-			if (env("RPCS3_DLSS_DEPTH_INVERTED"))
-			{
-				create.InFeatureCreateFlags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
-			}
-			create.InEnableOutputSubrects = false;
-
-			// The hints stay on the shared parameters: written every time (0 asks for NGX's default again).
-			for (const char* name : {NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality,
-					 NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance,
-					 NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance})
-			{
-				NVSDK_NGX_Parameter_SetUI(params, name, letter ? letter - 'A' + 1 : 0);
-			}
+			rpcs3_ngx_dlss_create create{};
+			create.in_width = in_w;
+			create.in_height = in_h;
+			create.out_width = out_w;
+			create.out_height = out_h;
+			create.quality = quality;
+			create.preset = letter ? letter - 'A' + 1 : 0; // every mode's preset hint (0 asks for NGX's default again)
+			create.depth_inverted = env("RPCS3_DLSS_DEPTH_INVERTED") ? 1 : 0;
 			if (letter)
 			{
 				dlss_log.notice("render preset %c", static_cast<char>(letter));
 			}
 
-			NVSDK_NGX_Handle* handle = nullptr;
-			const NVSDK_NGX_Result r = NGX_VULKAN_CREATE_DLSS_EXT(cmd, 1, 1, &handle, params, &create);
-			if (NVSDK_NGX_FAILED(r) || !handle)
+			void* handle = nullptr;
+			const u32 r = ngx->dlss_create(cmd, &create, &handle);
+			if (RPCS3_NGX_FAILED(r) || !handle)
 			{
 				dlss_log.error("Creating the DLSS feature failed (%s), %ux%u -> %ux%u", ngx_result_name(r), in_w, in_h, out_w, out_h);
 				m_disabled = true;
@@ -2501,7 +2455,7 @@ namespace vk
 			feature.in[1] = in_h;
 			feature.out[0] = out_w;
 			feature.out[1] = out_h;
-			feature.quality = static_cast<u32>(quality);
+			feature.quality = quality;
 			feature.preset = letter;
 			feature.fresh = true;
 			dlss_log.notice("DLSS feature%s %ux%u -> %ux%u (quality %u), colour %ux%u format %u", eye ? " (right eye)" : "", in_w, in_h, out_w, out_h, feature.quality, source->width(), source->height(), static_cast<u32>(source->format()));
@@ -2524,43 +2478,32 @@ namespace vk
 		const vk::image_view* depth_view = depth_image->get_view(identity);
 		const vk::image_view* out_view = output_image->get_view(identity);
 
-		NVSDK_NGX_Resource_VK color = NVSDK_NGX_Create_ImageView_Resource_VK(color_view->value, source->value, range, color_view->info.format, source->width(), source->height(), false);
-		NVSDK_NGX_Resource_VK motion = NVSDK_NGX_Create_ImageView_Resource_VK(mv_view->value, mv_image->value, range, VK_FORMAT_R32G32_SFLOAT, mv_image->width(), mv_image->height(), false);
-		NVSDK_NGX_Resource_VK depth = NVSDK_NGX_Create_ImageView_Resource_VK(depth_view->value, depth_image->value, range, VK_FORMAT_R32_SFLOAT, depth_image->width(), depth_image->height(), false);
-		NVSDK_NGX_Resource_VK output = NVSDK_NGX_Create_ImageView_Resource_VK(out_view->value, output_image->value, range, output_image->format(), output_image->width(), output_image->height(), true);
+		rpcs3_ngx_dlss_eval eval{};
+		eval.color = {color_view->value, source->value, color_view->info.format, source->width(), source->height()};
+		eval.motion = {mv_view->value, mv_image->value, VK_FORMAT_R32G32_SFLOAT, mv_image->width(), mv_image->height()};
+		eval.depth = {depth_view->value, depth_image->value, VK_FORMAT_R32_SFLOAT, depth_image->width(), depth_image->height()};
+		eval.output = {out_view->value, output_image->value, output_image->format(), output_image->width(), output_image->height()};
 
 		// Jitter in render pixels: the scene's jitter scaled from its viewport to the displayed image.
 		static const auto jitter_sign = env_signs("RPCS3_DLSS_JITTER_SIGN");
 		const f32 sx = m_clip_width ? static_cast<f32>(in_w) / static_cast<f32>(m_clip_width) : 1.f;
 		const f32 sy = m_clip_height ? static_cast<f32>(in_h) / static_cast<f32>(m_clip_height) : 1.f;
 
-		NVSDK_NGX_VK_DLSS_Eval_Params eval{};
-		eval.Feature.pInColor = &color;
-		eval.Feature.pInOutput = &output;
-		eval.Feature.InSharpness = env_f32("RPCS3_DLSS_SHARPNESS", 0.f);
-		eval.pInDepth = &depth;
-		eval.pInMotionVectors = &motion;
-		eval.InJitterOffsetX = m_jitter_px[0] * sx * jitter_sign[0];
-		eval.InJitterOffsetY = m_jitter_px[1] * sy * jitter_sign[1];
-		eval.InRenderSubrectDimensions = {in_w, in_h};
-		eval.InReset = (m_reset_history || feature.fresh) ? 1 : 0;
+		eval.sharpness = env_f32("RPCS3_DLSS_SHARPNESS", 0.f);
+		eval.jitter_x = m_jitter_px[0] * sx * jitter_sign[0];
+		eval.jitter_y = m_jitter_px[1] * sy * jitter_sign[1];
+		eval.render_width = in_w;
+		eval.render_height = in_h;
+		eval.reset = (m_reset_history || feature.fresh) ? 1 : 0;
 		feature.fresh = false;
-		eval.InMVScaleX = 1.f;
-		eval.InMVScaleY = 1.f;
-		eval.InColorSubrectBase = {0, 0};
-		eval.InDepthSubrectBase = {0, 0};
-		eval.InMVSubrectBase = {0, 0};
-		eval.InOutputSubrectBase = {0, 0};
-		eval.InPreExposure = 1.f;
-		eval.InExposureScale = 1.f;
 
-		const NVSDK_NGX_Result r = NGX_VULKAN_EVALUATE_DLSS_EXT(cmd, static_cast<NVSDK_NGX_Handle*>(feature.handle), params, &eval);
+		const u32 r = ngx->dlss_evaluate(cmd, feature.handle, &eval);
 		source->pop_layout(cmd);
 
 		// NGX recorded its own pipeline and descriptor state; make the results visible to the present passes.
 		vk::insert_global_memory_barrier(cmd);
 
-		if (NVSDK_NGX_FAILED(r))
+		if (RPCS3_NGX_FAILED(r))
 		{
 			static u32 s_failures = 0;
 			if (s_failures++ < 10)
@@ -2570,15 +2513,5 @@ namespace vk
 			return false;
 		}
 		return true;
-#else
-		static_cast<void>(cmd);
-		static_cast<void>(eye);
-		static_cast<void>(source);
-		static_cast<void>(in_w);
-		static_cast<void>(in_h);
-		static_cast<void>(out_w);
-		static_cast<void>(out_h);
-		return false;
-#endif
 	}
 }

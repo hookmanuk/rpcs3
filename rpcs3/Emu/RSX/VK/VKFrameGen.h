@@ -76,7 +76,7 @@ namespace vk
 	private:
 		struct feature
 		{
-			void* handle = nullptr; // NVSDK_NGX_Handle*
+			void* handle = nullptr; // the plugin's feature
 			u32 width = 0, height = 0, render_width = 0, render_height = 0;
 			VkFormat format = VK_FORMAT_UNDEFINED;
 		};
@@ -85,7 +85,6 @@ namespace vk
 
 		const vk::render_device& m_device;
 		s32 m_available = -1; // -1 unknown, 0 no, 1 yes
-		void* m_params = nullptr; // NVSDK_NGX_Parameter* of our own
 		feature m_features[2];
 		std::unique_ptr<vk::viewable_image> m_output[2][2]; // [eye][index - 1]
 		u32 m_max_frames = 1;     // generated frames per rendered frame this GPU supports (MultiFrameCountMax)
