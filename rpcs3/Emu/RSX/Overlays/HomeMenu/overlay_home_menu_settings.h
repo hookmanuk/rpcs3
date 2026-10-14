@@ -329,6 +329,12 @@ namespace rsx
 		struct home_menu_settings_vr : public home_menu_settings_page
 		{
 			home_menu_settings_vr(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent);
+			page_navigation handle_button_press(pad_button button_press, bool is_auto_repeat, u64 auto_repeat_interval_ms) override;
+
+		private:
+			void build();
+			static bool dlss_options_shown();
+			bool m_dlss_options = false; // DLSS's own options are on the page
 		};
 
 		struct home_menu_settings_advanced : public home_menu_settings_page

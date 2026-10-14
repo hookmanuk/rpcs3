@@ -180,6 +180,33 @@ namespace rsx
 		home_menu_settings_vr::home_menu_settings_vr(s16 x, s16 y, u16 width, u16 height, bool use_separators, home_menu_page* parent)
 			: home_menu_settings_page(x, y, width, height, use_separators, parent, get_localized_string(localized_string_id::HOME_MENU_SETTINGS_VR))
 		{
+			build();
+		}
+
+		// DLSS's own options show only while DLSS is on: when a choice turns it on or off, the page is rebuilt in place (the
+		// selected row kept; the options follow the DLSS row).
+		page_navigation home_menu_settings_vr::handle_button_press(pad_button button_press, bool is_auto_repeat, u64 auto_repeat_interval_ms)
+		{
+			const page_navigation result = home_menu_settings_page::handle_button_press(button_press, is_auto_repeat, auto_repeat_interval_ms);
+			if (m_dlss_options != dlss_options_shown())
+			{
+				const s32 selected = get_selected_index();
+				build();
+				select_entry(selected);
+			}
+			return result;
+		}
+
+		bool home_menu_settings_vr::dlss_options_shown()
+		{
+			return rsx::vr::dlss_session() && g_cfg.video.vr.dlss != vr_dlss_mode::off;
+		}
+
+		void home_menu_settings_vr::build()
+		{
+			clear_entries();
+			m_dlss_options = dlss_options_shown();
+
 			// Without a VR profile the game cannot be rendered in VR; offer to make one
 			// from the running game instead of the settings.
 			if (!rsx::vr::camera_probe::get().profile())
@@ -236,7 +263,7 @@ namespace rsx
 			if (rsx::vr::dlss_session()) // VR fork: DLSS mode and model, live in a session that booted with DLSS on
 			{
 				add_dropdown(&g_cfg.video.vr.dlss, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS);
-				if (g_cfg.video.vr.dlss != vr_dlss_mode::off) // DLSS's own options only with DLSS on (the menu is built when it opens)
+				if (m_dlss_options) // DLSS's own options only with DLSS on
 				{
 					add_dropdown(&g_cfg.video.vr.dlss_model, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_MODEL);
 					add_unsigned_slider(&g_cfg.video.vr.dlss_sharpening, localized_string_id::HOME_MENU_SETTINGS_VR_DLSS_SHARPENING, " %", 5); // VR fork

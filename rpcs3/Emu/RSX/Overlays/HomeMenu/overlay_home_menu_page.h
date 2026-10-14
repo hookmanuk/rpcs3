@@ -57,6 +57,7 @@ namespace rsx
 			virtual void add_item(std::unique_ptr<overlay_element>& element, std::function<page_navigation(pad_button)> callback);
 			virtual void apply_layout(bool center_vertically = false);
 			void show_dialog(std::string_view text, std::function<void()> on_accept = nullptr, std::function<void()> on_cancel = nullptr);
+			void clear_entries() { m_entries.clear(); m_callbacks.clear(); clear_items(); } // VR fork: a page rebuilt in place
 
 			std::vector<std::shared_ptr<home_menu_page>> m_pages;
 
