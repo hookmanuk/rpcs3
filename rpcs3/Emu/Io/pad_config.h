@@ -109,6 +109,7 @@ struct cfg_pad final : cfg::node
 	cfg_sensor motion_sensor_g{ this, "Motion Sensor G" };
 
 	cfg::string orientation_reset_button{ this, "Orientation Reset Button", "" };
+	cfg::string vr_toggle_hud_button{ this, "VR Toggle HUD Button", "" }; // VR fork: rsx::vr::toggle_hud
 	cfg::_bool orientation_enabled{ this, "Orientation Enabled", false };
 
 	cfg::string pressure_intensity_button{ this, "Pressure Intensity Button", "" };

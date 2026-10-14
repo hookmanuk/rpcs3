@@ -155,6 +155,7 @@ protected:
 		pressure_intensity_button,
 		analog_limiter_button,
 		orientation_reset_button,
+		vr_toggle_hud_button, // VR fork
 
 		button_count
 	};

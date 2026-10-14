@@ -383,7 +383,8 @@ enum special_button_value
 {
 	pressure_intensity,
 	analog_limiter,
-	orientation_reset
+	orientation_reset,
+	vr_toggle_hud // VR fork
 };
 
 struct Button
@@ -527,6 +528,7 @@ struct Pad
 	bool get_analog_limiter_button_active(bool is_toggle_mode, u32 player_id);
 
 	s32 m_orientation_reset_button_index{-1}; // Special button index. -1 if not set.
+	s32 m_vr_toggle_hud_button_index{-1}; // VR fork: special button index (rsx::vr::toggle_hud). -1 if not set.
 	bool get_orientation_reset_button_active();
 
 	u64 m_last_rumble_time_us{0};

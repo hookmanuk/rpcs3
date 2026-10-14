@@ -543,6 +543,9 @@ bool PadHandlerBase::bindPadToDevice(std::shared_ptr<Pad> pad)
 		pad->m_orientation_reset_button_index = static_cast<s32>(pad->m_buttons.size()) - 1;
 	}
 
+	pad->m_buttons.emplace_back(special_button_offset, mapping[button::vr_toggle_hud_button], special_button_value::vr_toggle_hud); // VR fork
+	pad->m_vr_toggle_hud_button_index = static_cast<s32>(pad->m_buttons.size()) - 1; // VR fork
+
 	pad->m_buttons.emplace_back(CELL_PAD_BTN_OFFSET_DIGITAL1, mapping[button::up], CELL_PAD_CTRL_UP);
 	pad->m_buttons.emplace_back(CELL_PAD_BTN_OFFSET_DIGITAL1, mapping[button::down], CELL_PAD_CTRL_DOWN);
 	pad->m_buttons.emplace_back(CELL_PAD_BTN_OFFSET_DIGITAL1, mapping[button::left], CELL_PAD_CTRL_LEFT);
@@ -642,6 +645,8 @@ std::array<std::vector<std::set<u32>>, PadHandlerBase::button::button_count> Pad
 	{
 		mapping[button::orientation_reset_button] = find_key_combos(button_list, cfg->orientation_reset_button.to_string());
 	}
+
+	mapping[button::vr_toggle_hud_button] = find_key_combos(button_list, cfg->vr_toggle_hud_button.to_string()); // VR fork
 
 	return mapping;
 }

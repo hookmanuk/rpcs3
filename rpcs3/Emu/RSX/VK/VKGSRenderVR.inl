@@ -386,6 +386,7 @@
 		bool camera_draw = false;           // the eye transform was applied (a camera draw)
 		bool hud_env = false;               // the draw uses a per-eye vertex context (HUD box / pre-projected)
 		bool clear_shown = false;           // clear the shown region in both eyes before this draw
+		bool hud_hidden = false;            // Toggle HUD: a HUD-box draw of a frame with a 3D scene, not emitted
 		bool suspend_query = false;         // a guest occlusion query is split around the right-eye replay
 		bool dynamic_state_changed = false; // this draw reloaded the dynamic state
 		bool box_scissor = false;           // the left draw set a HUD-box scissor

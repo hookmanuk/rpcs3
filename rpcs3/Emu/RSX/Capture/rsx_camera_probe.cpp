@@ -3,6 +3,7 @@
 #include "rsx_vr_profile_generator.h"
 #include <array>
 #include <set>
+#include <map>
 
 #include "Emu/System.h"
 #include "Emu/Memory/vm.h"
@@ -1700,6 +1701,33 @@ namespace rsx::vr
 		{
 			vr_probe_log.notice("VR: frame generation %s: the game runs at %s the VR frame rate", active ? "on" : "off", active ? "a fraction of" : "all of");
 		}
+	}
+
+	static atomic_t<bool> g_hud_hidden{false};
+
+	void toggle_hud()
+	{
+		const bool hidden = !g_hud_hidden.load();
+		g_hud_hidden = hidden;
+		vr_probe_log.notice("VR: HUD %s", hidden ? "hidden" : "shown");
+	}
+
+	bool hud_hidden()
+	{
+		return g_hud_hidden.load();
+	}
+
+	void pad_toggle_hud_button(const void* pad, bool pressed)
+	{
+		static std::mutex s_mutex;
+		static std::map<const void*, bool> s_down;
+		std::lock_guard lock(s_mutex);
+		bool& down = s_down[pad];
+		if (pressed && !down)
+		{
+			toggle_hud();
+		}
+		down = pressed;
 	}
 
 	static atomic_t<u32> g_framegen_max_generated{1};

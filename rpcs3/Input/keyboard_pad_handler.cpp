@@ -163,6 +163,7 @@ void keyboard_pad_handler::Key(const u32 code, bool pressed, u16 value)
 		}
 
 		update_special_button_press(pad.m_analog_limiter_button_index);
+		update_special_button_press(pad.m_vr_toggle_hud_button_index); // VR fork
 
 		const bool analog_limiter_enabled = pad.get_analog_limiter_button_active(m_analog_limiter_toggle_mode, pad.m_player_id);
 		const bool analog_limiter_changed = pad.m_analog_limiter_enabled_last != analog_limiter_enabled;
@@ -180,7 +181,8 @@ void keyboard_pad_handler::Key(const u32 code, bool pressed, u16 value)
 			// Ignore special buttons
 			if (static_cast<s32>(i) == pad.m_pressure_intensity_button_index ||
 				static_cast<s32>(i) == pad.m_analog_limiter_button_index ||
-				static_cast<s32>(i) == pad.m_orientation_reset_button_index)
+				static_cast<s32>(i) == pad.m_orientation_reset_button_index ||
+				static_cast<s32>(i) == pad.m_vr_toggle_hud_button_index) // VR fork
 				continue;
 
 			Button& button = pad.m_buttons[i];
@@ -1132,6 +1134,9 @@ bool keyboard_pad_handler::bindPadToDevice(std::shared_ptr<Pad> pad)
 		pad->m_buttons.emplace_back(special_button_offset, find_combos(cfg->analog_limiter_button), special_button_value::analog_limiter);
 		pad->m_analog_limiter_button_index = static_cast<s32>(pad->m_buttons.size()) - 1;
 	}
+
+	pad->m_buttons.emplace_back(special_button_offset, find_combos(cfg->vr_toggle_hud_button), special_button_value::vr_toggle_hud); // VR fork
+	pad->m_vr_toggle_hud_button_index = static_cast<s32>(pad->m_buttons.size()) - 1; // VR fork
 
 	pad->m_buttons.emplace_back(CELL_PAD_BTN_OFFSET_DIGITAL1, find_combos(cfg->left),     CELL_PAD_CTRL_LEFT);
 	pad->m_buttons.emplace_back(CELL_PAD_BTN_OFFSET_DIGITAL1, find_combos(cfg->down),     CELL_PAD_CTRL_DOWN);

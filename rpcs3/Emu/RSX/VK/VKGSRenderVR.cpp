@@ -1773,10 +1773,13 @@ void VKGSRender::vr_update_view()
 		const f32 fit_y = std::min({eye_fov[0][2], -eye_fov[0][3], eye_fov[1][2], -eye_fov[1][3]});
 		box_y = std::min(fit_y, fit_x / aspect);
 		width = 2.f * depth * box_y * aspect * g_cfg.video.vr.hud_scale.get() / 100.f;
-		vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width,
-			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f,
-			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f,
-			depth);
+		// RPCS3's overlays (home menu, dialogs) 10 % nearer than the HUD box at the same apparent size: at the box's own depth
+		// they shared the game HUD's plane and the two fought.
+		constexpr f32 overlay_nearer = 0.9f;
+		vk::xr::set_overlay_placement(g_cfg.video.vr.hud_fixed.get(), width * overlay_nearer,
+			depth * box_y * aspect * g_cfg.video.vr.hud_offset_x.get() / 100.f * overlay_nearer,
+			depth * box_y * g_cfg.video.vr.hud_offset_y.get() / 100.f * overlay_nearer,
+			depth * overlay_nearer);
 	}
 
 	if (fixed_screen && located)
@@ -1982,7 +1985,7 @@ void VKGSRender::vr_begin_draw()
 	d.guest_constants_dynamic_offset = m_xform_constants_dynamic_offset;
 	d.guest_constants_source_offset = d.guest_constants_info.offset + d.guest_constants_dynamic_offset;
 
-	d.camera_draw = d.hud_env = d.clear_shown = d.dynamic_state_changed = d.box_scissor = d.right_box_scissor = false;
+	d.camera_draw = d.hud_env = d.clear_shown = d.hud_hidden = d.dynamic_state_changed = d.box_scissor = d.right_box_scissor = false;
 	d.preprojected = 0;
 	d.eye_constants_bound = false;
 	d.mv_env_right = 0;
@@ -2206,6 +2209,9 @@ void VKGSRender::vr_setup_draw()
 		if (probe.hud_env_requested() || (probe.box_mapped() && !d.camera_draw))
 		{
 			dlss_hud_snapshot(vr_color_index); // DLSS test: the image without the HUD
+			// Toggle HUD (pad button, shortcut): the HUD-box draws are dropped while hidden, only in frames with a 3D scene so
+			// menus and other frames without a camera draw stay.
+			d.hud_hidden = rsx::vr::hud_hidden() && m_vr_camera_draws;
 		}
 		if (std::find(m_vr_frame_covered.begin(), m_vr_frame_covered.end(), target) == m_vr_frame_covered.end())
 		{

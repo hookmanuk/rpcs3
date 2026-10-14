@@ -349,6 +349,7 @@ void pad_settings_dialog::InitButtons()
 	insert_button(button_ids::id_pressure_intensity, ui->b_pressure_intensity);
 	insert_button(button_ids::id_analog_limiter, ui->b_analog_limiter);
 	insert_button(button_ids::id_orientation_reset, ui->b_orientation_reset);
+	insert_button(button_ids::id_vr_toggle_hud, ui->b_vr_toggle_hud); // VR fork
 
 	m_pad_buttons->addButton(ui->b_refresh, button_ids::id_refresh);
 	m_pad_buttons->addButton(ui->b_addConfig, button_ids::id_add_config_file);
@@ -861,6 +862,7 @@ void pad_settings_dialog::ReloadButtons()
 	updateButton(button_ids::id_pressure_intensity, ui->b_pressure_intensity, &cfg.pressure_intensity_button);
 	updateButton(button_ids::id_analog_limiter, ui->b_analog_limiter, &cfg.analog_limiter_button);
 	updateButton(button_ids::id_orientation_reset, ui->b_orientation_reset, &cfg.orientation_reset_button);
+	updateButton(button_ids::id_vr_toggle_hud, ui->b_vr_toggle_hud, &cfg.vr_toggle_hud_button); // VR fork
 
 	UpdateLabels(true);
 }
@@ -2125,7 +2127,7 @@ void pad_settings_dialog::ApplyCurrentPlayerConfig(int new_player_id)
 		{
 			// Let's ignore special keys, unless we're using a keyboard
 			if (m_handler->m_type != pad_handler::keyboard &&
-				(id == button_ids::id_pressure_intensity || id == button_ids::id_analog_limiter || id == button_ids::id_orientation_reset))
+				(id == button_ids::id_pressure_intensity || id == button_ids::id_analog_limiter || id == button_ids::id_orientation_reset || id == button_ids::id_vr_toggle_hud)) // VR fork
 			{
 				continue;
 			}

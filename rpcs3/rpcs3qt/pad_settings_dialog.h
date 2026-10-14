@@ -67,6 +67,7 @@ class pad_settings_dialog : public QDialog
 		id_pressure_intensity, // Special button for pressure intensity
 		id_analog_limiter, // Special button for analog limiter
 		id_orientation_reset, // Special button for orientation reset
+		id_vr_toggle_hud, // VR fork: special button for the VR HUD toggle
 
 		id_pad_end, // end
 

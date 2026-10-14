@@ -723,6 +723,13 @@ namespace rsx::vr
 	// (frame rate at or above the refresh, refresh unknown, or more generated frames per pair than the GPU makes).
 	bool framegen_rate_conversion(u32& game, u32& display);
 
+	// Toggle HUD (pad button "VR Toggle HUD", game window shortcut): while hidden, the HUD-box draws of frames with a 3D
+	// scene are not drawn (menus and frames without a camera draw keep theirs).
+	void toggle_hud();
+	bool hud_hidden();
+	// A pad's Toggle HUD button state, polled with the pad (each press toggles; pad: any per-pad key).
+	void pad_toggle_hud_button(const void* pad, bool pressed);
+
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);
 

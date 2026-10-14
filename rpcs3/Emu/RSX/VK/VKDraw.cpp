@@ -1249,10 +1249,10 @@ void VKGSRender::emit_geometry(u32 sub_index)
 	};
 
 	vr_before_left_draw(); // VR fork
-	emit_vulkan_draw();
+	if (!m_vr_draw.hud_hidden) emit_vulkan_draw(); // VR fork: Toggle HUD
 	if (vr_begin_right_eye(sub_index, upload_info)) // VR fork: the same draw for the right eye
 	{
-		emit_vulkan_draw();
+		if (!m_vr_draw.hud_hidden) emit_vulkan_draw();
 		vr_end_right_eye();
 	}
 	vr_end_draw();

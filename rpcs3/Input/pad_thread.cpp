@@ -29,6 +29,7 @@
 #include "Emu/Cell/lv2/sys_usbd.h"
 #include "Emu/Cell/Modules/cellGem.h"
 #include "Emu/Cell/timers.hpp"
+#include "Emu/RSX/Capture/rsx_camera_probe.h" // VR fork: rsx::vr::pad_toggle_hud_button
 #include "Utilities/Thread.h"
 #include "util/atomic.hpp"
 
@@ -309,6 +310,7 @@ void pad_thread::apply_copilots()
 		}
 
 		pad->m_buttons_external.resize(pad->m_buttons.size());
+		if (pad->m_vr_toggle_hud_button_index >= 0) rsx::vr::pad_toggle_hud_button(pad.get(), pad->m_buttons[pad->m_vr_toggle_hud_button_index].m_pressed); // VR fork
 
 		for (usz i = 0; i < pad->m_buttons.size(); i++)
 		{
