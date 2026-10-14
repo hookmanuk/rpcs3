@@ -1218,17 +1218,17 @@ namespace vk::xr
 				{
 					index = g_xr.dequeue();
 				}
+				else if (s_last_shown.pose_valid)
+				{
+					meta = s_last_shown;
+					repeat = true;
+				}
 				// framegen: how long a shown pair waited in the queue (commit to now) and how many stayed behind it.
 				f32 queue_wait_ms = -1.f;
 				const u32 queue_left = g_xr.present_count;
 				if (framegen && index >= 0)
 				{
 					queue_wait_ms = std::chrono::duration<f32, std::milli>(clk::now() - g_xr.slots[index].committed).count();
-				}
-				else if (s_last_shown.pose_valid)
-				{
-					meta = s_last_shown;
-					repeat = true;
 				}
 				const bool want_generated = index >= 0 && g_xr.slots[index].generated;
 				if (static u32 s_generated = 0, s_repeated = 0, s_frames = 0; index >= 0 || repeat)
