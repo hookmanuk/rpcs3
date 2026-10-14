@@ -4355,6 +4355,7 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 	// framegen (VKFrameGen.h): the generated pair halfway to this flip, shown on the headset frame before it.
 	// (2x: one pair; 3x: two, in order.)
 	u32 xr_generated = 0;
+	const bool show_real = std::exchange(m_framegen_show_real, true);
 	for (u32 k = 0; k < m_framegen_count && xr_eyes && info.emu_flip && !vr_video_screen; ++k)
 	{
 		if (!m_framegen_eyes[k][0] || !m_framegen_eyes[k][1] ||
@@ -4447,9 +4448,11 @@ void VKGSRender::vr_publish_frame(const rsx::display_flip_info_t& info, vk::view
 		}
 		for (u32 k = 0; k < xr_generated; ++k)
 		{
-			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop, k + 1, static_cast<f32>(k + 1) / static_cast<f32>(xr_generated + 1));
+			vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop, k + 1, m_framegen_phase[k]);
 		}
-		vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop);
+		// framegen rate conversion: a flip whose own pair falls between headset frames is committed (the next generated
+		// frames turn from its pose) but not shown.
+		vk::xr::commit_eyes(have_fov, tan_x, tan_y, pose, crop, 0, 0.5f, !xr_generated || show_real);
 		if (vr_tracing())
 		{
 			vr_trace_flush_cam();

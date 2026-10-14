@@ -80,7 +80,9 @@ namespace vk::xr
 	// its FOV. The frame thread presents it. crop: the part of each eye image the
 	// projection layer shows (x0, y0, x1, y1 as fractions; profile display_rect).
 	// generated: the k-th generated pair, at fraction of the way in time from the last real frame to this one.
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f}, u32 generated = 0, f32 fraction = 0.5f);
+	// shown: false for a real pair that only feeds the next generated frames' pose (framegen rate conversion: not queued).
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop = {0.f, 0.f, 1.f, 1.f}, u32 generated = 0, f32 fraction = 0.5f,
+		bool shown = true);
 
 	// RPCS3's own overlays (home menu, dialogs, notifications) as a quad layer over
 	// the eyes. publish_overlay() records a copy of `source` (premultiplied alpha)

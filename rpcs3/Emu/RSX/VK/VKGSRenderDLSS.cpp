@@ -572,16 +572,68 @@ void VKGSRender::dlss_sharpen(vk::viewable_image* image, u32 eye)
 void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::viewable_image* left, vk::viewable_image* right)
 {
 	m_framegen_count = 0;
+	m_framegen_show_real = true;
 	if (!left || !right || left == right)
 	{
 		m_framegen->reset();
+		m_framegen_conv_next = 0;
 		return;
 	}
 	f32 tan_x = 1.f, tan_y = 1.f;
 	rsx::vr::camera_probe::get().get_vr_fov(tan_x, tan_y);
-	// 2x: one generated frame between two real ones; 3x: two (DLSS-G's multi-frame generation).
-	const u32 extra = m_framegen->multiplier() - 1;
+	// The generated frames this flip makes, in order: DLSS-G's index-th of count between the last frame and this one.
+	u32 indices[2]{};
+	u32 wanted = 0, count = 0;
+	u32 game = 0, display = 0;
+	const bool conversion = rsx::vr::framegen_rate_conversion(game, display);
+	if (conversion)
+	{
+		// Rate conversion (a VR Frame Rate below the headset's refresh: 60 on 90 Hz). Headset frame j shows the game's moment
+		// j * game / display (in game frames), from the game's frame count, not from when the flips came. Counted in steps of
+		// 1/display from the last flip: a step of display is this flip's own frame, a smaller one a generated frame that many
+		// steps of the way. 60 -> 90 alternates "2/3 of the way" and "1/3 of the way, then this frame": every other game frame
+		// is never shown itself.
+		if (game != m_framegen_conv_game || display != m_framegen_conv_display || !m_framegen_conv_next)
+		{
+			if (game != m_framegen_conv_game || display != m_framegen_conv_display)
+			{
+				rsx_log.notice("Frame generation: rate conversion, %u game frames to %u headset frames", game, display);
+			}
+			m_framegen_conv_game = game;
+			m_framegen_conv_display = display;
+			m_framegen_conv_next = display; // (re)start on this flip's own frame
+		}
+		u32 next = m_framegen_conv_next;
+		m_framegen_show_real = false;
+		for (; next <= display; next += game)
+		{
+			if (next == display)
+			{
+				m_framegen_show_real = true;
+			}
+			else if (wanted < std::size(indices))
+			{
+				indices[wanted++] = next;
+			}
+		}
+		m_framegen_conv_next = next - display;
+		count = display - 1;
+	}
+	else
+	{
+		// 2x: one generated frame between two real ones; 3x: two (DLSS-G's multi-frame generation).
+		m_framegen_conv_next = 0;
+		m_framegen_conv_game = m_framegen_conv_display = 0;
+		count = m_framegen->multiplier() - 1;
+		while (wanted < count)
+		{
+			indices[wanted] = wanted + 1;
+			wanted++;
+		}
+	}
 	vk::viewable_image* outs[2][2]{}; // [k][eye]
+	vk::viewable_image* input_left = nullptr;
+	vk::viewable_image* evaluated_left[2]{}; // dev (RPCS3_DLSSG_PHASE): the left eye's output of every index evaluated
 	vk::viewable_image* const eyes[2] = {left, right};
 	for (u32 eye = 0; eye < 2; ++eye)
 	{
@@ -590,6 +642,7 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 		// VR the HUD box is fixed in the world; DLSS-G moved it with the scene, or, given a HUD-less input, kept it in place).
 		const bool hud_separate = m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye];
 		in.backbuffer = hud_separate ? m_framegen_hudless[eye].get() : eyes[eye];
+		input_left = eye ? input_left : in.backbuffer;
 		in.tan_half_x = tan_x;
 		in.tan_half_y = tan_y;
 		in.depth_inverted = std::getenv("RPCS3_DLSS_DEPTH_INVERTED") != nullptr;
@@ -598,25 +651,100 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 		{
 			return;
 		}
-		for (u32 k = 0; k < extra; ++k)
+		// Every index of the pair, keeping the wanted ones. DLSS-G's multi-frame generation needs the same calls for every frame
+		// (1 to count): rate conversion asking only for the index it shows (2, then 1) got frames from older pairs (measured
+		// with RPCS3_DLSSG_PHASE: the 1/3 and 2/3 frames lay 0.3 and 0.7 frames before the last real frame, and index 1 a frame
+		// further back on flips that also asked for index 2). A flip that shows none still feeds DLSS-G's history.
+		for (u32 index = 1; index <= std::max(count, 1u); ++index)
 		{
-			outs[k][eye] = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset(), k + 1, extra);
+			const u32 k = static_cast<u32>(std::find(indices, indices + wanted, index) - indices);
+			vk::viewable_image* out = m_framegen->evaluate(*m_current_command_buffer, eye, in, m_dlss->history_reset(), index, std::max(count, 1u));
+			if (!eye && index <= std::size(evaluated_left))
+			{
+				evaluated_left[index - 1] = out;
+			}
+			if (k < wanted)
+			{
+				outs[k][eye] = out;
+			}
 		}
 	}
 	const u32 pose = vr_displayed_pose(info);
-	u32 count = 0;
-	while (count < extra && outs[count][0] && outs[count][1])
+	u32 made = 0;
+	while (made < wanted && outs[made][0] && outs[made][1])
 	{
-		count++;
+		made++;
 	}
-	if (count == extra && count)
+	// Dev: RPCS3_DLSSG_PHASE=<path>. Writing "<x> <y> <w> <h> <flips>" into <path> saves, for that many flips, the left eye's
+	// region of DLSS-G's input (<path>.<n>.r, this flip's real frame) and of each generated frame (<path>.<n>.g<index>of<count + 1>),
+	// raw RGBA8, to measure where between the two real frames each generated one lies.
+	if (static const char* s_phase = std::getenv("RPCS3_DLSSG_PHASE"); s_phase && input_left)
 	{
-		// The HUD of this frame onto each generated pair, turned from this frame's head pose to that pair's (k / multiplier of
-		// the way from the last frame's).
-		for (u32 k = 0; k < count; ++k)
+		static s32 s_left = 0, s_n = 0, s_x = 0, s_y = 0, s_w = 0, s_h = 0;
+		if (s_left <= 0 && fs::is_file(s_phase))
 		{
+			const std::string request = fs::file(s_phase).to_string();
+			fs::remove_file(s_phase);
+			if (std::sscanf(request.c_str(), "%d %d %d %d %d", &s_x, &s_y, &s_w, &s_h, &s_left) != 5 || s_w <= 0 || s_h <= 0 ||
+				s_x + s_w > static_cast<s32>(input_left->width()) || s_y + s_h > static_cast<s32>(input_left->height()))
+			{
+				s_left = 0;
+			}
+			s_n = 0;
+		}
+		if (s_left > 0)
+		{
+			std::vector<std::pair<vk::viewable_image*, std::string>> images{{input_left, "r"}};
+			for (u32 index = 1; index <= std::size(evaluated_left); ++index)
+			{
+				if (evaluated_left[index - 1])
+				{
+					images.emplace_back(evaluated_left[index - 1], fmt::format("g%uof%u", index, count + 1));
+				}
+			}
+			const usz size = static_cast<usz>(s_w) * s_h * 4;
+			vk::buffer buffer(*m_device, utils::align(size * images.size(), 0x10000), m_device->get_memory_mapping().host_visible_coherent,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
+			for (usz i = 0; i < images.size(); ++i)
+			{
+				VkBufferImageCopy region{};
+				region.bufferOffset = size * i;
+				region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+				region.imageOffset = {s_x, s_y, 0};
+				region.imageExtent = {static_cast<u32>(s_w), static_cast<u32>(s_h), 1};
+				images[i].first->push_layout(*m_current_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				vk::copy_image_to_buffer(*m_current_command_buffer, images[i].first, &buffer, region);
+				images[i].first->pop_layout(*m_current_command_buffer);
+			}
+			flush_command_queue(true);
+			const u8* data = static_cast<const u8*>(buffer.map(0, size * images.size()));
+			for (usz i = 0; i < images.size(); ++i)
+			{
+				fs::write_file(fmt::format("%s.%03d.%s", s_phase, s_n, images[i].second), fs::rewrite, data + size * i, size);
+			}
+			buffer.unmap();
+			fs::write_file(std::string(s_phase) + ".txt", fs::rewrite, fmt::format("%d %d %u", s_w, s_h, static_cast<u32>(input_left->format())));
+			s_n++;
+			if (--s_left == 0)
+			{
+				rsx_log.notice("Frame generation phase dump: %d flips written", s_n);
+			}
+		}
+	}
+	if (made != wanted || !made)
+	{
+		// Nothing generated (the history's first frame, a failure): the flip's own frame fills the headset frame instead.
+		m_framegen_show_real = true;
+	}
+	if (made == wanted && made)
+	{
+		// The HUD of this frame onto each generated pair, turned from this frame's head pose to that pair's (index / (count + 1)
+		// of the way from the last frame's).
+		for (u32 k = 0; k < made; ++k)
+		{
+			m_framegen_phase[k] = static_cast<f32>(indices[k]) / static_cast<f32>(count + 1);
 			f32 h[9];
-			const bool turned = vk::xr::render_pose_halfway_homography(m_framegen_pose, pose, h, static_cast<f32>(k + 1) / static_cast<f32>(extra + 1));
+			const bool turned = vk::xr::render_pose_halfway_homography(m_framegen_pose, pose, h, m_framegen_phase[k]);
 			for (u32 eye = 0; eye < 2; ++eye)
 			{
 				if (m_framegen_hudless_valid[eye] && m_framegen_hud_final[eye] && m_framegen_hud_pre[eye])
@@ -628,8 +756,11 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 			m_framegen_eyes[k][0] = outs[k][0];
 			m_framegen_eyes[k][1] = outs[k][1];
 		}
-		m_framegen_count = count;
-		rsx::vr::set_framegen_multiplier(extra + 1);
+		m_framegen_count = made;
+		if (!conversion)
+		{
+			rsx::vr::set_framegen_multiplier(count + 1);
+		}
 		if (static const char* s_only = std::getenv("RPCS3_DLSSG_ONLY"); s_only)
 		{
 			// Dev: show only generated frames (each in place of its real frame), to look at them. =2: the left eye's generated
@@ -648,6 +779,7 @@ void VKGSRender::framegen_on_flip(const rsx::display_flip_info_t& info, vk::view
 				}
 			}
 			m_framegen_count = 0;
+			m_framegen_show_real = true;
 		}
 	}
 	m_framegen_pose = pose;

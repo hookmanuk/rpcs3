@@ -712,6 +712,16 @@ namespace rsx::vr
 	void set_framegen_active(bool active);
 	// The frame-rate multiplier while it runs (2 or 3): the game renders at the VR frame rate divided by it.
 	void set_framegen_multiplier(u32 multiplier);
+	// The most generated frames per rendered frame this GPU's DLSS-G makes (MultiFrameCountMax, capped by the outputs).
+	void set_framegen_max_generated(u32 count);
+	// The headset's frame cadence measured by the OpenXR frame thread (Hz, rounded; 0 clears it), for runtimes without
+	// XR_FB_display_refresh_rate (SteamVR, the simulator). Used only by frame generation's rate conversion.
+	void set_headset_cadence(u32 hz);
+	// framegen rate conversion: with frame generation on and a VR Frame Rate below the headset's refresh (60 on a 90 Hz
+	// headset), the game keeps that rate and every headset frame between two game frames is generated at its own moment.
+	// game : display is the reduced ratio (60 -> 90: 2 game frames per 3 headset frames). False when it does not apply
+	// (frame rate at or above the refresh, refresh unknown, or more generated frames per pair than the GPU makes).
+	bool framegen_rate_conversion(u32& game, u32& display);
 
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);

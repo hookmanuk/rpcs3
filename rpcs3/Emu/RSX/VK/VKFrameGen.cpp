@@ -299,6 +299,7 @@ namespace vk
 		m_params = params;
 		framegen_log.success("DLSS Frame Generation available (up to %u generated frames per rendered frame)", std::max(1u, max_count));
 		m_max_frames = std::max(1u, max_count);
+		rsx::vr::set_framegen_max_generated(std::min<u32>(m_max_frames, static_cast<u32>(std::size(m_output[0]))));
 		m_available = 1;
 		return true;
 #else

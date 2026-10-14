@@ -1147,6 +1147,19 @@ namespace vk::xr
 			{
 				rsx::vr::set_headset_refresh_rate(static_cast<u32>(std::lround(g_xr.fb_display_hz)));
 			}
+			// framegen rate conversion without XR_FB_display_refresh_rate: the shortest predicted period over 2 s is the
+			// refresh (a runtime lengthens it while the app runs late; only frame generation's rate conversion uses it).
+			if (static XrDuration s_min_period = 0; frame_state.predictedDisplayPeriod > 0)
+			{
+				static u32 s_frames = 0;
+				s_min_period = s_min_period ? std::min(s_min_period, frame_state.predictedDisplayPeriod) : frame_state.predictedDisplayPeriod;
+				if (++s_frames >= 180)
+				{
+					rsx::vr::set_headset_cadence(static_cast<u32>(std::lround(1e9 / static_cast<f64>(s_min_period))));
+					s_min_period = 0;
+					s_frames = 0;
+				}
+			}
 
 			lock_queue();
 			const XrResult begun = g_xr.xrBeginFrame(g_xr.session, nullptr);
@@ -1643,7 +1656,7 @@ namespace vk::xr
 		g_xr.ready_pending = g_xr.ready_submitted[k] ? static_cast<s32>(k) : -1;
 	}
 
-	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop, u32 generated, f32 fraction)
+	void commit_eyes(bool have_fov, f32 tan_half_x, f32 tan_half_y, u32 pose_id, const std::array<f32, 4>& crop, u32 generated, f32 fraction, bool shown)
 	{
 		std::unique_lock lock(g_xr.slot_mutex);
 		if (generated > std::size(g_xr.writing_generated) || (generated ? g_xr.writing_generated[generated - 1] : g_xr.writing) < 0)
@@ -1718,7 +1731,7 @@ namespace vk::xr
 		slot.generated = false;
 		g_xr.latest = g_xr.writing;
 		g_xr.writing = -1;
-		if (g_xr.framegen_active())
+		if (g_xr.framegen_active() && shown)
 		{
 			g_xr.enqueue(g_xr.latest);
 		}

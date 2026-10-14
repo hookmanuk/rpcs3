@@ -2,7 +2,9 @@
 // framegen (fork): NVIDIA DLSS Frame Generation (NGX DLSS-G, Vulkan) for the headset. Each game frame, after DLSS and
 // the HUD composite, each eye's final image goes through its own DLSS-G feature, which returns the frame halfway
 // between it and the previous game frame. The OpenXR frame thread shows that generated pair first and the real pair on
-// the next headset frame, so a game at half the headset rate fills every display slot with a new picture.
+// the next headset frame, so a game at half the headset rate fills every display slot with a new picture. Rate conversion
+// (a VR Frame Rate below the headset's refresh, 60 on 90 Hz): each flip asks only for the frames at the headset's moments
+// (60 -> 90: 2/3 of the way, then 1/3 of the way and the real frame; rsx::vr::framegen_rate_conversion).
 //
 // Inputs come from the DLSS context (VKDLSS.h): the eye's motion vectors and depth at render size and the eye's camera
 // motion (clip to previous clip). DLSS (an NGX mode) must therefore be on at boot.
@@ -60,7 +62,9 @@ namespace vk
 		bool available();
 		// The interpolated frame between the previous call's backbuffer for this eye and this one, or null (no previous
 		// frame, a reset, or a failure). Recorded into cmd; valid until the next call for the same eye.
-		// index / count: the index-th of count generated frames between the two (multi-frame generation; 1 / 1 at 2x).
+		// index / count: the index-th of count generated frames between the two (multi-frame generation; 1 / 1 at 2x). Each
+		// backbuffer must start at index 1: DLSS-G takes in a new frame only then (index 2 alone interpolated the two frames
+		// before; measured, and DLSSG.BackbufferFrameID did not change it).
 		vk::viewable_image* evaluate(const vk::command_buffer& cmd, u32 eye, const framegen_eye_inputs& in, bool reset, u32 index = 1, u32 count = 1);
 		// The frame-rate multiplier in use: the setting (2x or 3x), within what this GPU's DLSS-G supports.
 		u32 multiplier() const;

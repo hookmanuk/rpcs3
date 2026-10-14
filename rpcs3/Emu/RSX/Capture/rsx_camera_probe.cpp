@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <numeric>
 
 LOG_CHANNEL(vr_probe_log, "VRPROBE");
 
@@ -1667,8 +1668,14 @@ namespace rsx::vr
 		atomic_t<bool> g_headset_active{false};
 	} // namespace
 
+	static atomic_t<u32> g_headset_cadence_hz{0};
+
 	void set_headset_refresh_rate(u32 hz)
 	{
+		if (!hz)
+		{
+			g_headset_cadence_hz = 0; // the session ended
+		}
 		if (g_headset_refresh_hz.exchange(hz) != hz && hz)
 		{
 			vr_probe_log.notice("Headset refresh rate: %u Hz", hz);
@@ -1691,8 +1698,58 @@ namespace rsx::vr
 	{
 		if (g_framegen_active.exchange(active) != active)
 		{
-			vr_probe_log.notice("VR: frame generation %s: the game runs at %s the VR frame rate", active ? "on" : "off", active ? "half" : "all of");
+			vr_probe_log.notice("VR: frame generation %s: the game runs at %s the VR frame rate", active ? "on" : "off", active ? "a fraction of" : "all of");
 		}
+	}
+
+	static atomic_t<u32> g_framegen_max_generated{1};
+
+	void set_framegen_max_generated(u32 count)
+	{
+		g_framegen_max_generated = std::max<u32>(count, 1);
+	}
+
+	void set_headset_cadence(u32 hz)
+	{
+		if (g_headset_cadence_hz.exchange(hz) != hz && hz)
+		{
+			vr_probe_log.notice("Headset frame cadence: %u Hz", hz);
+		}
+	}
+
+	// The VR Frame Rate the settings and profile give (0: Unlimited), before frame generation divides it.
+	static u32 configured_frame_rate(const title_profile& profile)
+	{
+		u32 fps = frame_rate_option_fps(static_cast<u32>(g_cfg.video.vr.frame_rate.get()));
+		if (fps == umax)
+		{
+			fps = profile.default_fps;
+		}
+		if (profile.max_fps && (!fps || fps > profile.max_fps))
+		{
+			fps = profile.max_fps;
+		}
+		return fps;
+	}
+
+	static bool rate_conversion(u32 fps, u32& game, u32& display)
+	{
+		const u32 headset = g_headset_refresh_hz.load() ? g_headset_refresh_hz.load() : g_headset_cadence_hz.load();
+		if (!fps || !headset || fps >= headset)
+		{
+			return false;
+		}
+		const u32 g = std::gcd(fps, headset);
+		game = fps / g;
+		display = headset / g;
+		// One pair's generated frames lie on a 1/display grid: display - 1 of them, which DLSS-G must make in one pair.
+		return display - 1 <= g_framegen_max_generated.load();
+	}
+
+	bool framegen_rate_conversion(u32& game, u32& display)
+	{
+		const title_profile* profile = camera_probe::get().profile();
+		return profile && rate_conversion(configured_frame_rate(*profile), game, display);
 	}
 
 	static atomic_t<bool> s_multiview_active{false};
@@ -1931,18 +1988,12 @@ namespace rsx::vr
 		{
 			return 0;
 		}
-		u32 fps = frame_rate_option_fps(static_cast<u32>(g_cfg.video.vr.frame_rate.get()));
-		if (fps == umax)
+		u32 fps = configured_frame_rate(*profile);
+		u32 game = 0, display = 0;
+		if (g_framegen_active.load() && !rate_conversion(fps, game, display))
 		{
-			fps = profile->default_fps;
-		}
-		if (profile->max_fps && (!fps || fps > profile->max_fps))
-		{
-			fps = profile->max_fps;
-		}
-		if (g_framegen_active.load())
-		{
-			// Frame generation multiplies it again (Unlimited: the headset's refresh rate divided by the multiplier).
+			// Frame generation multiplies it again (Unlimited: the headset's refresh rate divided by the multiplier). Below the
+			// headset's refresh (rate conversion, 60 on a 90 Hz headset) the game keeps the VR Frame Rate.
 			const u32 full = fps ? fps : g_headset_refresh_hz.load();
 			fps = full ? std::max<u32>(full / g_framegen_multiplier.load(), 1) : fps;
 		}

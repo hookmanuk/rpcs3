@@ -12,6 +12,10 @@
 	std::unique_ptr<vk::framegen_context> m_framegen;
 	vk::viewable_image* m_framegen_eyes[2][2]{}; // [k-th generated pair][eye]
 	u32 m_framegen_count = 0;                     // generated pairs this flip (1 at 2x, 2 at 3x)
+	f32 m_framegen_phase[2]{};                    // each generated pair's moment between the last flip and this one (0..1)
+	bool m_framegen_show_real = true;             // this flip's own pair is shown too (rate conversion skips some)
+	u32 m_framegen_conv_next = 0;                 // rate conversion: the next headset frame's moment after the last flip, in 1/display game frames (0: restart)
+	u32 m_framegen_conv_game = 0, m_framegen_conv_display = 0;
 	u32 m_framegen_pose = 0;
 	void framegen_on_flip(const rsx::display_flip_info_t& info, vk::viewable_image* left, vk::viewable_image* right);
 	u32 vr_displayed_pose(const rsx::display_flip_info_t& info); // the head pose the displayed image was drawn with
