@@ -100,6 +100,11 @@ namespace rsx::vr
 		u64 program = 0;  // vertex program ucode hash
 		u32 constant = 0; // index into the fragment program's constants (_fetch_constant(n))
 		std::array<f32, 4> value{};
+		bool replace = true; // "value": replace the constant; else scale the game's own value
+		std::array<f32, 4> scale{1.f, 1.f, 1.f, 1.f};
+		// "game_fov_deg": [h, v]: in the headset view x and y are also scaled by the game's tangent range over the eye's
+		// rendered one, so screen-space offsets (filter taps) keep the flat game's size relative to the picture.
+		f32 game_fov_h = 0.f, game_fov_v = 0.f;
 	};
 
 	// A title's VR profile, bin/vr_profiles/<TITLE_ID>.json (schema 1). Every
@@ -1000,6 +1005,9 @@ namespace rsx::vr
 		// The headset view's head rotation in the game camera's clip basis (see m_vr_rot) and the largest rendered
 		// tangents of both eyes (x, y). False without a headset view.
 		bool vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const;
+		// Each eye's rendered and visible tangents (left, right, up, down; left and down negative). False without a
+		// headset view.
+		bool vr_eye_fovs(f32 (&rendered)[2][4], f32 (&visible)[2][4]) const;
 
 		// Native (non-headset-view) stereo: scale the game's eye separation, for
 		// showing its stereo on a screen larger than the one it was tuned for.

@@ -3702,10 +3702,31 @@ void VKGSRender::vr_apply_fragment_constant_overrides(const std::vector<const rs
 
 	for (const auto* rule : *overrides)
 	{
-		if ((rule->constant + 1) * 16 <= fragment_constants_size)
+		if ((rule->constant + 1) * 16 > fragment_constants_size)
 		{
-			std::memcpy(static_cast<u8*>(buf) + rule->constant * 16, rule->value.data(), 16);
+			continue;
 		}
+		f32* const dst = reinterpret_cast<f32*>(static_cast<u8*>(buf) + rule->constant * 16);
+		if (rule->replace)
+		{
+			std::memcpy(dst, rule->value.data(), 16);
+			continue;
+		}
+		// Scaled: the game's own value (just filled), times scale, and in the headset view times the game's tangent range
+		// over the eye's rendered one (a tap one guest pixel away keeps the flat game's size relative to the picture).
+		f32 fov_x = 1.f, fov_y = 1.f;
+		f32 rendered[2][4], visible[2][4];
+		if (rule->game_fov_h > 0.f && m_vr_multiview && rsx::vr::camera_probe::get().vr_eye_fovs(rendered, visible))
+		{
+			const f32 range_x = std::max(rendered[0][1] - rendered[0][0], 1e-3f);
+			const f32 range_y = std::max(rendered[0][2] - rendered[0][3], 1e-3f);
+			fov_x = std::min(1.f, 2.f * std::tan(rule->game_fov_h / 2.f / 57.29578f) / range_x);
+			fov_y = std::min(1.f, 2.f * std::tan(rule->game_fov_v / 2.f / 57.29578f) / range_y);
+		}
+		dst[0] *= rule->scale[0] * fov_x;
+		dst[1] *= rule->scale[1] * fov_y;
+		dst[2] *= rule->scale[2];
+		dst[3] *= rule->scale[3];
 	}
 	m_fragment_constants_overridden = true;
 }

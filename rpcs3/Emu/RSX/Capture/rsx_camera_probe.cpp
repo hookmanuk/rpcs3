@@ -1484,10 +1484,11 @@ namespace rsx::vr
 		}
 		if (const YAML::Node rules = child(root, "fragment_constant_overrides"); rules && rules.IsSequence())
 		{
-			// [{ "program": "<vertex ucode hash>", "constant": 0, "value": [0, 0, 0, 0] }]
+			// [{ "program": "<vertex ucode hash>", "constant": 0, "value": [0, 0, 0, 0] }], or instead of "value":
+			// "scale": [x, y, z, w] and / or "game_fov_deg": [h, v] (scale the game's own value, see the struct)
 			for (const auto& node : rules)
 			{
-				check_keys(node, " in fragment_constant_overrides", {"program", "constant", "value"});
+				check_keys(node, " in fragment_constant_overrides", {"program", "constant", "value", "scale", "game_fov_deg"});
 				fragment_constant_override rule;
 				const std::string text = node["program"] ? node["program"].as<std::string>() : std::string();
 				char* end = nullptr;
@@ -1496,14 +1497,36 @@ namespace rsx::vr
 					fail("fragment_constant_overrides: '" + text + "' is not a hex program hash");
 				rule.constant = node["constant"] ? node["constant"].as<u32>() : 0;
 				const YAML::Node value = node["value"];
-				if (!value || !value.IsSequence() || value.size() != 4)
+				const YAML::Node scale = node["scale"];
+				const YAML::Node game_fov = node["game_fov_deg"];
+				rule.replace = !!value;
+				if (rule.replace ? (!value.IsSequence() || value.size() != 4) : (!scale && !game_fov))
 				{
-					fail("fragment_constant_overrides: value must be 4 numbers");
+					fail("fragment_constant_overrides: needs \"value\" (4 numbers), or \"scale\" and / or \"game_fov_deg\"");
 					continue;
 				}
-				for (u32 i = 0; i < 4; ++i)
+				for (u32 i = 0; rule.replace && i < 4; ++i)
 				{
 					rule.value[i] = value[i].as<f32>();
+				}
+				if (scale && (!scale.IsSequence() || scale.size() != 4))
+				{
+					fail("fragment_constant_overrides: scale must be 4 numbers");
+					continue;
+				}
+				for (u32 i = 0; scale && i < 4; ++i)
+				{
+					rule.scale[i] = scale[i].as<f32>();
+				}
+				if (game_fov && (!game_fov.IsSequence() || game_fov.size() != 2))
+				{
+					fail("fragment_constant_overrides: game_fov_deg must be [horizontal, vertical]");
+					continue;
+				}
+				if (game_fov)
+				{
+					rule.game_fov_h = game_fov[0].as<f32>();
+					rule.game_fov_v = game_fov[1].as<f32>();
 				}
 				profile->fragment_constant_overrides.push_back(rule);
 			}
@@ -2298,6 +2321,17 @@ namespace rsx::vr
 		{
 			g_frame_rate_draw_counts[index]++;
 		}
+	}
+
+	bool camera_probe::vr_eye_fovs(f32 (&rendered)[2][4], f32 (&visible)[2][4]) const
+	{
+		if (!m_vr_view || !m_vr_hmd_fov)
+		{
+			return false;
+		}
+		std::memcpy(rendered, m_vr_eye_fov, sizeof(m_vr_eye_fov));
+		std::memcpy(visible, m_vr_eye_fov_visible, sizeof(m_vr_eye_fov_visible));
+		return true;
 	}
 
 	bool camera_probe::vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const
