@@ -12,3 +12,19 @@ PPU-8254e202229bc5be77d12bf298d6f40b169c4cde:
     Apply To Savestates: true
     Patch:
       - [ be32, 0x001bc86c, 0x3ba00000 ] # li r29, 0 (was subf r29, r0, r29: label 0x43 minus 1 while above 0)
+
+  "VR: Shadows cover the headset view":
+    Games:
+      "Prince of Persia":
+        BLUS30214: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Prince of Persia fits its shadow maps to its own camera's view (71 x 44 degrees). The headset shows much more, above all below and to the sides, and there the ground had no shadows, with a straight edge that moved as the camera moved (shadows came and went behind the player). The shadow fit's frustum corners (0x1fb4e8: tan(FOV / 2) x far, x aspect) now use tan(FOV / 2) x a scale (word 0x15855d0) that the VR profile sets each frame from the head pose (culling_scale_f32, tangent): just wide enough for the headset view, 1.0 on the fixed screen. The camera itself is the game's own. Untick to go back to the game's own shadow fit."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x015855d0, 0x3f800000 ]  # scale (1.0), written by the VR profile; past the data segment's end (0x15855c8), same page
+      - [ calloc, 0x001fb524, 3 ]          # after bl tanf (0x4b3b8) in the shadow fit's frustum corners (was nop)
+      - [ be32, 0x0, 0x3d800158 ]          # lis r12,0x158
+      - [ be32, 0x0, 0xc1ac55d0 ]          # lfs f13,0x55d0(r12)    scale (f13 is reloaded at 0x1fb530)
+      - [ be32, 0x0, 0xec210372 ]          # fmuls f1,f1,f13        tan(FOV / 2) x scale
