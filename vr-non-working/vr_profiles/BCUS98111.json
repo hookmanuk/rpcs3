@@ -3,11 +3,17 @@
   "title_id": "BCUS98111",
   "app_version": "01.00",
   "name": "God of War® III",
-  "max_fps": 36,
-  "default_fps": 36,
+  "max_fps": 0,
+  "default_fps": 0,
+  "culling_scale_f32": [
+    { "address": "0x68ff00", "fov_deg": 90, "aspect": 1.0, "margin_deg": 3, "min": 0.01, "max": 8.0, "mode": "tangent_x" },
+    { "address": "0x68ff04", "fov_deg": 58.7155, "aspect": 1.0, "margin_deg": 3, "min": 0.01, "max": 8.0, "mode": "tangent_y" }
+  ],
 
   "matrix_layout": "row_vectors",
-  "camera_blocks": [256, 260, 0],
+  "camera_blocks": [256, 260],
+  "require_camera_aspect": true,
+  "camera_slots_read_directly": true,
   "output_aspect_tolerance": 0.02,
 
   "camera_position": {
@@ -22,6 +28,8 @@
   },
 
   "screen_space": {
-    "bare_projection": true
+    "orthographic_block": 256,
+    "passthrough_hud": true,
+    "hud_programs": ["a87982423fedbeb4"]
   }
 }

@@ -1,0 +1,25 @@
+Version: 1.2
+
+PPU-4d5c51503a81a327c2a99427390a395b8dcb3767:
+  "Wider view (VR culling)":
+    Games:
+      "God of War III":
+        BCUS98111: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "The game culls against its own camera view (about 54 x 32 degrees here; it changes with the camera), so in the headset the ground, walls and sky end at its frustum when you look around. Where the camera builds its projection (0x239a8c) this raises the camera's half-field-of-view tangents to at least the tangents in two words (x at 0x68ff00, y at 0x68ff04; 0 here), so the frustum the game culls against widens. The VR profile sets the words each frame to the tangents that hold both eyes' views at the current head pose (culling_scale_f32 with a 90-degree reference FOV: the word is the tangent itself); without the profile they stay 0 and the game is unchanged."
+    Patch Version: 1.2
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      # x and y tangent floors, then two unused lanes (slack between the end of .bss at 0x68f8a0 and the heap at 0x690000)
+      - [ be32, 0x0068ff00, 0x00000000 ]
+      - [ be32, 0x0068ff04, 0x00000000 ]
+      - [ be32, 0x0068ff08, 0x00000000 ]
+      - [ be32, 0x0068ff0c, 0x00000000 ]
+      # 0x239a8c: stvx v0, 0, r29 stores the camera's tangent vector at camera +0x260; P00 and P11 come from its lanes 0 and 1
+      - [ calloc, 0x00239a8c, 5 ] # was stvx v0, 0, r29
+      - [ be32, 0x0, 0x3d600069 ] # lis r11, 0x69
+      - [ be32, 0x0, 0x396bff00 ] # addi r11, r11, -0x100     tangent floors 0x68ff00
+      - [ be32, 0x0, 0x7c2058ce ] # lvx v1, 0, r11
+      - [ be32, 0x0, 0x10000c0a ] # vmaxfp v0, v0, v1          tangents = max(game, floor)
+      - [ be32, 0x0, 0x7c00e9ce ] # stvx v0, 0, r29            the original instruction

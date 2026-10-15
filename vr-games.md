@@ -377,7 +377,7 @@ Sustained in VR as above (4K per eye, Ryzen 7 9800X3D + RTX 5090).
 | Metal Gear Solid 4 | BLUS30109 | - | ~35 FPS in stereo in Act 1. Once hung ~8 minutes into Act 1. Set `LLVM Precompilation` off (first boot otherwise compiles for 20+ minutes). |
 | inFamous | BCUS98119 | - | ~25 FPS in stereo (13,500 draws per frame): too slow for VR. |
 | Split/Second | BLUS30300 | - | Profile made by the automatic generator; frame-rate patch needs Vblank Rate and its Refresh Rate to match. Not tested in a headset. |
-| God of War III | BCUS98111 | - | Early experimental profile. Not tested in a headset. |
+| God of War III | BCUS98111 | fork *Wider view (VR culling)* | Stereo, lighting and HUD work on the simulator; 42-52 FPS (below 72). The game can crash in the opening with the wider view. Not tested in a headset. |
 | Dragon's Dogma: Dark Arisen | BLUS31155 | below 72 (~68, prologue) | Needs the 01.02 update. Enable the community patch *Unlock FPS*; the VR build's patch *Full screen (no letterbox)* is on by default. Only the prologue has been tested; the open world is untested. Graphics errors in the headset: some text is cut off and a phantom layer appears when you turn your head. |
 | The Darkness | BLUS30035 | below 72 (~53 in gameplay) | Enable the community patch *60 FPS* (keeps real-time speed). The broken lighting in stereo is fixed (checked in the opening, on the desktop and in a simulated headset view). Too slow at 4K per eye; try a lower resolution scale. Not tested in a headset. |
 | Dynasty Warriors 6 Empires | BLUS30306 | 60 (frame-locked) | Runs at 60 FPS (the game speeds up above 60); the headset reprojects. Battles checked on the desktop only. |
