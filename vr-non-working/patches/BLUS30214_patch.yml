@@ -34,15 +34,14 @@ PPU-8254e202229bc5be77d12bf298d6f40b169c4cde:
       "Prince of Persia":
         BLUS30214: [ 01.00 ]
     Author: "VR fork"
-    Notes: "Prince of Persia draws only what its own camera sees (71 x 44 degrees), so with the headset looking a little up or to the side, trees and cliff tops above or beside the game's view came and went as the camera moved. The projection builder (0x27b3d0) writes the culling frustum's tangents (horizontal +8, vertical +0xc); both are now multiplied by the head-driven scale the VR profile sets each frame (word 0x15855d0, shared with 'Shadows cover the headset view'): just wide enough for the headset view, 1.0 on the fixed screen. The projection itself is the game's own. Untick to go back to the game's own culling."
+    Notes: "Prince of Persia draws only what its own camera sees (71 x 44 degrees), so with the headset looking a little up or to the side, trees and cliff tops above or beside the game's view came and went as the camera moved. The projection builder (0x27b3d0) writes the culling frustum's tangents (horizontal +8, vertical +0xc); the vertical one is now multiplied by the head-driven scale the VR profile sets each frame (word 0x15855d0, shared with 'Shadows cover the headset view'): just wide enough for the headset view, 1.0 on the fixed screen. The horizontal tangent stays the game's own: the camera controller also reads it, and widening it made the camera swing when walking left or right. The projection itself is the game's own. Untick to go back to the game's own culling."
     Patch Version: 1.0
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
       - [ be32, 0x015855d0, 0x3f800000 ]  # scale (1.0), written by the VR profile (same word as the shadow fit)
-      - [ calloc, 0x0027b508, 5 ]          # projection builder, culling outputs (was stfs f13,0xc(r31): vertical tangent)
+      - [ calloc, 0x0027b508, 4 ]          # projection builder, culling outputs (was stfs f13,0xc(r31): vertical tangent)
       - [ be32, 0x0, 0x3d800158 ]          # lis r12,0x158
       - [ be32, 0x0, 0xc18c55d0 ]          # lfs f12,0x55d0(r12)    scale (f12 is dead here)
       - [ be32, 0x0, 0xedad0332 ]          # fmuls f13,f13,f12      vertical tangent x scale
-      - [ be32, 0x0, 0xec000332 ]          # fmuls f0,f0,f12        horizontal tangent x scale (stored at 0x27b50c)
       - [ be32, 0x0, 0xd1bf000c ]          # stfs f13,0xc(r31)
