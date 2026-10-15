@@ -587,6 +587,14 @@ namespace rsx::vr
 			// The aim turns this many times as far as the head (relative mode): 1 keeps the aim on where the head looks,
 			// 2.5 turns it 25 degrees for 10 of head turn, so a small head movement sweeps the aim across the view.
 			f32 gain = 1.f;
+			// "direct": { "address": "0x...", "yaw_sign": -1, "pitch_sign": -1 }: a patch turns the game camera by two
+			// rotations written here each frame instead of the right stick, so the aim follows the head at once:
+			// quaternions (x, y, z, w) about the world's up axis at address and the camera's right axis at address + 16.
+			// The signs give the quaternion angle for an aim turned right / up.
+			bool direct = false;
+			guest_address direct_address;
+			f32 direct_yaw_sign = 1.f;
+			f32 direct_pitch_sign = 1.f;
 		} head_aim;
 		// culling_scale_f32: { "address": "0x...", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }.
 		// A culling-widening patch's scale word (the game culls against fov_deg x scale high, at its aspect), written
@@ -1177,10 +1185,15 @@ namespace rsx::vr
 		mutable u32 m_aim_active_frames = 0;
 		mutable std::array<f32, 2> m_aim_ref{}; // relative mode: the head-to-aim error at the press (degrees)
 		mutable std::array<f32, 2> m_aim_turned{}; // degrees the game camera turned (+ right, + up) while driven since the press
+		mutable std::array<f32, 2> m_aim_direct{}; // head_aim.direct: degrees the patch turns the game camera (+ right, + up)
+		mutable std::array<f32, 2> m_aim_head_ref{}; // head_aim.direct, relative mode: the head angles the aim is measured from
+		mutable std::array<f32, 2> m_aim_bias{}; // head_aim.direct, gaze mode: learned correction onto the head's centre
+		mutable std::array<f32, 2> m_aim_head_last{};
 		mutable std::array<s32, 2> m_aim_votes{}; // stick direction check: + the camera moved the way the stick pushed
 		mutable u64 m_aim_last_us = 0;
 		void update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const;
 		void apply_head_aim_offset() const;
+		void write_head_aim_direct(const title_profile::head_aim_rule& rule) const;
 		f32 m_vr_hud_depth = 0.f;         // metres
 		f32 m_vr_hud_parallax = 0.f;      // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
 		f32 m_vr_eye_fov[2][4]{};         // rendered

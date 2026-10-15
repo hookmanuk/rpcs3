@@ -1400,6 +1400,15 @@ namespace rsx::vr
 			std::string mode = "relative";
 			read(head_aim, "mode", mode, false);
 			rule.gaze = mode == "gaze";
+			if (const YAML::Node direct = child(head_aim, "direct"))
+			{
+				check_keys(direct, " in head_aim.direct", {"address", "yaw_sign", "pitch_sign"});
+				std::string address;
+				read(direct, "address", address);
+				read(direct, "yaw_sign", rule.direct_yaw_sign, false);
+				read(direct, "pitch_sign", rule.direct_pitch_sign, false);
+				rule.direct = parse_guest_address("head_aim.direct", address, rule.direct_address);
+			}
 			if (!rule.button_mask || (mode != "relative" && mode != "gaze") || !(rule.full_stick_deg > rule.deadzone_deg) || rule.deadzone_deg < 0.f ||
 				!(rule.min_stick >= 0.f && rule.min_stick < 1.f) || !(rule.return_deg_per_s > 0.f) || !(rule.manual_stick > 0.f && rule.manual_stick <= 1.f))
 			{
@@ -1713,7 +1722,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "head_aim"});
-		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain"});
+		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1871,7 +1880,7 @@ namespace rsx::vr
 		const f32 own_x = (stick_x->m_value - 128.f) / 127.f;
 		const f32 own_y = (stick_y->m_value - 128.f) / 127.f;
 		s.manual = std::max(std::fabs(own_x), std::fabs(own_y)) > s.rule.manual_stick;
-		if (s.manual)
+		if (s.manual || s.rule.direct)
 		{
 			return;
 		}
@@ -4404,6 +4413,27 @@ namespace rsx::vr
 		}
 	}
 
+	void camera_probe::write_head_aim_direct(const title_profile::head_aim_rule& rule) const
+	{
+		const u32 address = resolve_guest_address(rule.direct_address);
+		if (!address || !vm::check_addr(address, vm::page_writable, 32))
+		{
+			return;
+		}
+		constexpr f32 half_rad = 0.5f / 57.29578f;
+		const f32 yaw = rule.direct_yaw_sign * m_aim_direct[0] * half_rad;
+		const f32 pitch = rule.direct_pitch_sign * m_aim_direct[1] * half_rad;
+		const f32 q[8] = {0.f, std::sin(yaw), 0.f, std::cos(yaw), std::sin(pitch), 0.f, 0.f, std::cos(pitch)};
+		be_t<f32>* const words = vm::_ptr<be_t<f32>>(address);
+		for (u32 i = 0; i < 8; ++i)
+		{
+			if (words[i] != q[i])
+			{
+				words[i] = q[i];
+			}
+		}
+	}
+
 	void camera_probe::update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const
 	{
 		// Once a frame, at its first camera draw into the view target (before it is turned by the head).
@@ -4435,7 +4465,10 @@ namespace rsx::vr
 			out_x = g_head_aim.out_x;
 			out_y = g_head_aim.out_y;
 		}
-		const bool driving = active && !manual;
+		// Direct: the camera turns the patch makes are also folded while the aim returns after the release, so the view
+		// holds still and the aim slides back to its centre.
+		const bool direct_returning = rule.direct && !active && (m_aim_direct[0] != 0.f || m_aim_direct[1] != 0.f);
+		const bool driving = (active && !manual) || direct_returning;
 
 		// Row-vector block (rows[input][clip]): the clip x, y and w columns over the inputs x, y, z.
 		mat3 cam{game[0][0], game[1][0], game[2][0], game[0][1], game[1][1], game[2][1], game[0][3], game[1][3], game[2][3]};
@@ -4455,7 +4488,7 @@ namespace rsx::vr
 				}
 				// Stick direction check: the new forward in the previous camera's basis is turn x (0, 0, 1). A camera that
 				// keeps turning against a strong request means the game's look is inverted on that axis: flip the stick.
-				if (driving && m_aim_active_frames > 15)
+				if (driving && !rule.direct && m_aim_active_frames > 15)
 				{
 					const f32 moved[2] = {std::atan2(turn[2], turn[8]) * deg, std::atan2(y_up * turn[5], turn[8]) * deg};
 					const f32 pushed[2] = {out_x, out_y};
@@ -4486,7 +4519,7 @@ namespace rsx::vr
 			m_aim_cam_valid = true;
 		}
 
-		if (!active)
+		if (!active && !direct_returning)
 		{
 			// Back onto the game camera: the offset's angle shrinks at return_deg_per_s, easing over the last 10 degrees.
 			const f32 angle = rotation_angle(m_aim_off);
@@ -4523,6 +4556,59 @@ namespace rsx::vr
 		const f32 ax = m_vr_rot[2], ay = y_up * m_vr_rot[5], az = m_vr_rot[8];
 		f32 err_x = std::atan2(-ax, az) * deg;
 		f32 err_y = std::atan2(-ay, std::sqrt(ax * ax + az * az)) * deg;
+		if (rule.direct)
+		{
+			// Where the head looks in the view (+ right, + up). The view holds still while the patch turns the camera,
+			// so turning the camera by these angles puts its centre (the aim) where the head looks.
+			const f32 hx = std::atan2(-m_vr_head_rot[2], m_vr_head_rot[8]) * deg;
+			const f32 hy = std::atan2(-y_up * m_vr_head_rot[5], std::sqrt(m_vr_head_rot[2] * m_vr_head_rot[2] + m_vr_head_rot[8] * m_vr_head_rot[8])) * deg;
+			std::array<f32, 2> target = m_aim_direct;
+			if (active && (!m_aim_was_active || manual))
+			{
+				// Relative: from the press (or the player's own stick) the aim moves by gain x the head's turn from where it is.
+				m_aim_head_ref = {hx - m_aim_direct[0] / rule.gain, hy - m_aim_direct[1] / rule.gain};
+			}
+			if (active && !m_aim_was_active)
+			{
+				m_aim_bias = {};
+			}
+			if (active && !manual && rule.gaze)
+			{
+				// The game's own camera moves too (its over-the-shoulder shift at the press, folded into the view): the aim's
+				// remaining error from the head's centre is learned while the head is still (a moving head's error also
+				// holds the turns the game has not drawn yet).
+				const f32 moved = std::max(std::fabs(hx - m_aim_head_last[0]), std::fabs(hy - m_aim_head_last[1]));
+				if (moved < 0.3f && std::fabs(err_x) < 20.f && std::fabs(err_y) < 20.f)
+				{
+					const f32 k = std::min(1.f, 4.f * dt);
+					m_aim_bias = {std::clamp(m_aim_bias[0] + k * err_x, -20.f, 20.f), std::clamp(m_aim_bias[1] + k * err_y, -20.f, 20.f)};
+				}
+			}
+			else if (!active)
+			{
+				m_aim_bias = {};
+			}
+			m_aim_head_last = {hx, hy};
+			if (active && !manual)
+			{
+				target = rule.gaze ? std::array<f32, 2>{rule.gain * hx + m_aim_bias[0], rule.gain * hy + m_aim_bias[1]} :
+					std::array<f32, 2>{rule.gain * (hx - m_aim_head_ref[0]), rule.gain * (hy - m_aim_head_ref[1])};
+				target = {std::clamp(target[0], -90.f, 90.f), std::clamp(target[1], -60.f, 60.f)};
+			}
+			else if (!active)
+			{
+				// Back to the centre at return_deg_per_s, easing over the last 10 degrees.
+				const f32 len = std::sqrt(target[0] * target[0] + target[1] * target[1]);
+				const f32 step = rule.return_deg_per_s * dt * std::clamp(len / 10.f, 0.25f, 1.f);
+				target = len <= std::max(step, 0.2f) ? std::array<f32, 2>{} : std::array<f32, 2>{target[0] * (1.f - step / len), target[1] * (1.f - step / len)};
+			}
+			// At most 20 degrees a frame (a gaze press far off centre): the view's offset only follows turns under 25.
+			for (u32 i = 0; i < 2; ++i)
+			{
+				m_aim_direct[i] += std::clamp(target[i] - m_aim_direct[i], -20.f, 20.f);
+			}
+			write_head_aim_direct(rule);
+		}
 		if (active && !m_aim_was_active)
 		{
 			// Relative: the aim keeps its place in the view it had at the press; gaze: it goes to the view's centre.
@@ -4550,8 +4636,8 @@ namespace rsx::vr
 		if (active && m_aim_active_frames % 90 == 0)
 		{
 			// Every ~2 s while aiming, for tuning the profile's head_aim numbers from the log.
-			vr_probe_log.notice("Head aim: error %.2f, %.2f degrees, stick %.2f, %.2f%s, view %.1f degrees off the game camera.", err_x, err_y, out_x, out_y,
-				manual ? " (player's own)" : "", rotation_angle(m_aim_off) * deg);
+			vr_probe_log.notice("Head aim: error %.2f, %.2f degrees, stick %.2f, %.2f%s, direct %.1f, %.1f, view %.1f degrees off the game camera.", err_x, err_y,
+				out_x, out_y, manual ? " (player's own)" : "", m_aim_direct[0], m_aim_direct[1], rotation_angle(m_aim_off) * deg);
 		}
 		{
 			std::lock_guard lock(g_head_aim.mutex);

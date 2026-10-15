@@ -61,3 +61,75 @@ PPU-8363904e0b8fc276380a8f0e158dd81d7a9cefc5:
       - [ be32, 0x0, 0x54632036 ] # slwi r3, r3, 4
       - [ be32, 0x0, 0xb069000e ] # sth r3, 0xe(r9)
       - [ be32, 0x0, 0x840b0140 ] # lwzu r0, 0x140(r11)
+
+  "VR: Head aim (direct camera)":
+    Games:
+      "Uncharted: Drake's Fortune":
+        BCUS98103: [ 01.10 ]
+    Author: "VR fork"
+    Notes: "With the VR profile's head aim: while its button is held, the camera (and the aim at its centre) turns with the head at once instead of through the right stick. Right after the camera's quaternion is built from its Euler angles (0x4c11f0, called from the render camera setup 0x4b4b90), it is turned by two rotations the VR profile writes each frame: q = yaw x q x pitch, yaw about the world's up axis (quaternion x, y, z, w at 0x11eff10) and pitch about the camera's own right axis (0x11eff20); identity otherwise. The game's own camera angles are untouched, so nothing accumulates. Untick to aim with the stick only."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x011eff10, 0x00000000 ]  # yaw rotation x, y, z, w (identity: 0, 0, 0, 1); zeros between .bss and the heap
+      - [ be32, 0x011eff14, 0x00000000 ]
+      - [ be32, 0x011eff18, 0x00000000 ]
+      - [ be32, 0x011eff1c, 0x3f800000 ]
+      - [ be32, 0x011eff20, 0x00000000 ]  # pitch rotation x, y, z, w
+      - [ be32, 0x011eff24, 0x00000000 ]
+      - [ be32, 0x011eff28, 0x00000000 ]
+      - [ be32, 0x011eff2c, 0x3f800000 ]
+      - [ calloc, 0x004b4bd0, 50 ]         # after bl 0x4c11f0 (was nop): q (r28+0x10) = yaw x q x pitch
+      - [ be32, 0x0, 0x3d80011f ]          # lis r12,0x11f
+      - [ be32, 0x0, 0xc03c0010 ]          # lfs f1,0x10(r28)   qx
+      - [ be32, 0x0, 0xc05c0014 ]          # lfs f2,0x14(r28)   qy
+      - [ be32, 0x0, 0xc07c0018 ]          # lfs f3,0x18(r28)   qz
+      - [ be32, 0x0, 0xc09c001c ]          # lfs f4,0x1c(r28)   qw
+      - [ be32, 0x0, 0xc0acff20 ]          # lfs f5,-0xe0(r12)  pitch x (0x11eff20)
+      - [ be32, 0x0, 0xc0ccff24 ]          # lfs f6,-0xdc(r12)  pitch y (0x11eff24)
+      - [ be32, 0x0, 0xc0ecff28 ]          # lfs f7,-0xd8(r12)  pitch z (0x11eff28)
+      - [ be32, 0x0, 0xc10cff2c ]          # lfs f8,-0xd4(r12)  pitch w (0x11eff2c)
+      # t = q x pitch (turns the camera about its own right axis)
+      - [ be32, 0x0, 0xed840232 ]          # w = qw*pw
+      - [ be32, 0x0, 0xed81617c ]          #   - qx*px
+      - [ be32, 0x0, 0xed8261bc ]          #   - qy*py
+      - [ be32, 0x0, 0xed8361fc ]          #   - qz*pz
+      - [ be32, 0x0, 0xed240172 ]          # x = qw*px
+      - [ be32, 0x0, 0xed214a3a ]          #   + qx*pw
+      - [ be32, 0x0, 0xed2249fa ]          #   + qy*pz
+      - [ be32, 0x0, 0xed2349bc ]          #   - qz*py
+      - [ be32, 0x0, 0xed4401b2 ]          # y = qw*py
+      - [ be32, 0x0, 0xed4151fc ]          #   - qx*pz
+      - [ be32, 0x0, 0xed42523a ]          #   + qy*pw
+      - [ be32, 0x0, 0xed43517a ]          #   + qz*px
+      - [ be32, 0x0, 0xed6401f2 ]          # z = qw*pz
+      - [ be32, 0x0, 0xed6159ba ]          #   + qx*py
+      - [ be32, 0x0, 0xed62597c ]          #   - qy*px
+      - [ be32, 0x0, 0xed635a3a ]          #   + qz*pw
+      - [ be32, 0x0, 0xc0acff10 ]          # lfs f5,-0xf0(r12)  yaw x (0x11eff10)
+      - [ be32, 0x0, 0xc0ccff14 ]          # lfs f6,-0xec(r12)  yaw y (0x11eff14)
+      - [ be32, 0x0, 0xc0ecff18 ]          # lfs f7,-0xe8(r12)  yaw z (0x11eff18)
+      - [ be32, 0x0, 0xc10cff1c ]          # lfs f8,-0xe4(r12)  yaw w (0x11eff1c)
+      # q = yaw x t (turns it about the world up axis)
+      - [ be32, 0x0, 0xec880332 ]          # w = yw*tw
+      - [ be32, 0x0, 0xec85227c ]          #   - yx*tx
+      - [ be32, 0x0, 0xec8622bc ]          #   - yy*ty
+      - [ be32, 0x0, 0xec8722fc ]          #   - yz*tz
+      - [ be32, 0x0, 0xec280272 ]          # x = yw*tx
+      - [ be32, 0x0, 0xec250b3a ]          #   + yx*tw
+      - [ be32, 0x0, 0xec260afa ]          #   + yy*tz
+      - [ be32, 0x0, 0xec270abc ]          #   - yz*ty
+      - [ be32, 0x0, 0xec4802b2 ]          # y = yw*ty
+      - [ be32, 0x0, 0xec4512fc ]          #   - yx*tz
+      - [ be32, 0x0, 0xec46133a ]          #   + yy*tw
+      - [ be32, 0x0, 0xec47127a ]          #   + yz*tx
+      - [ be32, 0x0, 0xec6802f2 ]          # z = yw*tz
+      - [ be32, 0x0, 0xec651aba ]          #   + yx*ty
+      - [ be32, 0x0, 0xec661a7c ]          #   - yy*tx
+      - [ be32, 0x0, 0xec671b3a ]          #   + yz*tw
+      - [ be32, 0x0, 0xd03c0010 ]          # stfs f1,0x10(r28)
+      - [ be32, 0x0, 0xd05c0014 ]          # stfs f2,0x14(r28)
+      - [ be32, 0x0, 0xd07c0018 ]          # stfs f3,0x18(r28)
+      - [ be32, 0x0, 0xd09c001c ]          # stfs f4,0x1c(r28)
+      - [ be32, 0x0, 0x60000000 ]          # nop (original)
