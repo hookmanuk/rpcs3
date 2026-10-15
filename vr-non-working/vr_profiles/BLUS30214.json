@@ -7,7 +7,7 @@
   "default_fps": 0,
 
   "matrix_layout": "column_vectors",
-  "camera_blocks": [200, 206],
+  "camera_blocks": [200, 202, 206],
   "require_rigid_camera": true,
   "require_camera_aspect": true,
   "camera_slots_read_directly": true,
