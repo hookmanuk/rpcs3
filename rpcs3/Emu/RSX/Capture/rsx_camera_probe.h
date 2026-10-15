@@ -573,6 +573,9 @@ namespace rsx::vr
 			// scale (SEGA Rally).
 			bool tangent = false;
 			bool horizontal = false;
+			// "tangent_y": the vertical axis alone (the half-height tangent), for a patch that scales the projection's
+			// axes by separate words (God of War III: the headset needs ~2x the game's width but ~4x its height).
+			bool vertical = false;
 			// "step": the scale moves in steps of this size and falls back only when a whole step is no longer needed, so
 			// small head movements leave it (and the game's shadow-map fit to its frustum: Gran Turismo 5) unchanged.
 			// 0: continuous (up at once, down 0.01 a frame).

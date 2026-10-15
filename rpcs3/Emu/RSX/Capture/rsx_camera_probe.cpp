@@ -1385,8 +1385,9 @@ namespace rsx::vr
 				rule.head_turn_only = head_turn_only == "true";
 				std::string mode = "angle";
 				read(node, "mode", mode, false);
-				rule.tangent = mode == "tangent" || mode == "tangent_x";
+				rule.tangent = mode == "tangent" || mode == "tangent_x" || mode == "tangent_y";
 				rule.horizontal = mode == "tangent_x";
+				rule.vertical = mode == "tangent_y";
 				if (!parse_guest_address("culling_scale_f32", address, rule.address))
 				{
 					continue;
@@ -2363,7 +2364,7 @@ namespace rsx::vr
 							behind = true;
 							continue;
 						}
-						h = std::max({h, std::fabs(y / z), std::fabs(x / z) / rule.aspect});
+						h = std::max({h, std::fabs(y / z), rule.vertical ? 0.f : std::fabs(x / z) / rule.aspect});
 						hx = std::max(hx, std::fabs(x / z));
 					}
 				}
@@ -2380,7 +2381,7 @@ namespace rsx::vr
 				const f32 x = transpose ? R[2 * 3 + 0] : R[0 * 3 + 2];
 				const f32 y = transpose ? R[2 * 3 + 1] : R[1 * 3 + 2];
 				const f32 z = R[2 * 3 + 2];
-				head_deg = std::max(head_deg, z <= 0.05f ? 90.f : std::atan(rule.horizontal ? std::fabs(x / z) : std::max(std::fabs(y / z), std::fabs(x / z) / rule.aspect)) * 57.29578f);
+				head_deg = std::max(head_deg, z <= 0.05f ? 90.f : std::atan(rule.horizontal ? std::fabs(x / z) : std::max(std::fabs(y / z), rule.vertical ? 0.f : std::fabs(x / z) / rule.aspect)) * 57.29578f);
 			}
 			const f32 game_half_deg = rule.tangent ? std::atan(game_tan) * 57.29578f : rule.fov_deg / 2.f;
 			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg;

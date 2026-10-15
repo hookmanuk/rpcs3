@@ -73,8 +73,13 @@ namespace vk
 	// Does nothing to an image without stereo layers.
 	void vr_copy_left_to_right_layer(vk::command_buffer& cmd, vk::image* image, u8 mipmaps = 1);
 
+	// A stereo render target whose two layers hold the same picture (VKGSRenderVR.cpp): no 3D content and not
+	// shaped like the view, a shadow map drawn from the light, depth surfaces included.
+	bool vr_eye_invariant_image(const vk::image* image);
+
 	// Texture cache: a copy made from a stereo render target holds both eyes, in two layers. The layer count
-	// of a temporary built from desc's sources (a texture_cache::deferred_subresource): 2 when one is stereo.
+	// of a temporary built from desc's sources (a texture_cache::deferred_subresource): 2 when one is stereo
+	// and not eye-invariant (a one-layer copy serves both eyes: multiview samplers clamp to its layer 0).
 	template <typename Desc>
 	u16 vr_temporary_layers(const Desc& desc)
 	{
@@ -82,13 +87,13 @@ namespace vk
 		{
 			return 1;
 		}
-		if (desc.external_handle && desc.external_handle->stereo_layers && desc.external_handle->layers() > 1)
+		if (desc.external_handle && desc.external_handle->stereo_layers && desc.external_handle->layers() > 1 && !vr_eye_invariant_image(desc.external_handle))
 		{
 			return 2;
 		}
 		for (const auto& section : desc.sections_to_copy)
 		{
-			if (section.src && section.src->stereo_layers && section.src->layers() > 1)
+			if (section.src && section.src->stereo_layers && section.src->layers() > 1 && !vr_eye_invariant_image(section.src))
 			{
 				return 2;
 			}

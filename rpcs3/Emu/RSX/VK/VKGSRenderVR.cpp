@@ -72,6 +72,22 @@ namespace vk
 		std::vector<vr_late_readback_t> g_vr_late;
 	}
 
+	bool vr_eye_invariant_image(const vk::image* image)
+	{
+		// God of War III copies parts of its 1408x1408 shadow map (a depth surface) hundreds of times a frame: as two
+		// layers they doubled the copies' GPU memory and bandwidth. Dev: RPCS3_VR_NO_INVARIANT=1 keeps two layers.
+		static const bool s_off = std::getenv("RPCS3_VR_NO_INVARIANT") != nullptr;
+		const auto* rtt = dynamic_cast<const vk::render_target*>(image);
+		const auto* profile = rsx::vr::camera_probe::get().profile();
+		if (s_off || !rtt || rtt->vr_has_3d || !profile || profile->offaspect_player_views)
+		{
+			return false;
+		}
+		const size2u eye = g_fxo->get<rsx::avconf>().video_frame_size();
+		const f32 output_aspect = eye.height ? static_cast<f32>(eye.width) / eye.height : 0.f;
+		return !profile->is_view_target(rtt->get_surface_width<rsx::surface_metrics::pixels>(), rtt->get_surface_height<rsx::surface_metrics::pixels>(), output_aspect);
+	}
+
 	bool vr_late_readback(const event* fence, u32 start, u32 length)
 	{
 		if (g_vr_readback_start != std::chrono::steady_clock::time_point{})
