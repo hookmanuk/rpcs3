@@ -32,6 +32,7 @@ namespace vk
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.subresourceRange = range;
 
+		vk::vr_barrier_census(); // VR fork: dev barrier census (RPCS3_VR_BARRIER_CENSUS)
 		vkCmdPipelineBarrier(cmd, src_stage, dst_stage, flags, 0, nullptr, 0, nullptr, 1, &barrier);
 	}
 
@@ -58,6 +59,7 @@ namespace vk
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
+		vk::vr_barrier_census(); // VR fork: dev barrier census (RPCS3_VR_BARRIER_CENSUS)
 		vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 1, &barrier, 0, nullptr);
 	}
 
@@ -76,6 +78,7 @@ namespace vk
 		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
 		barrier.srcAccessMask = src_access;
 		barrier.dstAccessMask = dst_access;
+		vk::vr_barrier_census(); // VR fork: dev barrier census (RPCS3_VR_BARRIER_CENSUS)
 		vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 1, &barrier, 0, nullptr, 0, nullptr);
 	}
 
@@ -125,6 +128,7 @@ namespace vk
 		barrier.srcAccessMask = src_access;
 		barrier.dstAccessMask = dst_access;
 
+		vk::vr_barrier_census(); // VR fork: dev barrier census (RPCS3_VR_BARRIER_CENSUS)
 		vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 	}
 
