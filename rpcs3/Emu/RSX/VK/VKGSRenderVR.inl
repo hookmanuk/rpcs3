@@ -360,6 +360,7 @@
 	f32 m_vr_clear_quads[2][4][2]{};
 	bool m_vr_clear_quads_valid = false;
 	void vr_mv_clear_eye_quads(const std::vector<VkClearAttachment>& clear_descriptors);
+	void vr_fill_hidden_area(); // after a full depth clear of an eye-sized view target: the lens-hidden pixels get the near depth
 	vk::viewable_image* vr_mv_right_eye_image(vk::command_buffer& cmd, vk::viewable_image* stereo_image);
 	// Multiview hooks in upstream functions
 	bool vr_bind_viewport();                 // bind_viewport(): one viewport and scissor per view; true when handled

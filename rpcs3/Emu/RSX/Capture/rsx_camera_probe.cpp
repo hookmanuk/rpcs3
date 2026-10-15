@@ -2300,6 +2300,17 @@ namespace rsx::vr
 		}
 	}
 
+	bool camera_probe::vr_eye_fovs(f32 (&rendered)[2][4], f32 (&visible)[2][4]) const
+	{
+		if (!m_vr_view || !m_vr_hmd_fov)
+		{
+			return false;
+		}
+		std::memcpy(rendered, m_vr_eye_fov, sizeof(m_vr_eye_fov));
+		std::memcpy(visible, m_vr_eye_fov_visible, sizeof(m_vr_eye_fov_visible));
+		return true;
+	}
+
 	bool camera_probe::vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const
 	{
 		if (!m_vr_view || !m_vr_hmd_fov)

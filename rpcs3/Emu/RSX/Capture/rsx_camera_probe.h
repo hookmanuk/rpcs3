@@ -1000,6 +1000,9 @@ namespace rsx::vr
 		// The headset view's head rotation in the game camera's clip basis (see m_vr_rot) and the largest rendered
 		// tangents of both eyes (x, y). False without a headset view.
 		bool vr_view_rotation(std::array<f32, 9>& rotation, f32& tan_x, f32& tan_y) const;
+		// Each eye's rendered and visible tangents (left, right, up, down; left and down negative), for the hidden-area
+		// mask (VKGSRenderVR.cpp vr_fill_hidden_area). False without a headset view.
+		bool vr_eye_fovs(f32 (&rendered)[2][4], f32 (&visible)[2][4]) const;
 
 		// Native (non-headset-view) stereo: scale the game's eye separation, for
 		// showing its stereo on a screen larger than the one it was tuned for.

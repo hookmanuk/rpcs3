@@ -3684,6 +3684,159 @@ void VKGSRender::vr_after_clear(bool cleared, bool full_frame, bool update_color
 		m_vr_right_rtts.on_write({update_color, update_color, update_color, update_color}, update_z);
 		m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 	}
+
+	if (cleared && full_frame && update_z)
+	{
+		vr_fill_hidden_area();
+	}
+}
+
+// Hidden-area mask (plans/12-hidden-area-mask-plan.md). Each eye renders a rectangle, but the headset's lens shows a
+// rounded region inside it: the corners are shaded, lit and post-processed every frame and then thrown away. After the
+// game's full depth clear of an eye-sized view target, those pixels get the near depth, so every later draw fails its
+// depth test there and is never shaded. Stage 1: a synthetic mask, the ellipse inscribed in each eye's visible field of
+// view (the reprojection margin around it stays rendered: the compositor shows it on fast head turns).
+// Dev: RPCS3_VR_HIDDEN_AREA=<ellipse scale> turns it on (1 = touching the visible edges; larger masks less),
+// RPCS3_VR_HIDDEN_AREA_INSET=<pixels> (default 8) keeps that many pixels inside the edge rendered (blurs and downsamples
+// that read across the edge), RPCS3_VR_HIDDEN_AREA_DEBUG=1 also clears the colour there to magenta.
+void VKGSRender::vr_fill_hidden_area()
+{
+	static const f32 s_scale = []()
+	{
+		const char* v = std::getenv("RPCS3_VR_HIDDEN_AREA");
+		return v ? std::clamp(static_cast<f32>(std::atof(v)), 0.f, 4.f) : 0.f;
+	}();
+	static const s32 s_inset = []()
+	{
+		const char* v = std::getenv("RPCS3_VR_HIDDEN_AREA_INSET");
+		return v ? std::clamp(std::atoi(v), 0, 256) : 8;
+	}();
+	static const bool s_debug = std::getenv("RPCS3_VR_HIDDEN_AREA_DEBUG") != nullptr;
+	if (s_scale <= 0.f || !m_vr_multiview || !m_draw_fbo || !std::get<1>(m_rtts.m_bound_depth_stencil))
+	{
+		return;
+	}
+	const auto& probe = rsx::vr::camera_probe::get();
+	const auto* profile = probe.profile();
+	f32 rendered[2][4], visible[2][4];
+	if (!profile || !probe.vr_eye_fovs(rendered, visible))
+	{
+		return;
+	}
+	const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+	const u32 guest_w = m_framebuffer_layout.width;
+	const u32 guest_h = m_framebuffer_layout.height;
+	const f32 output_aspect = out.height ? static_cast<f32>(out.width) / out.height : 0.f;
+	if (!guest_w || !guest_h || !profile->is_view_target(guest_w, guest_h, output_aspect))
+	{
+		return;
+	}
+
+	// The shown part of the target in host pixels (Gran Turismo 5 draws 1280x720 into 2048x1080 buffers). Its rows run
+	// from the rendered field's top (up tangent) to its bottom whichever way the game's NDC points (remap_to_eye_fov).
+	const u32 width = m_draw_fbo->width();
+	const u32 height = m_draw_fbo->height();
+	const f32 shown_w = width * (out.width ? std::min(1.f, static_cast<f32>(out.width) / guest_w) : 1.f);
+	const f32 shown_h = height * (out.height ? std::min(1.f, static_cast<f32>(out.height) / guest_h) : 1.f);
+
+	// The near depth for the game's clear: a far clear value means a LESS-style test (as vr_mv_clear_eye_quads).
+	const auto depth_format = rsx::method_registers.surface_depth_fmt();
+	const f32 clear_depth = static_cast<f32>(rsx::method_registers.z_clear_value(is_depth_stencil_format(depth_format))) / get_max_depth_value(depth_format);
+	std::vector<VkClearAttachment> fills;
+	VkClearAttachment depth_fill{};
+	depth_fill.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+	depth_fill.clearValue.depthStencil.depth = clear_depth >= 0.5f ? 0.f : 1.f;
+	fills.push_back(depth_fill);
+	if (s_debug)
+	{
+		u32 colour_index = 0;
+		for (const auto* image : m_fbo_images)
+		{
+			if (image->aspect() & VK_IMAGE_ASPECT_COLOR_BIT)
+			{
+				VkClearAttachment colour_fill{};
+				colour_fill.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+				colour_fill.colorAttachment = colour_index++;
+				colour_fill.clearValue.color.float32[0] = 1.f;
+				colour_fill.clearValue.color.float32[2] = 1.f;
+				colour_fill.clearValue.color.float32[3] = 1.f;
+				fills.push_back(colour_fill);
+			}
+		}
+	}
+
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	constexpr s32 band = 8;
+	std::vector<VkClearRect> rects;
+	for (u8 eye = 0; eye < 2; ++eye)
+	{
+		const f32* r = rendered[eye];
+		const f32* v = visible[eye];
+		if (r[1] - r[0] <= 0.f || r[2] - r[3] <= 0.f)
+		{
+			continue;
+		}
+		const auto col = [&](f32 t) { return (t - r[0]) / (r[1] - r[0]) * shown_w; };
+		const auto row = [&](f32 t) { return (r[2] - t) / (r[2] - r[3]) * shown_h; };
+		const auto row_tangent = [&](f32 y) { return r[2] - y / shown_h * (r[2] - r[3]); };
+		const f32 cx = 0.5f * (v[0] + v[1]), cy = 0.5f * (v[2] + v[3]);
+		const f32 ax = 0.5f * (v[1] - v[0]) * s_scale, ay = 0.5f * (v[2] - v[3]) * s_scale;
+		const f32 inset_t = (r[2] - r[3]) * s_inset / shown_h; // the inset in tangent units, vertically
+		const s32 vx1 = std::clamp(static_cast<s32>(std::ceil(col(v[0]))), 0, static_cast<s32>(width));
+		const s32 vx2 = std::clamp(static_cast<s32>(std::floor(col(v[1]))), vx1, static_cast<s32>(width));
+		const s32 vy1 = std::clamp(static_cast<s32>(std::ceil(row(v[2]))), 0, static_cast<s32>(height));
+		const s32 vy2 = std::clamp(static_cast<s32>(std::floor(row(v[3]))), vy1, static_cast<s32>(height));
+		rects.clear();
+		for (s32 y = vy1; y < vy2; y += band)
+		{
+			const s32 yb = std::min(y + band, vy2);
+			// The band's row nearest the ellipse's centre: its widest extent, so no visible pixel is ever masked.
+			const f32 t1 = row_tangent(static_cast<f32>(y)), t2 = row_tangent(static_cast<f32>(yb));
+			const f32 dy = (cy <= t1 && cy >= t2) ? 0.f : std::min(std::fabs(t1 - cy), std::fabs(t2 - cy));
+			const f32 k = dy < ay ? std::sqrt(1.f - (dy / ay) * (dy / ay)) : 0.f;
+			if (k <= 0.f)
+			{
+				// Above or below the ellipse: the whole visible row, unless the inset reaches it.
+				if (dy - ay >= inset_t)
+				{
+					rects.push_back({{{vx1, y}, {static_cast<u32>(vx2 - vx1), static_cast<u32>(yb - y)}}, 0, 1});
+				}
+				continue;
+			}
+			const s32 ex1 = std::clamp(static_cast<s32>(std::floor(col(cx - ax * k))) - s_inset, vx1, vx2);
+			const s32 ex2 = std::clamp(static_cast<s32>(std::ceil(col(cx + ax * k))) + s_inset, ex1, vx2);
+			if (ex1 > vx1)
+				rects.push_back({{{vx1, y}, {static_cast<u32>(ex1 - vx1), static_cast<u32>(yb - y)}}, 0, 1});
+			if (vx2 > ex2)
+				rects.push_back({{{ex2, y}, {static_cast<u32>(vx2 - ex2), static_cast<u32>(yb - y)}}, 0, 1});
+		}
+		if (rects.empty())
+		{
+			continue;
+		}
+		const u8 view_mask = (eye == 0) ? 2 : 3;
+		const u64 key = vk::get_renderpass_key(m_fbo_images, {}, view_mask);
+		VkRenderPass pass = vk::get_renderpass(*m_device, key);
+		vk::framebuffer_holder* fbo = vk::get_framebuffer(*m_device, static_cast<u16>(width), static_cast<u16>(height), VK_FALSE, pass, m_fbo_images, view_mask, 0, 2);
+		fbo->add_ref();
+		vk::begin_renderpass(*m_current_command_buffer, pass, fbo->value, {positionu{0u, 0u}, sizeu{width, height}});
+		vkCmdClearAttachments(*m_current_command_buffer, ::size32(fills), fills.data(), ::size32(rects), rects.data());
+		vk::end_renderpass(*m_current_command_buffer);
+		fbo->release();
+		if (static u32 s_logged = 0; s_logged < 4)
+		{
+			s_logged++;
+			u64 area = 0;
+			for (const auto& rc : rects)
+				area += u64{rc.rect.extent.width} * rc.rect.extent.height;
+			rsx_log.notice("VR: hidden-area mask on %ux%u (eye %u): %u rects, %.1f%% of the shown target.", width, height, eye, ::size32(rects),
+				100.0 * static_cast<f64>(area) / std::max(1.0, static_cast<f64>(shown_w) * shown_h));
+		}
+	}
+	m_current_command_buffer->flags |= vk::command_buffer::cb_reload_dynamic_state;
 }
 
 // load_program_env(): texture parameters with feedback textures shifted (profile reproject_older_frames).
