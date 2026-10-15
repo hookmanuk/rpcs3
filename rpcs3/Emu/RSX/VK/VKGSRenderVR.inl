@@ -434,7 +434,15 @@
 	void vr_restore_texture(u32 index, const vr_texture_redirect& redirect);
 
 	// end()
-	void vr_on_draw_begin();     // GPU profiler draw marks
+	void vr_on_draw_begin();     // GPU profiler draw marks, eager submission
+	// Eager submission (vr_eager_submit, dev RPCS3_VR_EAGER_SUBMIT=<draws>): RPCS3 submits its command buffer only at
+	// flush points (about five per frame), so after the flip the GPU idles while the RSX thread records the first
+	// ~1600 draws of the next frame (Uncharted's jungle: a 3.4 ms gap in every 18 ms frame, Nsight 2026-10-15). When the
+	// GPU has run out of work and at least that many draws are recorded, the buffer is submitted.
+	vk::command_buffer_chunk* m_vr_eager_seen_cb = nullptr; // the command buffer at the last draw
+	vk::command_buffer_chunk* m_vr_eager_prev_cb = nullptr; // the one before it: the last submitted
+	u32 m_vr_eager_draws = 0;                                // draws recorded into the current buffer
+	void vr_eager_submit();
 	bool vr_skip_far_cars();     // dev RPCS3_VR_CAR_LIMIT=<n>: only the n nearest cars are drawn (GT5 test)
 	bool vr_shared_target_skipped(); // profile shared_frame_targets: the bound target is not refreshed this frame (draws and clears left out)
 	bool vr_skip_draw();         // profile hidden_draws, probe hide=, RPCS3_VR_RTDUMP prog= (does the nop draw itself)

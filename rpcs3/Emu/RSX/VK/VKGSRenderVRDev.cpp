@@ -11,6 +11,7 @@
 #include "vkutils/buffer_object.h"
 
 #include "../Capture/rsx_camera_probe.h"
+#include "../Capture/rsx_vr_hooks.h"
 #include "../rsx_methods.h"
 #include "../Utils/rsx_utils.h"
 
@@ -311,15 +312,48 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 
 // ---- Development hooks called from upstream functions -----------------------------------
 
-// end(): GPU profiler draw marks.
+// end(): eager submission, GPU profiler draw marks.
 void VKGSRender::vr_on_draw_begin()
 {
+	vr_eager_submit();
 	m_gpuprof_draw++;
 	if (m_gpuprof_target && m_gpuprof_enabled > 0 && m_framebuffer_layout.color_addresses[0] == m_gpuprof_target)
 	{
 		// Per-draw segment: "fmt" 0x10000 + the draw's index in the frame.
 		gpuprof_mark({m_gpuprof_target, m_framebuffer_layout.width, m_framebuffer_layout.height, 0x10000u + m_gpuprof_draw});
 	}
+}
+
+// end(), before the draw's textures and program are loaded (a point where RPCS3 itself flushes, do_local_task):
+// submit the recorded draws when the GPU has nothing left to run. See VKGSRenderVR.inl.
+void VKGSRender::vr_eager_submit()
+{
+	static const u32 s_draws = []
+	{
+		const char* v = std::getenv("RPCS3_VR_EAGER_SUBMIT");
+		return v ? static_cast<u32>(std::max(0, std::atoi(v))) : 0u;
+	}();
+	if (!s_draws)
+	{
+		return;
+	}
+	if (m_current_command_buffer != m_vr_eager_seen_cb)
+	{
+		// A submit happened (RPCS3's or ours): the previous buffer is the last one the GPU received.
+		m_vr_eager_prev_cb = m_vr_eager_seen_cb;
+		m_vr_eager_seen_cb = m_current_command_buffer;
+		m_vr_eager_draws = 0;
+	}
+	if (++m_vr_eager_draws < s_draws)
+	{
+		return;
+	}
+	if (m_vr_eager_prev_cb && !m_vr_eager_prev_cb->poke())
+	{
+		return; // the GPU still has queued work
+	}
+	rsx::vr::note_eager_submit();
+	flush_command_queue();
 }
 
 // flip(), first thing: the pending right-eye batch, the surface dump request and the GPU profiler's frame end.

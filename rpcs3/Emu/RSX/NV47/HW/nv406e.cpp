@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include "Emu/RSX/Capture/rsx_vr_hooks.h" // VR fork: wait accounting
 #include "nv406e.h"
 #include "nv47_sync.hpp"
 
@@ -102,6 +103,7 @@ namespace rsx
 
 			RSX(ctx)->fifo_wake_delay();
 			RSX(ctx)->performance_counters.idle_time += (get_system_time() - start);
+			rsx::vr::note_rsx_wait(rsx::vr::rsx_wait::semaphore, get_system_time() - start); // VR fork: wait accounting
 		}
 
 		void semaphore_release(context* ctx, u32 reg, u32 arg)
