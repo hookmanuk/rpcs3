@@ -28,3 +28,25 @@ PPU-8254e202229bc5be77d12bf298d6f40b169c4cde:
       - [ be32, 0x0, 0x3d800158 ]          # lis r12,0x158
       - [ be32, 0x0, 0xc1ac55d0 ]          # lfs f13,0x55d0(r12)    scale (f13 is reloaded at 0x1fb530)
       - [ be32, 0x0, 0xec210372 ]          # fmuls f1,f1,f13        tan(FOV / 2) x scale
+
+  "VR: Wider view (head-driven culling)":
+    Games:
+      "Prince of Persia":
+        BLUS30214: [ 01.00 ]
+    Author: "VR fork"
+    Notes: "Prince of Persia draws only what its own camera sees (71 x 44 degrees), so with the headset showing more (above all above the game's view when its camera looks down), a tree on a cliff top was missing until the camera tilted up. The main camera's projection (built by 0x27b3d0, called at 0x2db34c) now has its x and y scales divided by the head-driven scale the VR profile sets each frame (word 0x15855d0, shared with 'Shadows cover the headset view'), so the game culls against a frustum that covers the headset view; VR renders each eye with its own projection either way. The frustum tangents the camera controller reads are the game's own. Untick to go back to the game's own culling."
+    Patch Version: 1.0
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x015855d0, 0x3f800000 ]  # scale (1.0), written by the VR profile (same word as the shadow fit)
+      - [ calloc, 0x002db350, 9 ]          # after bl 0x27b3d0 (main camera projection into r29) (was li r27,0x80)
+      - [ be32, 0x0, 0x3d800158 ]          # lis r12,0x158
+      - [ be32, 0x0, 0xc18c55d0 ]          # lfs f12,0x55d0(r12)    scale
+      - [ be32, 0x0, 0xc1bd0000 ]          # lfs f13,0(r29)         P[0][0]
+      - [ be32, 0x0, 0xedad6024 ]          # fdivs f13,f13,f12
+      - [ be32, 0x0, 0xd1bd0000 ]          # stfs f13,0(r29)
+      - [ be32, 0x0, 0xc1bd0014 ]          # lfs f13,0x14(r29)      P[1][1]
+      - [ be32, 0x0, 0xedad6024 ]          # fdivs f13,f13,f12
+      - [ be32, 0x0, 0xd1bd0014 ]          # stfs f13,0x14(r29)
+      - [ be32, 0x0, 0x3b600080 ]          # li r27,0x80 (original)
