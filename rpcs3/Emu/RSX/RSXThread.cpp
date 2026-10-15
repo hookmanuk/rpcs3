@@ -3638,6 +3638,7 @@ namespace rsx
 					const auto delay_us = target_rsx_flip_time - time;
 					lv2_obj::wait_timeout(delay_us, nullptr, false);
 					performance_counters.idle_time += delay_us;
+					rsx::vr::note_rsx_wait(rsx::vr::rsx_wait::limiter, delay_us); // VR fork: wait accounting
 				}
 			}
 

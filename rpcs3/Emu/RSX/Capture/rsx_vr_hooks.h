@@ -56,6 +56,21 @@ namespace rsx::vr
 	// the other pixels); their pipelines test LESS_OR_EQUAL / GREATER_OR_EQUAL instead (vk::vr_vrs_apply_pipeline_props).
 	void set_vrs_bound(bool bound);
 	bool vrs_bound();
+	// RSX thread wait accounting (the RPCS3_VR_FRAMESTATS line): where the RSX thread's time goes when it is not
+	// emulating. fifo_empty: the game has not written commands yet (waiting on PPU/SPU); fifo_spin: the puller spins on a
+	// jump-to-self or NOPs; fifo_fetch: the FIFO read stalled on a reservation; semaphore: NV406E semaphore acquire
+	// (waiting on the game / SPU); gpu_fence: vk::wait_for_fence (waiting on the GPU); limiter: the frame limiter's sleep.
+	enum class rsx_wait : u8 { fifo_empty, fifo_spin, fifo_fetch, semaphore, gpu_fence, limiter, count };
+	void note_rsx_wait(rsx_wait kind, u64 us);
+	void note_fifo_idle(u8 fifo_state, u64 us); // RSXFIFO.cpp: the FIFO left an idle state (FIFO::state) after us
+	void note_eager_submit(); // VKGSRender::vr_eager_submit: one eager command buffer submission (counted per frame)
+	struct rsx_wait_scope
+	{
+		u64 start;
+		rsx_wait kind;
+		explicit rsx_wait_scope(rsx_wait k);
+		~rsx_wait_scope();
+	};
 	// DLSS test: the bound framebuffer has the motion attachment (set by the renderer before the programs are fetched);
 	// set_vr_program_ctrl() then adds RSX_SHADER_CONTROL_DLSS_MOTION.
 	void set_dlss_motion_variant(bool enabled);

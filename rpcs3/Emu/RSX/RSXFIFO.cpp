@@ -4,6 +4,7 @@
 #include "RSXFIFO.h"
 #include "RSXThread.h"
 #include "Capture/rsx_capture.h"
+#include "Capture/rsx_vr_hooks.h" // VR fork: wait accounting
 #include "Core/RSXReservationLock.hpp"
 #include "Emu/Memory/vm_reservation.h"
 #include "Emu/Cell/lv2/sys_rsx.h"
@@ -197,6 +198,7 @@ namespace rsx
 						const auto then = std::exchange(now, get_system_time());
 						start_time = now;
 						m_thread->performance_counters.idle_time += now - then;
+						rsx::vr::note_rsx_wait(rsx::vr::rsx_wait::fifo_fetch, now - then); // VR fork: wait accounting
 					}
 					else
 					{
@@ -802,6 +804,7 @@ namespace rsx
 
 			// Update performance counters with time spent in idle mode
 			performance_counters.idle_time += (get_system_time() - performance_counters.FIFO_idle_timestamp);
+			rsx::vr::note_fifo_idle(static_cast<u8>(state), get_system_time() - performance_counters.FIFO_idle_timestamp); // VR fork: wait accounting
 		}
 
 		do

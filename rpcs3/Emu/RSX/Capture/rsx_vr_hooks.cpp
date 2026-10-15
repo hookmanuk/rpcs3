@@ -410,6 +410,32 @@ namespace rsx::vr
 		vr_dev_log.notice("VR camera offset: x %d, y %d, z %d cm", vr.camera_x.get(), vr.camera_y.get(), vr.camera_z.get());
 	}
 
+	static atomic_t<u64> s_rsx_wait_us[static_cast<usz>(rsx_wait::count)]{};
+
+	void note_rsx_wait(rsx_wait kind, u64 us)
+	{
+		s_rsx_wait_us[static_cast<usz>(kind)] += us;
+	}
+
+	void note_fifo_idle(u8 fifo_state, u64 us)
+	{
+		// FIFO::state: 1 empty, 2 spinning, 3 nop, 4 lock_wait (RSXFIFO.h)
+		note_rsx_wait(fifo_state == 1 ? rsx_wait::fifo_empty : (fifo_state == 4 ? rsx_wait::semaphore : rsx_wait::fifo_spin), us);
+	}
+
+	static atomic_t<u64> s_eager_submits = 0;
+
+	void note_eager_submit()
+	{
+		s_eager_submits++;
+	}
+
+	rsx_wait_scope::rsx_wait_scope(rsx_wait k) : start(get_system_time()), kind(k) {}
+	rsx_wait_scope::~rsx_wait_scope()
+	{
+		note_rsx_wait(kind, get_system_time() - start);
+	}
+
 	static bool s_vrs_bound = false;
 
 	void set_vrs_bound(bool bound)
@@ -1061,9 +1087,23 @@ namespace rsx::vr
 				const f32 median = sorted[sorted.size() / 2];
 				const usz late = static_cast<usz>(sorted.end() - std::upper_bound(sorted.begin(), sorted.end(), median * 1.5f));
 				const u64 cpu = rsx_cpu_us();
-				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%, RSX thread %.2f ms/frame, new frames %.1f/s",
+				// The RSX thread's waits over the window, per frame (note_rsx_wait).
+				static u64 s_wait_start[static_cast<usz>(rsx_wait::count)]{};
+				f64 wait_ms[static_cast<usz>(rsx_wait::count)]{};
+				for (usz i = 0; i < static_cast<usz>(rsx_wait::count); ++i)
+				{
+					const u64 w = s_rsx_wait_us[i].load();
+					wait_ms[i] = (w - s_wait_start[i]) / 1000. / sorted.size();
+					s_wait_start[i] = w;
+				}
+				static u64 s_eager_start = 0;
+				const u64 eager = s_eager_submits.load();
+				rsx_log.success("VR frame stats: %u frames over %.1f s: avg %.1f FPS, 1%% low %.1f, 0.1%% low %.1f (worst frame %.1f ms), median %.2f ms, late %.2f%%, RSX thread %.2f ms/frame, new frames %.1f/s; "
+					"RSX waits ms/frame: FIFO empty %.2f, FIFO spin %.2f, FIFO fetch %.2f, semaphore %.2f, GPU fence %.2f, limiter %.2f; eager submits %.1f/frame",
 					::size32(sorted), (now - s_start) / 1e6, sorted.size() * 1000. / sum, 1000.f / p99, 1000.f / p999, sorted.back(), median, late * 100. / sorted.size(),
-					(cpu - s_cpu_start) / 1000. / sorted.size(), s_new_frames * 1e6 / std::max<u64>(now - s_start, 1));
+					(cpu - s_cpu_start) / 1000. / sorted.size(), s_new_frames * 1e6 / std::max<u64>(now - s_start, 1),
+					wait_ms[0], wait_ms[1], wait_ms[2], wait_ms[3], wait_ms[4], wait_ms[5], static_cast<f64>(eager - s_eager_start) / sorted.size());
+				s_eager_start = eager;
 				s_new_frames = 0;
 				s_times.clear();
 				s_start = now;

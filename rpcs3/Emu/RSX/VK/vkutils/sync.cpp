@@ -11,6 +11,7 @@
 #include "util/sysinfo.hpp"
 #include "util/asm.hpp"
 #include "util/logs.hpp"
+#include "Emu/RSX/Capture/rsx_vr_hooks.h" // VR fork: wait accounting
 
 namespace vk
 {
@@ -562,6 +563,7 @@ namespace vk
 
 	VkResult wait_for_fence(fence* pFence, u64 timeout)
 	{
+		const rsx::vr::rsx_wait_scope _wait(rsx::vr::rsx_wait::gpu_fence); // VR fork: wait accounting
 		pFence->wait_flush();
 
 		if (timeout)
