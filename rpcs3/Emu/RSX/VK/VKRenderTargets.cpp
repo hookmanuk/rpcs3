@@ -906,6 +906,7 @@ namespace vk
 		{
 			// Barrier ellided if triggered by a chain of cyclic references with no actual writes
 			m_cyclic_ref_tracker.reset();
+			m_cyclic_ref_tracker.allow_skip(); // VR fork: still read-only, so the next draw's texture barrier can be skipped too
 			return;
 		}
 
