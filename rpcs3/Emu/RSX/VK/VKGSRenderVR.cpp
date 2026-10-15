@@ -116,6 +116,13 @@ namespace vk
 		return true;
 	}
 
+	usz vr_cached_image_pool_count(usz upstream_count)
+	{
+		const auto& probe = rsx::vr::camera_probe::get();
+		const auto* profile = probe.profile();
+		return probe.render_enabled() && profile && profile->image_pool_mb ? upstream_count * 4 : upstream_count;
+	}
+
 	u64 vr_cached_image_pool_limit(u64 upstream_limit)
 	{
 		// Upstream trims the pool by half whenever it holds more than 256 MB. A temporary copy of a 1280x720
@@ -135,6 +142,10 @@ namespace vk
 		if (!rsx::vr::camera_probe::get().render_enabled())
 		{
 			return upstream_limit;
+		}
+		if (const auto* profile = rsx::vr::camera_probe::get().profile(); profile && profile->image_pool_mb)
+		{
+			return u64{profile->image_pool_mb} * 0x100000; // profile image_pool_mb
 		}
 		const u64 scale = std::max<u64>(100, g_cfg.video.resolution_scale_percent);
 		const u64 wanted = upstream_limit * scale * scale / 10000 * 2;

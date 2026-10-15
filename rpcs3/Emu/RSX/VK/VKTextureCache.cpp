@@ -1623,7 +1623,7 @@ namespace vk
 			purge_unreleased_sections();
 		}
 
-		if (m_cached_images.size() > max_cached_image_pool_size ||
+		if (m_cached_images.size() > vk::vr_cached_image_pool_count(max_cached_image_pool_size) || // VR fork: profile image_pool_mb
 			m_cached_memory_size > vk::vr_cached_image_pool_limit(256 * 0x100000)) // VR fork: scaled stereo temporaries
 		{
 			std::lock_guard lock(m_cached_pool_lock);

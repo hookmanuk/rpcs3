@@ -5,6 +5,7 @@
   "name": "God of War® III",
   "max_fps": 0,
   "default_fps": 0,
+  "image_pool_mb": 12000,
   "culling_scale_f32": [
     { "address": "0x68ff00", "fov_deg": 90, "aspect": 1.0, "margin_deg": 3, "min": 0.01, "max": 8.0, "mode": "tangent_x" },
     { "address": "0x68ff04", "fov_deg": 58.7155, "aspect": 1.0, "margin_deg": 3, "min": 0.01, "max": 8.0, "mode": "tangent_y" }

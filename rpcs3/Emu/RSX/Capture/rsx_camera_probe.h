@@ -648,6 +648,12 @@ namespace rsx::vr
 		// the scale multiplies like the view (16x the pixels at 400%) for no visible gain: Gran Turismo 5's 256x511
 		// reflection maps and 512-wide exposure and glare passes (~2 ms a frame at 400% in stereo).
 		u16 min_scalable_dimension = 0;
+		// image_pool_mb: the texture cache's pool of temporary images (copies of render-target parts, kept between frames
+		// for reuse) may hold this many MB, and 4x upstream's 256 images, while stereo renders. For games that make
+		// hundreds of copies a frame: the pool was halved every frame and the images destroyed and created again. Their
+		// memory is in use during the frame anyway, so keeping them raises the peak little. God of War III: ~300
+		// shadow-map part copies a frame, `12000`. 0: the default limit (vr_cached_image_pool_limit).
+		u32 image_pool_mb = 0;
 		// car_draw_limit: { "tiers": [{ "cars": n, "draws": d, "min_vertices": v }, ...], "body_programs": [...] }
 		// (VKGSRenderVR.cpp vr_skip_far_cars): the cars by distance, tier by tier (cars 0: all the rest); draws -1 all
 		// (the default), 0 none, n only the first n of the car's body pass; min_vertices: body-pass draws with fewer
@@ -1237,4 +1243,7 @@ namespace vk
 	void vr_complete_late_readbacks();
 	// VR fork, vk::texture_cache::on_frame_end: the temporary image pool's memory limit (upstream: 256 MB).
 	u64 vr_cached_image_pool_limit(u64 upstream_limit);
+	// VR fork, vk::texture_cache::on_frame_end: the temporary image pool's image count limit (upstream: 256; x4 with
+	// the profile's image_pool_mb while stereo renders).
+	usz vr_cached_image_pool_count(usz upstream_count);
 }
