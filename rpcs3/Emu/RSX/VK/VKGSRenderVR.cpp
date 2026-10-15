@@ -3237,7 +3237,7 @@ bool VKGSRender::vr_skip_far_cars()
 bool VKGSRender::vr_skip_draw()
 {
 	// Profile depth_remap_programs with a texture0 size: the remap follows each draw's texture unit 0.
-	if (rsx::vr::refresh_depth_remap_for_draw())
+	if (rsx::vr::refresh_depth_remap_for_draw(m_vr_camera_draws != 0))
 	{
 		m_graphics_state |= (rsx::pipeline_state::vertex_program_state_dirty | rsx::pipeline_state::fragment_program_state_dirty);
 	}

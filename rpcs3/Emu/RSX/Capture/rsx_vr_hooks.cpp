@@ -464,13 +464,13 @@ namespace rsx::vr
 			(!s_depth_remap_texture0_format || (tex.format() & 0xff) == s_depth_remap_texture0_format);
 	}
 
-	bool refresh_depth_remap_for_draw()
+	bool refresh_depth_remap_for_draw(bool frame_has_camera_draws)
 	{
 		if (!s_depth_remap_texture0)
 		{
 			return false;
 		}
-		const bool remap = s_depth_remap_listed && depth_remap_texture0_matches();
+		const bool remap = s_depth_remap_listed && frame_has_camera_draws && depth_remap_texture0_matches();
 		if (remap == s_depth_remap)
 		{
 			return false;
