@@ -10,6 +10,7 @@
   "depth_remap_programs": [{ "program": "fc15ec0752d20290", "texture0": "1280x720", "texture0_format": "a5" }],
   "depth_remap_uv": true,
   "depth_remap_packed_unit": 0,
+  "head_aim": { "button": "L1", "full_stick_deg": 10, "min_stick": 0.15, "deadzone_deg": 0.75, "return_deg_per_s": 120, "mode": "relative" },
   "culling_scale_f32": [
     { "address": "0x7cdd80", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 12.0, "mode": "tangent_x" },
     { "address": "0x7cdd84", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 12.0, "mode": "tangent_y" }

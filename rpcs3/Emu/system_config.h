@@ -280,6 +280,7 @@ struct cfg_root : cfg::node
 			cfg::_bool highest_detail_models{ this, "Highest Detail Models", true, true };       // VR fork: "highest_detail": option_f32 (MotorStorm's LOD)
 			cfg::_bool simpler_vehicles{ this, "Simpler Other Vehicles", true, true };           // VR fork: "simpler_vehicles": option_f32
 			cfg::_bool fewer_shadows{ this, "Fewer Shadows", true, true };                       // VR fork: "fewer_shadows": option_f32
+			cfg::_bool head_aim{ this, "Head Aim", true, true };                                 // VR fork: "head_aim": the profile's head_aim (aim with the head while its button is held)
 			cfg::_enum<vr_dlss_mode> dlss{ this, "DLSS (experimental)", vr_dlss_mode::off, true };         // VR fork: DLSS (env RPCS3_DLSS overrides); live
 			cfg::_enum<vr_dlss_model> dlss_model{ this, "DLSS Model (experimental)", vr_dlss_model::default_model, true }; // the NGX render preset (env RPCS3_DLSS_PRESET overrides); live
 			cfg::uint<0, 100> dlss_sharpening{ this, "DLSS Sharpening", 0, true }; // VR fork: RCAS on DLSS's outputs, 0 = off; live

@@ -18,7 +18,7 @@ Frame-rate patches here are not marked "Enabled By Default"; enable them in `Man
 | Dragon's Dogma: Dark Arisen (update 01.02) | BLUS31155 | `vr_profiles/BLUS31155.json` | `patches/BLUS31155_patch.yml` (full screen, on by default); also enable the community *Unlock FPS* |
 | The Darkness | BLUS30035 | `vr_profiles/BLUS30035.json` (stereo lighting broken) | community *60 FPS* patch |
 | Dynasty Warriors 6 Empires | BLUS30306 | `vr_profiles/BLUS30306.json` (60 FPS) | |
-| Uncharted: Drake's Fortune (update 01.10) | BCUS98103 | `vr_profiles/BCUS98103.json` (45 FPS: two vblanks a frame at 90 Hz) | `patches/BCUS98103_patch.yml` (*Wider view (VR culling)*, head-driven, on by default); keep the community *Unlock FPS* off |
+| Uncharted: Drake's Fortune (update 01.10) | BCUS98103 | `vr_profiles/BCUS98103.json` (45 FPS: two vblanks a frame at 90 Hz; *Head Aim*: hold L1 and the head moves the aim) | `patches/BCUS98103_patch.yml` (*Wider view (VR culling)*, head-driven, on by default); keep the community *Unlock FPS* off |
 | Puppeteer | BCUS98227 | `vr_profiles/BCUS98227.json` (90 FPS real-time; stereo via `texture_redirects`) | |
 | Jak and Daxter Collection (Jak 1, Jak II) | BCUS98281 | `vr_profiles/BCUS98281.json`, `BCUS98281.jak1.json` (60 FPS), `BCUS98281.jak2.json` | `patches/BCUS98281_patch.yml` (*Frame rate follows VR (Jak II)*, on by default) |
 | Anarchy Reigns | BLUS30632 | `vr_profiles/BLUS30632.json` | `patches/BLUS30632_patch.yml` (*Frame rate follows VR*, on by default; turn off the community *60 FPS*) |

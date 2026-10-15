@@ -404,6 +404,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GAME: return tr("Game", "VR settings section"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES: return tr("Simpler Other Vehicles", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS: return tr("Fewer Shadows", "VR"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM: return tr("Head Aim", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL: return tr("General", "VR settings section"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE: return tr("World Scale", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE: return tr("Generate VR Profile (samples 10 seconds of gameplay)", "VR");

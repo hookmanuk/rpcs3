@@ -29,7 +29,7 @@
 #include "Emu/Cell/lv2/sys_usbd.h"
 #include "Emu/Cell/Modules/cellGem.h"
 #include "Emu/Cell/timers.hpp"
-#include "Emu/RSX/Capture/rsx_camera_probe.h" // VR fork: rsx::vr::pad_toggle_hud_button
+#include "Emu/RSX/Capture/rsx_camera_probe.h" // VR fork: rsx::vr::pad_toggle_hud_button, head_aim_pad
 #include "Utilities/Thread.h"
 #include "util/atomic.hpp"
 
@@ -392,6 +392,8 @@ void pad_thread::apply_copilots()
 			stick.m_value = static_cast<u16>(std::round(std::clamp(accumulated_value * 127.0f + 128.0f, 0.0f, 255.0f)));
 		}
 	}
+
+	if (!m_pads.empty() && m_pads[0] && m_pads[0]->is_connected()) rsx::vr::head_aim_pad(*m_pads[0]); // VR fork: head aim (player 1's right stick)
 }
 
 void pad_thread::update_pad_states()

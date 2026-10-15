@@ -257,6 +257,7 @@ enum class emu_settings_type
 	VRSimplerDistantCars,
 	VRSimplerVehicles,
 	VRFewerShadows,
+	VRHeadAim,
 	VRScreenDepth,
 	VRHudScale,
 	VRHudOffsetX,

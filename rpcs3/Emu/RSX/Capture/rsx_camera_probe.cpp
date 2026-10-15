@@ -13,6 +13,7 @@
 #include "Emu/Cell/timers.hpp"
 #include "Emu/RSX/Utils/rsx_utils.h"
 #include "Emu/RSX/rsx_methods.h"
+#include "Emu/Io/pad_types.h" // head_aim_pad
 
 #include "util/logs.hpp"
 #include "util/yaml.hpp"
@@ -1366,6 +1367,48 @@ namespace rsx::vr
 				profile->native_rate_when.push_back(std::move(rule));
 			}
 		}
+		const YAML::Node head_aim = child(root, "head_aim");
+		if (head_aim)
+		{
+			// { "button": "L1", "full_stick_deg": 10, "min_stick": 0.15, "deadzone_deg": 0.75, "return_deg_per_s": 120,
+			//   "manual_stick": 0.3, "mode": "relative" }
+			auto& rule = profile->head_aim;
+			std::string button = "L1";
+			read(head_aim, "button", button, false);
+			static constexpr std::pair<std::string_view, std::pair<u32, u32>> buttons[] = {
+				{"L1", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_L1}}, {"L2", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_L2}},
+				{"R1", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_R1}}, {"R2", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_R2}},
+				{"L3", {CELL_PAD_BTN_OFFSET_DIGITAL1, CELL_PAD_CTRL_L3}}, {"R3", {CELL_PAD_BTN_OFFSET_DIGITAL1, CELL_PAD_CTRL_R3}},
+				{"Cross", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_CROSS}}, {"Circle", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_CIRCLE}},
+				{"Square", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_SQUARE}}, {"Triangle", {CELL_PAD_BTN_OFFSET_DIGITAL2, CELL_PAD_CTRL_TRIANGLE}},
+			};
+			for (const auto& [name, key] : buttons)
+			{
+				if (button == name)
+				{
+					rule.button_offset = key.first;
+					rule.button_mask = key.second;
+				}
+			}
+			read(head_aim, "full_stick_deg", rule.full_stick_deg, false);
+			read(head_aim, "min_stick", rule.min_stick, false);
+			read(head_aim, "deadzone_deg", rule.deadzone_deg, false);
+			read(head_aim, "return_deg_per_s", rule.return_deg_per_s, false);
+			read(head_aim, "manual_stick", rule.manual_stick, false);
+			std::string mode = "relative";
+			read(head_aim, "mode", mode, false);
+			rule.gaze = mode == "gaze";
+			if (!rule.button_mask || (mode != "relative" && mode != "gaze") || !(rule.full_stick_deg > rule.deadzone_deg) || rule.deadzone_deg < 0.f ||
+				!(rule.min_stick >= 0.f && rule.min_stick < 1.f) || !(rule.return_deg_per_s > 0.f) || !(rule.manual_stick > 0.f && rule.manual_stick <= 1.f))
+			{
+				fail("head_aim: expected {\"button\": \"L1\" (L1, L2, R1, R2, L3, R3, Cross, Circle, Square, Triangle), \"full_stick_deg\": 10, "
+					 "\"min_stick\": 0.15, \"deadzone_deg\": 0.75, \"return_deg_per_s\": 120, \"manual_stick\": 0.3, \"mode\": \"relative\" or \"gaze\"}");
+			}
+			else
+			{
+				rule.enabled = true;
+			}
+		}
 		if (const YAML::Node rules = child(root, "culling_scale_f32"); rules && rules.IsSequence())
 		{
 			// [{ "address": "0x4d7180", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }]
@@ -1667,7 +1710,8 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "head_aim"});
+		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -1759,6 +1803,93 @@ namespace rsx::vr
 			toggle_hud();
 		}
 		down = pressed;
+	}
+
+	// Head aim (profile head_aim): the RSX thread (camera_probe::update_head_aim) publishes the head-to-aim error once a
+	// frame; the pad thread (head_aim_pad) turns it into the right stick while the button is held and reports back
+	// whether it is driving the stick.
+	namespace
+	{
+		struct head_aim_shared
+		{
+			std::mutex mutex;
+			// RSX -> pad
+			bool valid = false; // headset view, a profile with head_aim and the Head Aim setting on
+			title_profile::head_aim_rule rule;
+			f32 err_x = 0.f; // degrees the game camera must turn: + right
+			f32 err_y = 0.f; // + up
+			f32 sign_x = 1.f; // the stick direction that turns the camera right (-1: the game's horizontal look is inverted)
+			f32 sign_y = 1.f; // the stick direction that turns the camera up (-1: inverted look)
+			u64 updated_us = 0;
+			// pad -> RSX
+			bool active = false; // button held
+			bool manual = false; // the player's own right stick is pushed: passed through
+			f32 out_x = 0.f;     // the camera turn asked for, -1..1, + right (the stick sent is sign_x x out_x)
+			f32 out_y = 0.f;     // + up
+		};
+		head_aim_shared g_head_aim;
+	}
+
+	void head_aim_pad(Pad& pad)
+	{
+		auto& s = g_head_aim;
+		std::lock_guard lock(s.mutex);
+		const bool fresh = s.valid && get_system_time() - s.updated_us < 250'000;
+		bool pressed = false;
+		if (fresh)
+		{
+			for (const ButtonExternal& button : pad.m_buttons_external)
+			{
+				if (button.m_offset == s.rule.button_offset && (button.m_outKeyCode & s.rule.button_mask) && button.m_pressed)
+				{
+					pressed = true;
+				}
+			}
+		}
+		s.active = pressed;
+		s.out_x = s.out_y = 0.f;
+		if (!pressed)
+		{
+			s.manual = false;
+			return;
+		}
+		AnalogStickExternal* stick_x = nullptr;
+		AnalogStickExternal* stick_y = nullptr;
+		for (AnalogStickExternal& stick : pad.m_sticks_external)
+		{
+			if (stick.m_offset == CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_X)
+				stick_x = &stick;
+			else if (stick.m_offset == CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y)
+				stick_y = &stick;
+		}
+		if (!stick_x || !stick_y)
+		{
+			return;
+		}
+		const f32 own_x = (stick_x->m_value - 128.f) / 127.f;
+		const f32 own_y = (stick_y->m_value - 128.f) / 127.f;
+		s.manual = std::max(std::fabs(own_x), std::fabs(own_y)) > s.rule.manual_stick;
+		if (s.manual)
+		{
+			return;
+		}
+		// Proportional to the error, from min_stick just past the dead zone (under it the game's own stick dead zone
+		// would swallow small corrections) to a full stick at full_stick_deg.
+		const auto shape = [&](f32 err)
+		{
+			const f32 a = std::fabs(err);
+			if (a <= s.rule.deadzone_deg)
+			{
+				return 0.f;
+			}
+			const f32 t = std::min(1.f, (a - s.rule.deadzone_deg) / (s.rule.full_stick_deg - s.rule.deadzone_deg));
+			return std::copysign(s.rule.min_stick + (1.f - s.rule.min_stick) * t, err);
+		};
+		s.out_x = shape(s.err_x);
+		s.out_y = shape(s.err_y);
+		// PS3 sticks: 0 = left / up, 255 = right / down.
+		stick_x->m_value = static_cast<u16>(std::clamp(std::round(128.f + 127.f * s.sign_x * s.out_x), 0.f, 255.f));
+		stick_y->m_value = static_cast<u16>(std::clamp(std::round(128.f - 127.f * s.sign_y * s.out_y), 0.f, 255.f));
 	}
 
 	static atomic_t<u32> g_framegen_max_generated{1};
@@ -1933,11 +2064,19 @@ namespace rsx::vr
 		{
 			return g_cfg.video.vr.fewer_shadows.get();
 		}
+		if (option == "head_aim")
+		{
+			return g_cfg.video.vr.head_aim.get();
+		}
 		return true;
 	}
 
 	bool profile_has_option(const title_profile& profile, std::string_view option)
 	{
+		if (option == "head_aim")
+		{
+			return profile.head_aim.enabled;
+		}
 		if (profile.car_draw_option == option && !profile.car_draw_tiers.empty())
 		{
 			return true;
@@ -3199,7 +3338,8 @@ namespace rsx::vr
 			const char* v = std::getenv("RPCS3_VR_BLOCK_CACHE");
 			return v ? (v[0] == '1' ? 1 : 0) : -1;
 		}();
-		const bool block_cache = s_block_cache_env < 0 ? profile.camera_block_cache : s_block_cache_env == 1;
+		// Off with head aim: its update reads the frame's first camera block, which the cached path skips.
+		const bool block_cache = (s_block_cache_env < 0 ? profile.camera_block_cache : s_block_cache_env == 1) && !profile.head_aim.enabled;
 		const u32 cache_eye = eye_sign < 0.f ? 0 : 1;
 		const auto build_key = [&](u32 base, bool far_plane, const f32* cam, const f32 (&game)[4][4])
 		{
@@ -3388,6 +3528,14 @@ namespace rsx::vr
 			{
 				game_block[r][c] = rows[r][c];
 			}
+		}
+
+		// Head aim: the frame's first scene-camera draw measures the game camera (before the head turns it) and updates the
+		// view's offset from it, which this and every later draw of the frame are turned by.
+		if (m_aim_pending && m_vr_view && profile.head_aim.enabled && !block.far_plane() && output_eye.height &&
+			profile.is_view_target(surface_w, surface_h, static_cast<f32>(output_eye.width) / output_eye.height))
+		{
+			update_head_aim(profile, game_block);
 		}
 
 		std::array<u32, 56> cache_key{};
@@ -4110,6 +4258,17 @@ namespace rsx::vr
 		m_vr_fov_scale = fov_scale;
 		m_vr_flip_y = flip_y;
 		m_vr_view = true;
+
+		// Head aim: keep the pose as computed, then turn it by the head aim's offset (the previous frame's until this
+		// frame's first camera draw updates it). Without head_aim in the profile nothing changes.
+		m_vr_head_rot = m_vr_rot;
+		m_vr_head_units_raw = m_vr_head_units;
+		m_vr_head_m_raw = m_vr_head_m;
+		if (profile && profile->head_aim.enabled)
+		{
+			m_aim_pending = true;
+			apply_head_aim_offset();
+		}
 	}
 
 	void camera_probe::set_vr_eye_fov(const f32 (*tangents)[4], const f32 (*visible)[4], f32 hud_scale, bool hud_fixed,
@@ -4164,6 +4323,232 @@ namespace rsx::vr
 	void camera_probe::clear_vr_view()
 	{
 		m_vr_view = false;
+		// No headset view (fixed screen, menus): the head aim starts over with the next one.
+		m_aim_off = {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+		m_aim_cam_valid = false;
+		m_aim_pending = false;
+		m_aim_was_active = false;
+		{
+			std::lock_guard lock(g_head_aim.mutex);
+			g_head_aim.valid = false;
+		}
+	}
+
+	namespace
+	{
+		using mat3 = std::array<f32, 9>; // row-major
+
+		mat3 mul3(const mat3& a, const mat3& b)
+		{
+			mat3 r{};
+			for (u32 i = 0; i < 3; ++i)
+				for (u32 j = 0; j < 3; ++j)
+					r[i * 3 + j] = a[i * 3 + 0] * b[0 * 3 + j] + a[i * 3 + 1] * b[1 * 3 + j] + a[i * 3 + 2] * b[2 * 3 + j];
+			return r;
+		}
+
+		mat3 transpose3(const mat3& a)
+		{
+			return {a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]};
+		}
+
+		// The rotation angle of a rotation matrix (radians, 0..pi).
+		f32 rotation_angle(const mat3& r)
+		{
+			return std::acos(std::clamp((r[0] + r[4] + r[8] - 1.f) / 2.f, -1.f, 1.f));
+		}
+
+		// Rows made orthonormal again (third row first: the forward axis is the one the aim is about).
+		bool orthonormalize(mat3& m)
+		{
+			const auto row = [&](u32 i) { return std::array<f32, 3>{m[i * 3], m[i * 3 + 1], m[i * 3 + 2]}; };
+			const auto dot = [](const std::array<f32, 3>& a, const std::array<f32, 3>& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+			const auto normalize = [&](std::array<f32, 3>& a)
+			{
+				const f32 n = std::sqrt(dot(a, a));
+				if (!(n > 1e-12f))
+					return false;
+				for (f32& v : a)
+					v /= n;
+				return true;
+			};
+			std::array<f32, 3> f = row(2), x = row(0), y = row(1);
+			if (!normalize(f))
+				return false;
+			const f32 xf = dot(x, f);
+			for (u32 i = 0; i < 3; ++i)
+				x[i] -= xf * f[i];
+			if (!normalize(x))
+				return false;
+			const f32 yf = dot(y, f), yx = dot(y, x);
+			for (u32 i = 0; i < 3; ++i)
+				y[i] -= yf * f[i] + yx * x[i];
+			if (!normalize(y))
+				return false;
+			m = {x[0], x[1], x[2], y[0], y[1], y[2], f[0], f[1], f[2]};
+			return true;
+		}
+	}
+
+	void camera_probe::apply_head_aim_offset() const
+	{
+		// The game camera C is drawn as m_vr_rot x C: with the offset, as head x (offset x C). The head's own
+		// translation is in the shown view's basis, so in the camera's it is offset^T x head.
+		m_vr_rot = mul3(m_vr_head_rot, m_aim_off);
+		for (u32 i = 0; i < 3; ++i)
+		{
+			m_vr_head_units[i] = m_aim_off[0 * 3 + i] * m_vr_head_units_raw[0] + m_aim_off[1 * 3 + i] * m_vr_head_units_raw[1] + m_aim_off[2 * 3 + i] * m_vr_head_units_raw[2];
+			m_vr_head_m[i] = m_aim_off[0 * 3 + i] * m_vr_head_m_raw[0] + m_aim_off[1 * 3 + i] * m_vr_head_m_raw[1] + m_aim_off[2 * 3 + i] * m_vr_head_m_raw[2];
+		}
+	}
+
+	void camera_probe::update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const
+	{
+		// Once a frame, at its first camera draw into the view target (before it is turned by the head).
+		//
+		// The game camera's basis C (clip x, y, w axes in world space, rows; maps a world direction to the camera's clip
+		// basis) is drawn as head x offset x C, with offset = identity in normal play. While the aim button is held and
+		// the head drives the stick, each frame's camera turn D = C_prev x C^T is folded into the offset (offset' x C =
+		// offset x C_prev), so the view the headset shows does not turn when the game camera follows the head: the head
+		// alone turns it, once. The aim (the game camera's forward) is then seen at head x offset x (0, 0, 1): the stick
+		// error is how far that is from where the head looks, and turning the camera towards it shrinks the offset's
+		// share. The HUD box, placed by m_vr_rot, stays on the game camera's forward, i.e. on the aim. After the button is
+		// let go the offset returns to identity at return_deg_per_s (the view turns back onto the game camera).
+		m_aim_pending = false;
+		const auto& rule = profile.head_aim;
+		constexpr f32 deg = 57.29578f;
+		constexpr mat3 identity{1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+
+		const u64 now_us = get_system_time();
+		const f32 dt = m_aim_last_us ? std::clamp((now_us - m_aim_last_us) / 1e6f, 0.f, 0.1f) : 0.f;
+		m_aim_last_us = now_us;
+
+		const bool enabled = profile_option_enabled("head_aim");
+		bool active = false, manual = false;
+		f32 out_x = 0.f, out_y = 0.f;
+		{
+			std::lock_guard lock(g_head_aim.mutex);
+			active = enabled && g_head_aim.active;
+			manual = g_head_aim.manual;
+			out_x = g_head_aim.out_x;
+			out_y = g_head_aim.out_y;
+		}
+		const bool driving = active && !manual;
+
+		// Row-vector block (rows[input][clip]): the clip x, y and w columns over the inputs x, y, z.
+		mat3 cam{game[0][0], game[1][0], game[2][0], game[0][1], game[1][1], game[2][1], game[0][3], game[1][3], game[2][3]};
+		const bool cam_ok = orthonormalize(cam);
+		const f32 y_up = m_vr_flip_y ? -1.f : 1.f; // the clip basis's y is down when flip_y
+		if (cam_ok && m_aim_cam_valid)
+		{
+			const mat3 turn = mul3(m_aim_cam, transpose3(cam));
+			// More than 25 degrees in one frame is a cut (or another camera): not followed.
+			if (rotation_angle(turn) < 25.f / deg)
+			{
+				if (driving)
+				{
+					m_aim_off = mul3(m_aim_off, turn);
+				}
+				// Stick direction check: the new forward in the previous camera's basis is turn x (0, 0, 1). A camera that
+				// keeps turning against a strong request means the game's look is inverted on that axis: flip the stick.
+				if (driving && m_aim_active_frames > 15)
+				{
+					const f32 moved[2] = {std::atan2(turn[2], turn[8]) * deg, std::atan2(y_up * turn[5], turn[8]) * deg};
+					const f32 pushed[2] = {out_x, out_y};
+					for (u32 axis = 0; axis < 2; ++axis)
+					{
+						if (std::fabs(pushed[axis]) < 0.5f || std::fabs(moved[axis]) < 0.2f)
+						{
+							continue;
+						}
+						s32& votes = m_aim_votes[axis];
+						votes = std::clamp(votes + ((pushed[axis] > 0.f) == (moved[axis] > 0.f) ? 1 : -1), -8, 8);
+						if (votes <= -6)
+						{
+							votes = 0;
+							std::lock_guard lock(g_head_aim.mutex);
+							f32& sign = axis ? g_head_aim.sign_y : g_head_aim.sign_x;
+							sign = -sign;
+							vr_probe_log.warning("Head aim: the game camera turned against the stick (%s look inverted in the game's options?): stick direction flipped.",
+								axis ? "vertical" : "horizontal");
+						}
+					}
+				}
+			}
+		}
+		if (cam_ok)
+		{
+			m_aim_cam = cam;
+			m_aim_cam_valid = true;
+		}
+
+		if (!active)
+		{
+			// Back onto the game camera: the offset's angle shrinks at return_deg_per_s, easing over the last 10 degrees.
+			const f32 angle = rotation_angle(m_aim_off);
+			if (angle < 0.2f / deg)
+			{
+				m_aim_off = identity;
+			}
+			else if (dt > 0.f)
+			{
+				const f32 step = rule.return_deg_per_s / deg * dt * std::clamp(angle / (10.f / deg), 0.25f, 1.f);
+				const f32 next = std::max(0.f, angle - step);
+				const f32 sn = 2.f * std::sin(angle);
+				const f32 ax = (m_aim_off[7] - m_aim_off[5]) / sn, ay = (m_aim_off[2] - m_aim_off[6]) / sn, az = (m_aim_off[3] - m_aim_off[1]) / sn;
+				const f32 c = std::cos(next), si = std::sin(next), t = 1.f - c;
+				m_aim_off = {
+					c + t * ax * ax, t * ax * ay - si * az, t * ax * az + si * ay,
+					t * ax * ay + si * az, c + t * ay * ay, t * ay * az - si * ax,
+					t * ax * az - si * ay, t * ay * az + si * ax, c + t * az * az};
+			}
+		}
+		// Drift from the products, and a safety stop: an offset past 120 degrees is not an aim any more.
+		if (!orthonormalize(m_aim_off) || rotation_angle(m_aim_off) > 120.f / deg)
+		{
+			if (m_aim_off != identity)
+			{
+				vr_probe_log.warning("Head aim: offset reset (more than 120 degrees from the game camera).");
+			}
+			m_aim_off = identity;
+		}
+		apply_head_aim_offset();
+
+		// Where the aim is seen: a = head x offset x (0, 0, 1), in the eye's basis. The camera has to turn by its angles
+		// from straight ahead (+ right, + up).
+		const f32 ax = m_vr_rot[2], ay = y_up * m_vr_rot[5], az = m_vr_rot[8];
+		f32 err_x = std::atan2(-ax, az) * deg;
+		f32 err_y = std::atan2(-ay, std::sqrt(ax * ax + az * az)) * deg;
+		if (active && !m_aim_was_active)
+		{
+			// Relative: the aim keeps its place in the view it had at the press; gaze: it goes to the view's centre.
+			m_aim_ref = rule.gaze ? std::array<f32, 2>{} : std::array<f32, 2>{err_x, err_y};
+			m_aim_votes = {};
+			m_aim_active_frames = 0;
+			vr_probe_log.notice("Head aim: on (aim %.1f, %.1f degrees from the view's centre).", err_x, err_y);
+		}
+		else if (!active && m_aim_was_active)
+		{
+			vr_probe_log.notice("Head aim: off (offset %.1f degrees, returning).", rotation_angle(m_aim_off) * deg);
+		}
+		m_aim_was_active = active;
+		m_aim_active_frames = active ? m_aim_active_frames + 1 : 0;
+		err_x -= m_aim_ref[0];
+		err_y -= m_aim_ref[1];
+		if (active && m_aim_active_frames % 90 == 0)
+		{
+			// Every ~2 s while aiming, for tuning the profile's head_aim numbers from the log.
+			vr_probe_log.notice("Head aim: error %.2f, %.2f degrees, stick %.2f, %.2f%s, view %.1f degrees off the game camera.", err_x, err_y, out_x, out_y,
+				manual ? " (player's own)" : "", rotation_angle(m_aim_off) * deg);
+		}
+		{
+			std::lock_guard lock(g_head_aim.mutex);
+			g_head_aim.valid = enabled && cam_ok && std::fabs(err_x) < 90.f && std::fabs(err_y) < 90.f;
+			g_head_aim.rule = rule;
+			g_head_aim.err_x = err_x;
+			g_head_aim.err_y = err_y;
+			g_head_aim.updated_us = now_us;
+		}
 	}
 
 	bool camera_probe::get_vr_fov(f32& tan_half_x, f32& tan_half_y) const

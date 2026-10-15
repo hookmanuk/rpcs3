@@ -92,6 +92,8 @@
 #include "util/atomic.hpp"
 #include "rsx_vr_hooks.h" // effective_vblank_rate(), multiview_active()
 
+struct Pad; // Emu/Io/pad_types.h (head_aim_pad)
+
 namespace rsx::vr
 {
 	// A profile fragment_constant_overrides entry (see title_profile).
@@ -559,6 +561,30 @@ namespace rsx::vr
 			u32 rate = 60;
 		};
 		std::vector<native_rate_rule> native_rate_when;
+		// head_aim: { "button": "L1", "full_stick_deg": 10, "min_stick": 0.15, "deadzone_deg": 0.75, "return_deg_per_s": 120,
+		// "mode": "relative" }. While the button is held in the headset view, head turns drive the right stick so the game's
+		// own camera (its aim) follows the head, and the view is held still while it turns (no double rotation): Uncharted's
+		// over-the-shoulder aim on L1. The VR setting "Head Aim" ("head_aim") switches it. See camera_probe::update_head_aim.
+		struct head_aim_rule
+		{
+			bool enabled = false;
+			u32 button_offset = 0; // CELL_PAD_BTN_OFFSET_DIGITAL1 / DIGITAL2
+			u32 button_mask = 0;   // CELL_PAD_CTRL_*
+			// Head-to-aim error (degrees) that gives a full stick; smaller errors scale down to min_stick.
+			f32 full_stick_deg = 10.f;
+			// The smallest stick deflection sent once the error is past deadzone_deg (past the game's own stick dead zone).
+			f32 min_stick = 0.15f;
+			// Errors under this angle send a centred stick.
+			f32 deadzone_deg = 0.75f;
+			// After the button is let go, the view turns back onto the game camera at this rate (degrees per second).
+			f32 return_deg_per_s = 120.f;
+			// A right stick pushed past this (0..1) while the button is held is the player's own: it is passed through, and
+			// the view turns with the game camera as usual (the head aim resumes from where it was when the stick returns).
+			f32 manual_stick = 0.3f;
+			// "relative" (default): head movement after the press moves the aim; "gaze": the aim goes to where the head
+			// points at the press.
+			bool gaze = false;
+		} head_aim;
 		// culling_scale_f32: { "address": "0x...", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }.
 		// A culling-widening patch's scale word (the game culls against fov_deg x scale high, at its aspect), written
 		// each frame in the headset view with the smallest scale whose frustum holds the headset's at the current head
@@ -748,6 +774,9 @@ namespace rsx::vr
 	bool hud_hidden();
 	// A pad's Toggle HUD button state, polled with the pad (each press toggles; pad: any per-pad key).
 	void pad_toggle_hud_button(const void* pad, bool pressed);
+	// Head aim (profile head_aim): called by the pad thread with player 1's pad after its external buttons and sticks are
+	// built. While the profile's button is held in the headset view, replaces the right stick with the head-to-aim error.
+	void head_aim_pad(Pad& pad);
 
 	// A headset session is running (the VR frame rate applies).
 	void set_headset_active(bool active);
@@ -764,8 +793,9 @@ namespace rsx::vr
 	bool frame_rate_option_allowed(u32 option, u32 max_fps);
 
 	// Profile rules tagged "option": "reflections" | "mirror" | "distant_cars" | "highest_detail" | "simpler_vehicles" |
-	// "fewer_shadows" follow the VR settings Reduced-Rate Reflections, Reduced-Rate Mirror, Simpler Distant Cars, Highest
-	// Detail Models, Simpler Other Vehicles and Fewer Shadows (live). Untagged rules and unknown names are always on.
+	// "fewer_shadows" | "head_aim" follow the VR settings Reduced-Rate Reflections, Reduced-Rate Mirror, Simpler Distant
+	// Cars, Highest Detail Models, Simpler Other Vehicles, Fewer Shadows and Head Aim (live). Untagged rules and unknown
+	// names are always on.
 	bool profile_option_enabled(const std::string& option);
 	// The home menu shows a setting only for games whose profile has a rule tagged with it.
 	bool profile_has_option(const title_profile& profile, std::string_view option);
@@ -1113,7 +1143,8 @@ namespace rsx::vr
 		// Gate 6 headset view (see set_vr_view). m_vr_rot is the head rotation
 		// transposed, expressed in the draw's clip basis (NDC x, NDC y, clip w).
 		bool m_vr_view = false;
-		std::array<f32, 9> m_vr_rot{};
+		// mutable: head aim (update_head_aim) turns it by m_aim_off at the frame's first camera draw.
+		mutable std::array<f32, 9> m_vr_rot{};
 		f32 m_vr_eye_scale = 1.f;
 		f32 m_vr_fov_scale = 1.f;
 		bool m_vr_flip_y = false;
@@ -1126,8 +1157,26 @@ namespace rsx::vr
 		// Head translation for this frame, in the clip basis (right, up or down, forward):
 		// m_vr_head_units in game units for camera draws, m_vr_head_m in metres for the
 		// fixed screen-space box, which lives at a known distance.
-		std::array<f32, 3> m_vr_head_units{};
-		std::array<f32, 3> m_vr_head_m{};
+		mutable std::array<f32, 3> m_vr_head_units{};
+		mutable std::array<f32, 3> m_vr_head_m{};
+
+		// Head aim (profile head_aim, see update_head_aim). The headset pose as set_vr_view computed it; m_vr_rot and the
+		// head offsets above are these turned by m_aim_off, the rotation (clip basis) between the game camera and the
+		// view the headset shows: identity outside head aim. m_aim_cam: the game camera's basis at the last update.
+		std::array<f32, 9> m_vr_head_rot{};
+		std::array<f32, 3> m_vr_head_units_raw{};
+		std::array<f32, 3> m_vr_head_m_raw{};
+		mutable std::array<f32, 9> m_aim_off{1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+		mutable std::array<f32, 9> m_aim_cam{};
+		mutable bool m_aim_cam_valid = false;
+		mutable bool m_aim_pending = false; // set by set_vr_view: this frame's first camera draw updates the head aim
+		mutable bool m_aim_was_active = false;
+		mutable u32 m_aim_active_frames = 0;
+		mutable std::array<f32, 2> m_aim_ref{}; // relative mode: the head-to-aim error at the press (degrees)
+		mutable std::array<s32, 2> m_aim_votes{}; // stick direction check: + the camera moved the way the stick pushed
+		mutable u64 m_aim_last_us = 0;
+		void update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const;
+		void apply_head_aim_offset() const;
 		f32 m_vr_hud_depth = 0.f;         // metres
 		f32 m_vr_hud_parallax = 0.f;      // ipd / (2 * depth): per-eye view-space x shift at unit forward distance
 		f32 m_vr_eye_fov[2][4]{};         // rendered

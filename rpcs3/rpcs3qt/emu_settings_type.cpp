@@ -270,6 +270,7 @@ const std::map<emu_settings_type, cfg_location> settings_location =
 	{ emu_settings_type::VRSimplerDistantCars,       get_cfg_location(local_cfg.video.vr.simpler_distant_cars) },
 	{ emu_settings_type::VRSimplerVehicles,          get_cfg_location(local_cfg.video.vr.simpler_vehicles) },
 	{ emu_settings_type::VRFewerShadows,             get_cfg_location(local_cfg.video.vr.fewer_shadows) },
+	{ emu_settings_type::VRHeadAim,                  get_cfg_location(local_cfg.video.vr.head_aim) },
 	{ emu_settings_type::VRScreenDepth,              get_cfg_location(local_cfg.video.vr.screen_depth) },
 	{ emu_settings_type::VRHudScale,                 get_cfg_location(local_cfg.video.vr.hud_scale) },
 	{ emu_settings_type::VRHudOffsetX,               get_cfg_location(local_cfg.video.vr.hud_offset_x) },

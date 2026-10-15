@@ -56,6 +56,13 @@
              </widget>
             </item>
             <item>
+             <widget class="QCheckBox" name="vrHeadAim">
+              <property name="text">
+               <string>Head Aim</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QCheckBox" name="vrReducedRateReflections">
               <property name="text">
                <string>Reduced-Rate Reflections</string>
