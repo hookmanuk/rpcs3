@@ -584,6 +584,9 @@ namespace rsx::vr
 			// "relative" (default): head movement after the press moves the aim; "gaze": the aim goes to where the head
 			// points at the press.
 			bool gaze = false;
+			// The aim turns this many times as far as the head (relative mode): 1 keeps the aim on where the head looks,
+			// 2.5 turns it 25 degrees for 10 of head turn, so a small head movement sweeps the aim across the view.
+			f32 gain = 1.f;
 		} head_aim;
 		// culling_scale_f32: { "address": "0x...", "fov_deg": 60, "aspect": 1.7778, "margin_deg": 6, "min": 1.0, "max": 2.5 }.
 		// A culling-widening patch's scale word (the game culls against fov_deg x scale high, at its aspect), written
@@ -1173,6 +1176,7 @@ namespace rsx::vr
 		mutable bool m_aim_was_active = false;
 		mutable u32 m_aim_active_frames = 0;
 		mutable std::array<f32, 2> m_aim_ref{}; // relative mode: the head-to-aim error at the press (degrees)
+		mutable std::array<f32, 2> m_aim_turned{}; // degrees the game camera turned (+ right, + up) while driven since the press
 		mutable std::array<s32, 2> m_aim_votes{}; // stick direction check: + the camera moved the way the stick pushed
 		mutable u64 m_aim_last_us = 0;
 		void update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const;

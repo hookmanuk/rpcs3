@@ -1395,6 +1395,8 @@ namespace rsx::vr
 			read(head_aim, "deadzone_deg", rule.deadzone_deg, false);
 			read(head_aim, "return_deg_per_s", rule.return_deg_per_s, false);
 			read(head_aim, "manual_stick", rule.manual_stick, false);
+			read(head_aim, "gain", rule.gain, false);
+			rule.gain = std::clamp(rule.gain, 0.25f, 10.f);
 			std::string mode = "relative";
 			read(head_aim, "mode", mode, false);
 			rule.gaze = mode == "gaze";
@@ -1711,7 +1713,7 @@ namespace rsx::vr
 		}
 
 		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "head_aim"});
-		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode"});
+		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
@@ -4448,6 +4450,8 @@ namespace rsx::vr
 				if (driving)
 				{
 					m_aim_off = mul3(m_aim_off, turn);
+					m_aim_turned[0] += std::atan2(turn[2], turn[8]) * deg;
+					m_aim_turned[1] += std::atan2(y_up * turn[5], turn[8]) * deg;
 				}
 				// Stick direction check: the new forward in the previous camera's basis is turn x (0, 0, 1). A camera that
 				// keeps turning against a strong request means the game's look is inverted on that axis: flip the stick.
@@ -4523,6 +4527,7 @@ namespace rsx::vr
 		{
 			// Relative: the aim keeps its place in the view it had at the press; gaze: it goes to the view's centre.
 			m_aim_ref = rule.gaze ? std::array<f32, 2>{} : std::array<f32, 2>{err_x, err_y};
+			m_aim_turned = {};
 			m_aim_votes = {};
 			m_aim_active_frames = 0;
 			vr_probe_log.notice("Head aim: on (aim %.1f, %.1f degrees from the view's centre).", err_x, err_y);
@@ -4535,6 +4540,13 @@ namespace rsx::vr
 		m_aim_active_frames = active ? m_aim_active_frames + 1 : 0;
 		err_x -= m_aim_ref[0];
 		err_y -= m_aim_ref[1];
+		if (active && !rule.gaze && rule.gain != 1.f)
+		{
+			// The error is the head's turn since the press minus the camera's (the offset keeps the view from turning with
+			// the camera); with a gain the camera's target is gain x the head's turn.
+			err_x = rule.gain * err_x + (rule.gain - 1.f) * m_aim_turned[0];
+			err_y = rule.gain * err_y + (rule.gain - 1.f) * m_aim_turned[1];
+		}
 		if (active && m_aim_active_frames % 90 == 0)
 		{
 			// Every ~2 s while aiming, for tuning the profile's head_aim numbers from the log.
