@@ -1109,6 +1109,25 @@ namespace rsx::vr
 				profile->game_camera_programs.push_back(hash);
 			}
 		}
+		if (const YAML::Node rules = child(root, "inverse_camera_programs"); rules && rules.IsSequence())
+		{
+			// [{ "program": "<vertex ucode hash>", "block": 200 }]
+			for (const auto& node : rules)
+			{
+				check_keys(node, " in inverse_camera_programs", {"program", "block"});
+				title_profile::inverse_camera_program rule;
+				const std::string text = node["program"] ? node["program"].as<std::string>() : std::string();
+				char* end = nullptr;
+				rule.program = std::strtoull(text.c_str(), &end, 16);
+				if (text.empty() || !end || *end)
+				{
+					fail("inverse_camera_programs: '" + text + "' is not a hex program hash");
+					continue;
+				}
+				rule.block = node["block"] ? node["block"].as<u32>() : 0;
+				profile->inverse_camera_programs.push_back(rule);
+			}
+		}
 		for (const char* key : {"depth_remap_programs", "depth_remap_volume_programs"})
 		{
 			if (const YAML::Node programs = child(root, key); programs && programs.IsSequence())
@@ -1721,7 +1740,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "head_aim"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim"});
 		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
@@ -3330,6 +3349,11 @@ namespace rsx::vr
 		if (profile.orthographic_stereo_angle > 0.f)
 		{
 			return apply_orthographic_eye(profile, buffer, reloc, reloc_size, surface_w, surface_h, eye_sign);
+		}
+
+		if (!profile.inverse_camera_programs.empty() && apply_inverse_camera(profile, buffer, reloc, reloc_size, eye_sign))
+		{
+			return true;
 		}
 
 		// The position policy has a wider domain than the matrix policy. Locate a
@@ -5012,6 +5036,94 @@ namespace rsx::vr
 				m[r][col] = rows[r][col];
 			}
 		}
+		return true;
+	}
+
+	bool camera_probe::apply_inverse_camera(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size, f32 eye_sign) const
+	{
+		const auto it = std::find_if(profile.inverse_camera_programs.begin(), profile.inverse_camera_programs.end(),
+			[&](const auto& rule) { return rule.program == m_draw_program; });
+		const u32 eye = eye_sign < 0.f ? 0 : 1;
+		if (it == profile.inverse_camera_programs.end() || !m_vr_view || !m_vr_last_block_valid[eye])
+		{
+			if (static u32 s_logged = 0; it != profile.inverse_camera_programs.end() && s_logged++ < 2)
+			{
+				vr_probe_log.notice("inverse_camera_programs: %016x not applied (headset view %d, scene block for eye %u %d)", m_draw_program, !!m_vr_view, eye, !!m_vr_last_block_valid[eye]);
+			}
+			return false;
+		}
+		if (static u32 s_logged = 0; s_logged++ < 2)
+		{
+			vr_probe_log.notice("inverse_camera_programs: %016x block c[%u] rewritten for eye %u", m_draw_program, it->block, eye);
+		}
+		f32* slots[4];
+		for (u32 i = 0; i < 4; ++i)
+		{
+			slots[i] = find_slot(buffer, reloc, reloc_size, it->block + i);
+			if (!slots[i])
+			{
+				return false;
+			}
+		}
+		// Shader convention: out_i = dot(v, c[block + i]), so with H[i][j] = c[block + i][j], out = H v. The stored
+		// blocks are in the probe's row-vector convention (clip = v * M); for column-vector programs that is the
+		// transpose of the shader's rows, for row-vector ones the shader's rows themselves.
+		const auto shader = [&](const f32 (&m)[4][4], f64 (&out)[4][4])
+		{
+			for (u32 r = 0; r < 4; ++r)
+				for (u32 c = 0; c < 4; ++c)
+					out[r][c] = profile.column_vectors ? m[c][r] : m[r][c];
+		};
+		f64 g[4][4], e[4][4];
+		shader(m_vr_last_block[eye], g);
+		shader(m_vr_last_eye_block[eye], e);
+		// E^-1 by Gauss-Jordan with partial pivoting.
+		f64 a[4][8];
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+			{
+				a[r][c] = e[r][c];
+				a[r][c + 4] = r == c ? 1.0 : 0.0;
+			}
+		for (u32 k = 0; k < 4; ++k)
+		{
+			u32 pivot = k;
+			for (u32 r = k + 1; r < 4; ++r)
+				if (std::fabs(a[r][k]) > std::fabs(a[pivot][k]))
+					pivot = r;
+			if (std::fabs(a[pivot][k]) < 1e-12)
+				return false;
+			for (u32 j = 0; j < 8; ++j)
+				std::swap(a[k][j], a[pivot][j]);
+			const f64 inv = 1.0 / a[k][k];
+			for (u32 j = 0; j < 8; ++j)
+				a[k][j] *= inv;
+			for (u32 r = 0; r < 4; ++r)
+			{
+				if (r == k)
+					continue;
+				const f64 f = a[r][k];
+				for (u32 j = 0; j < 8; ++j)
+					a[r][j] -= f * a[k][j];
+			}
+		}
+		// T = G * E^-1 takes the eye's clip position to the game camera's; the pass's H then gives the world ray.
+		f64 t[4][4]{};
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				for (u32 k = 0; k < 4; ++k)
+					t[r][c] += g[r][k] * a[k][c + 4];
+		f64 h[4][4], out[4][4]{};
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				h[r][c] = slots[r][c];
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				for (u32 k = 0; k < 4; ++k)
+					out[r][c] += h[r][k] * t[k][c];
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				slots[r][c] = static_cast<f32>(out[r][c]);
 		return true;
 	}
 

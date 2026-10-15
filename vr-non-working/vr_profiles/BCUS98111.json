@@ -33,6 +33,6 @@
     "hud_skips_passes": true,
     "passthrough_hud": true,
     "hud_programs": ["a87982423fedbeb4"],
-    "screen_frame_draws": [ { "program": "65b096c6ed0aba8c", "texture": "128x128" } ]
+    "screen_frame_draws": [ { "program": "65b096c6ed0aba8c", "texture": "128x128" }, { "program": "a17105d6566d129d", "texture": "1280x720" }, { "program": "611d3d65c7fb2bdc", "texture": "256x256" } ]
   }
 }
