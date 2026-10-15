@@ -18,6 +18,8 @@
 #include "Emu/RSX/Program/ShaderInterpreter.h"
 #include "Emu/RSX/Program/ShaderParam.h"
 #include "Utilities/StrFmt.h"
+#include "Utilities/stack_trace.h"
+#include "Emu/Cell/timers.hpp"
 #include "Emu/RSX/gcm_enums.h" // RSX_SHADER_CONTROL_INSTANCED_CONSTANTS
 #include "../Capture/rsx_camera_probe.h" // profile depth_remap_ray_texcoord, depth_remap_xyw
 
@@ -844,6 +846,73 @@ namespace vk
 			.pfnUserCallback = abr_callback
 		};
 		create(instance, &info, nullptr, &s_abr_messenger);
+	}
+
+	// Dev barrier census (RPCS3_VR_BARRIER_CENSUS=1): every pipeline barrier recorded through vkutils counts against its
+	// three nearest callers; every 5 s the log gets the total per second and the top call chains.
+	void vr_barrier_census()
+	{
+		static const bool s_on = std::getenv("RPCS3_VR_BARRIER_CENSUS") != nullptr;
+		if (!s_on)
+		{
+			return;
+		}
+		struct chain_t
+		{
+			void* f[3];
+			bool operator==(const chain_t& o) const { return f[0] == o.f[0] && f[1] == o.f[1] && f[2] == o.f[2]; }
+		};
+		struct chain_hash
+		{
+			usz operator()(const chain_t& c) const { return std::hash<void*>()(c.f[0]) ^ (std::hash<void*>()(c.f[1]) << 1) ^ (std::hash<void*>()(c.f[2]) << 2); }
+		};
+		static std::mutex s_mutex;
+		static std::unordered_map<chain_t, u32, chain_hash> s_counts;
+		static u64 s_start = 0;
+		static u64 s_total = 0;
+		chain_t chain{};
+#ifdef _WIN32
+		void* frames[4]{};
+		const USHORT n = RtlCaptureStackBackTrace(1, 4, frames, nullptr);
+		for (USHORT i = 1; i < n && i < 4; ++i)
+			chain.f[i - 1] = frames[i];
+#endif
+		std::lock_guard lock(s_mutex);
+		s_counts[chain]++;
+		s_total++;
+		const u64 now = get_system_time();
+		if (!s_start)
+		{
+			s_start = now;
+		}
+		if (now - s_start < 5'000'000)
+		{
+			return;
+		}
+		std::vector<std::pair<u32, chain_t>> order;
+		for (const auto& [c, count] : s_counts)
+			order.emplace_back(count, c);
+		std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+		std::string text = fmt::format("VR barrier census: %.0f barriers/s over %.1f s; top call chains (count/s: caller < its caller < ...):", s_total * 1e6 / (now - s_start), (now - s_start) / 1e6);
+		for (usz i = 0; i < std::min<usz>(order.size(), 14); ++i)
+		{
+			std::vector<void*> stack;
+			for (void* f : order[i].second.f)
+				if (f) stack.push_back(f);
+			const auto names = utils::get_backtrace_symbols(stack);
+			std::string joined;
+			for (const auto& nm : names)
+			{
+				std::string_view v = nm;
+				if (v.size() > 90) v = v.substr(0, 90);
+				joined += (joined.empty() ? "" : " < ") + std::string(v);
+			}
+			fmt::append(text, "\n   %7.1f  %s", order[i].first * 1e6 / (now - s_start), joined);
+		}
+		rsx_log.notice("%s", text);
+		s_counts.clear();
+		s_total = 0;
+		s_start = now;
 	}
 
 	bool vr_gpu_checkpoints_enabled()

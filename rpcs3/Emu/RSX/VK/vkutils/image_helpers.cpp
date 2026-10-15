@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "image_helpers.h"
+#include "barriers.h" // VR fork: vr_barrier_census
 #include "image.h"
 #include "../VKRenderPass.h"
 #include "../../Utils/color_utils.hpp"
@@ -213,6 +214,7 @@ namespace vk
 		if (!barrier.srcAccessMask) src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		if (!barrier.dstAccessMask) dst_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
+		vk::vr_barrier_census(); // VR fork: dev barrier census (RPCS3_VR_BARRIER_CENSUS)
 		vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 	}
 
