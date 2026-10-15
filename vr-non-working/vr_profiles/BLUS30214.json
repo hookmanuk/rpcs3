@@ -7,7 +7,8 @@
   "default_fps": 0,
 
   "culling_scale_f32": [
-    { "address": "0x15855d0", "fov_deg": 44, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 6.0, "mode": "tangent" }
+    { "address": "0x15855d0", "fov_deg": 44, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 6.0, "mode": "tangent" },
+    { "address": "0x15855d4", "fov_deg": 44, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 4.0, "mode": "tangent" }
   ],
 
   "fragment_constant_overrides": [
