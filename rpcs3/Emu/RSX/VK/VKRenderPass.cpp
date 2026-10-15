@@ -379,6 +379,7 @@ namespace vk
 		rp_info.pDependencies = subpass_dependencies.data();
 
 		VkRenderPass result;
+		if (!vk::vr_vrs_create_renderpass(dev, renderpass_key, rp_info, result)) // VR fork: the variant with a shading rate attachment (renderpass2)
 		CHECK_RESULT(vkCreateRenderPass(dev, &rp_info, NULL, &result));
 
 		g_renderpass_cache[renderpass_key] = result;

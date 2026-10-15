@@ -856,12 +856,251 @@ namespace vk
 		return s_on;
 	}
 
+
+	// ---- Variable-rate shading (plans/11-vrs-plan.md) -------------------------------------------------------
+
+	namespace
+	{
+		struct vr_vrs_device_t
+		{
+			bool supported = false;   // extension and attachment rates available, and asked for (RPCS3_VR_VRS)
+			u32 texel = 16;           // shading-rate texel size (the largest of min width/height)
+			u8 max_code = 5;          // largest fragment size code the device supports (5 = 2x2, 10 = 4x4)
+			bool depth_writes = false; // fragmentShadingRateWithShaderDepthStencilWrites
+			VkPhysicalDeviceFragmentShadingRateFeaturesKHR features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+		} s_vrs;
+
+		int vr_vrs_requested()
+		{
+			// Dev: RPCS3_VR_VRS=1 (mild: 1x1 inside 70 % of each eye's lens ellipse), 2 (strong: 55 %), 3 (plumbing test:
+			// the attachment with 1x1 everywhere), 4 (test: 2x2 everywhere). Read once, at device creation.
+			static const int s_mode = []()
+			{
+				const char* v = std::getenv("RPCS3_VR_VRS");
+				return v ? std::clamp(std::atoi(v), 0, 4) : 0;
+			}();
+			return s_mode;
+		}
+	}
+
+	bool vr_vrs_supported()
+	{
+		return s_vrs.supported;
+	}
+
+	int vr_vrs_mode()
+	{
+		return s_vrs.supported ? vr_vrs_requested() : 0;
+	}
+
+	u32 vr_vrs_texel_size()
+	{
+		return s_vrs.texel;
+	}
+
+	u8 vr_vrs_max_rate_code()
+	{
+		return s_vrs.max_code;
+	}
+
+	void vr_vrs_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
+	{
+		s_vrs = {};
+		if (!vr_vrs_requested())
+		{
+			return;
+		}
+		const supported_extensions support(supported_extensions::device, nullptr, pdev);
+		if (!support.is_supported(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME))
+		{
+			rsx_log.warning("VR: variable-rate shading requested (RPCS3_VR_VRS) but VK_KHR_fragment_shading_rate is unsupported.");
+			return;
+		}
+		VkPhysicalDeviceFragmentShadingRateFeaturesKHR features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+		VkPhysicalDeviceFeatures2 features2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &features};
+		vkGetPhysicalDeviceFeatures2(pdev, &features2);
+		VkPhysicalDeviceFragmentShadingRatePropertiesKHR props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR};
+		VkPhysicalDeviceProperties2 props2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &props};
+		vkGetPhysicalDeviceProperties2(pdev, &props2);
+		if (!features.attachmentFragmentShadingRate)
+		{
+			rsx_log.warning("VR: variable-rate shading: the device has no attachment shading rates.");
+			return;
+		}
+		s_vrs.supported = true;
+		s_vrs.texel = std::max({props.minFragmentShadingRateAttachmentTexelSize.width, props.minFragmentShadingRateAttachmentTexelSize.height, 1u});
+		s_vrs.max_code = (props.maxFragmentSize.width >= 4 && props.maxFragmentSize.height >= 4) ? 10 : 5;
+		s_vrs.depth_writes = !!props.fragmentShadingRateWithShaderDepthStencilWrites;
+		s_vrs.features.attachmentFragmentShadingRate = VK_TRUE;
+		s_vrs.features.pipelineFragmentShadingRate = features.pipelineFragmentShadingRate;
+		extensions.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+		rsx_log.notice("VR: variable-rate shading (RPCS3_VR_VRS=%d): texel %ux%u, max fragment %ux%u, with depth writes %d, multiple viewports %d",
+			vr_vrs_requested(), props.minFragmentShadingRateAttachmentTexelSize.width, props.minFragmentShadingRateAttachmentTexelSize.height,
+			props.maxFragmentSize.width, props.maxFragmentSize.height, s_vrs.depth_writes, props.primitiveFragmentShadingRateWithMultipleViewports);
+	}
+
+	void vr_vrs_device_chain(VkDeviceCreateInfo& info)
+	{
+		if (!s_vrs.supported)
+		{
+			return;
+		}
+		s_vrs.features.pNext = const_cast<void*>(info.pNext);
+		info.pNext = &s_vrs.features;
+	}
+
+	bool vr_vrs_create_renderpass(VkDevice dev, u64 renderpass_key, const VkRenderPassCreateInfo& info, VkRenderPass& result)
+	{
+		if (!vr_vrs_renderpass_has_rate(renderpass_key) || !s_vrs.supported || info.subpassCount != 1)
+		{
+			return false;
+		}
+		// The same pass through renderpass2 (the shading-rate attachment needs VkSubpassDescription2), with the rate attachment
+		// before depth (framebuffer_holder::depth_format() reads the last attachment) or last without depth.
+		const VkSubpassDescription& sp = info.pSubpasses[0];
+		const u32 rate_index = sp.pDepthStencilAttachment ? sp.pDepthStencilAttachment->attachment : info.attachmentCount;
+		const auto remap = [&](u32 a) { return (a != VK_ATTACHMENT_UNUSED && a >= rate_index) ? a + 1 : a; };
+
+		VkAttachmentDescription2 rate{VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+		rate.format = VK_FORMAT_R8_UINT;
+		rate.samples = VK_SAMPLE_COUNT_1_BIT;
+		rate.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		rate.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		rate.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		rate.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		rate.initialLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+		rate.finalLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+
+		std::vector<VkAttachmentDescription2> attachments;
+		attachments.reserve(info.attachmentCount + 1);
+		for (u32 i = 0; i <= info.attachmentCount; ++i)
+		{
+			if (i == rate_index)
+			{
+				attachments.push_back(rate);
+			}
+			if (i == info.attachmentCount)
+			{
+				break;
+			}
+			const VkAttachmentDescription& a = info.pAttachments[i];
+			VkAttachmentDescription2 a2{VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+			a2.flags = a.flags;
+			a2.format = a.format;
+			a2.samples = a.samples;
+			a2.loadOp = a.loadOp;
+			a2.storeOp = a.storeOp;
+			a2.stencilLoadOp = a.stencilLoadOp;
+			a2.stencilStoreOp = a.stencilStoreOp;
+			a2.initialLayout = a.initialLayout;
+			a2.finalLayout = a.finalLayout;
+			attachments.push_back(a2);
+		}
+
+		const auto ref2 = [&](const VkAttachmentReference& r, VkImageAspectFlags aspect)
+		{
+			VkAttachmentReference2 r2{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+			r2.attachment = remap(r.attachment);
+			r2.layout = r.layout;
+			r2.aspectMask = aspect;
+			return r2;
+		};
+		std::vector<VkAttachmentReference2> colours, inputs;
+		for (u32 i = 0; i < sp.colorAttachmentCount; ++i)
+			colours.push_back(ref2(sp.pColorAttachments[i], 0));
+		for (u32 i = 0; i < sp.inputAttachmentCount; ++i)
+			inputs.push_back(ref2(sp.pInputAttachments[i], VK_IMAGE_ASPECT_COLOR_BIT));
+		VkAttachmentReference2 depth{};
+		if (sp.pDepthStencilAttachment)
+			depth = ref2(*sp.pDepthStencilAttachment, 0);
+
+		VkAttachmentReference2 rate_ref{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+		rate_ref.attachment = rate_index;
+		rate_ref.layout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+		VkFragmentShadingRateAttachmentInfoKHR rate_info{VK_STRUCTURE_TYPE_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR};
+		rate_info.pFragmentShadingRateAttachment = &rate_ref;
+		rate_info.shadingRateAttachmentTexelSize = {s_vrs.texel, s_vrs.texel};
+
+		static constexpr u32 view_masks[4] = {0u, 0b11u, 0b01u, 0b10u};
+		const u32 view_mask = view_masks[get_renderpass_view_mask(renderpass_key) & 3];
+		VkSubpassDescription2 sp2{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+		sp2.pNext = &rate_info;
+		sp2.flags = sp.flags;
+		sp2.pipelineBindPoint = sp.pipelineBindPoint;
+		sp2.viewMask = view_mask;
+		sp2.inputAttachmentCount = ::size32(inputs);
+		sp2.pInputAttachments = inputs.empty() ? nullptr : inputs.data();
+		sp2.colorAttachmentCount = ::size32(colours);
+		sp2.pColorAttachments = colours.empty() ? nullptr : colours.data();
+		sp2.pDepthStencilAttachment = sp.pDepthStencilAttachment ? &depth : nullptr;
+
+		std::vector<VkSubpassDependency2> dependencies;
+		for (u32 i = 0; i < info.dependencyCount; ++i)
+		{
+			const VkSubpassDependency& d = info.pDependencies[i];
+			VkSubpassDependency2 d2{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
+			d2.srcSubpass = d.srcSubpass;
+			d2.dstSubpass = d.dstSubpass;
+			d2.srcStageMask = d.srcStageMask;
+			d2.dstStageMask = d.dstStageMask;
+			d2.srcAccessMask = d.srcAccessMask;
+			d2.dstAccessMask = d.dstAccessMask;
+			d2.dependencyFlags = d.dependencyFlags;
+			dependencies.push_back(d2);
+		}
+
+		VkRenderPassCreateInfo2 info2{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
+		info2.flags = info.flags;
+		info2.attachmentCount = ::size32(attachments);
+		info2.pAttachments = attachments.data();
+		info2.subpassCount = 1;
+		info2.pSubpasses = &sp2;
+		info2.dependencyCount = ::size32(dependencies);
+		info2.pDependencies = dependencies.empty() ? nullptr : dependencies.data();
+		info2.correlatedViewMaskCount = view_mask ? 1 : 0;
+		info2.pCorrelatedViewMasks = view_mask ? &view_mask : nullptr;
+		CHECK_RESULT(vkCreateRenderPass2(dev, &info2, nullptr, &result));
+		return true;
+	}
+
+	static atomic_t<bool> s_vrs_reverse_z = false;
+
+	void vr_vrs_note_depth_clear(f32 clear_value)
+	{
+		s_vrs_reverse_z = clear_value < 0.5f;
+	}
+
+	void vr_vrs_apply_pipeline_props(pipeline_props& props)
+	{
+		if (!vr_vrs_renderpass_has_rate(props.renderpass_key) || !g_cfg.video.emulate_depth_compare || !props.state.ds.depthTestEnable ||
+			props.state.ds.depthCompareOp != VK_COMPARE_OP_EQUAL)
+		{
+			return;
+		}
+		props.state.ds.depthCompareOp = s_vrs_reverse_z ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+	}
+
+	const void* vr_vrs_pipeline_chain(u64 renderpass_key)
+	{
+		// The attachment's rate replaces the pipeline's 1x1 (the default combiners would keep 1x1 and ignore the attachment).
+		static const VkPipelineFragmentShadingRateStateCreateInfoKHR s_state = []()
+		{
+			VkPipelineFragmentShadingRateStateCreateInfoKHR s{VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR};
+			s.fragmentSize = {1, 1};
+			s.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+			s.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+			return s;
+		}();
+		return (s_vrs.supported && vr_vrs_renderpass_has_rate(renderpass_key)) ? &s_state : nullptr;
+	}
+
 	static VkPhysicalDevice s_device_pdev = VK_NULL_HANDLE; // the device being created (vr_gpu_checkpoints_chain)
 
 	void vr_gpu_checkpoints_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions)
 	{
 		s_device_pdev = pdev;
 		vk::dlss_device_extensions(pdev, extensions); // DLSS test: NGX's device extensions (RPCS3_DLSS)
+		vr_vrs_device_extensions(pdev, extensions);   // variable-rate shading (RPCS3_VR_VRS)
 		if (!vr_gpu_checkpoints_enabled())
 		{
 			return;
@@ -883,6 +1122,7 @@ namespace vk
 	void vr_gpu_checkpoints_chain(VkDeviceCreateInfo& info)
 	{
 		vk::dlss_device_chain(s_device_pdev, info); // DLSS test: the features NGX needs (RPCS3_DLSS)
+		vr_vrs_device_chain(info);                    // variable-rate shading
 		if (!vr_gpu_checkpoints_enabled())
 		{
 			return;

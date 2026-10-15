@@ -184,4 +184,26 @@ namespace vk
 	void vr_gpu_checkpoint(VkCommandBuffer cmd, const vr_gpu_checkpoint_info& info);
 	// Polled from the OpenXR frame thread (it keeps running when RSX waits forever): once the device is lost, logs.
 	void vr_gpu_checkpoints_check(VkDevice dev, VkFence any_fence, VkQueue render_queue, VkQueue xr_queue);
+
+	// ---- Variable-rate shading (plans/11-vrs-plan.md) -------------------------------------------------------
+	// Render pass key bit 45: the pass has a fragment shading rate attachment, before depth (or last without depth).
+	// renderpass_key_blob uses bits 0-43; DLSS's motion attachment is bit 44.
+	constexpr u64 vr_vrs_renderpass_bit = 1ull << 45;
+	inline bool vr_vrs_renderpass_has_rate(u64 key) { return !!(key & vr_vrs_renderpass_bit); }
+	bool vr_vrs_supported();
+	int vr_vrs_mode(); // 0 off; 1 mild, 2 strong, 3 the attachment with 1x1 everywhere (dev RPCS3_VR_VRS)
+	u32 vr_vrs_texel_size();
+	u8 vr_vrs_max_rate_code(); // 5 = 2x2, 10 = 4x4
+	// Device creation (through vr_gpu_checkpoints_extensions / _chain): the extension and its features.
+	void vr_vrs_device_extensions(VkPhysicalDevice pdev, std::vector<const char*>& extensions);
+	void vr_vrs_device_chain(VkDeviceCreateInfo& info);
+	// get_renderpass(): builds the pass with the rate attachment (renderpass2) when the key has the bit; false otherwise.
+	bool vr_vrs_create_renderpass(VkDevice dev, u64 renderpass_key, const VkRenderPassCreateInfo& info, VkRenderPass& result);
+	// Pipeline creation: the shading-rate state letting the attachment's rate win, for passes with the bit; else nullptr.
+	const void* vr_vrs_pipeline_chain(u64 renderpass_key);
+	// load_program() (through dlss_apply_pipeline_props): in a pass with the rate attachment, an EQUAL depth test that the
+	// special depth-compare emulation would have handled tests LESS_OR_EQUAL (GREATER_OR_EQUAL when the game clears depth
+	// to 0) instead: these passes redraw the prepass's surfaces without writing depth.
+	void vr_vrs_apply_pipeline_props(pipeline_props& props);
+	void vr_vrs_note_depth_clear(f32 clear_value); // vr_after_clear: the game's full depth clear value
 } // namespace vk

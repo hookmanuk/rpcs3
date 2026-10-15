@@ -35,6 +35,21 @@
 	bool m_dlss_uploading = false;             // dlss_draw_setup(): the draw's own constant upload
 	u32 m_dlss_refused_address = 0;            // a scene target refused this frame (MRT mismatch, no memory): not retried until the flip
 	std::vector<vk::image*> m_dlss_fbo_images; // its attachments: m_fbo_images with the motion image before depth
+	// Variable-rate shading (VKGSRenderVR.cpp vr_vrs_prepare_framebuffer): the shading rate map (one layer per eye), what it
+	// was built for, and the bound framebuffer's attachments with it before depth.
+	struct vr_vrs_map_t
+	{
+		std::unique_ptr<vk::image> image;
+		int mode = 0;
+		f32 visible[2][4]{};
+		f32 rendered[2][4]{};
+		bool current = true; // false once the eye fields changed: kept alive (framebuffers may still use it), never reused
+	};
+	std::vector<vr_vrs_map_t> m_vr_vrs_maps; // one per eye-target size (a game's full- and half-resolution view targets)
+	std::vector<vk::image*> m_vr_vrs_fbo_images;
+	bool m_vr_vrs_bound = false;
+	void vr_vrs_prepare_framebuffer(bool no_input_attachments);
+	vk::image* vr_vrs_rate_image(u32 width, u32 height, f32 shown_w, f32 shown_h, const f32 (&rendered)[2][4], const f32 (&visible)[2][4], int mode);
 	void dlss_init();
 	void dlss_destroy();
 	// prepare_rtts(): the render pass key (multiview view mask, the motion attachment) and the framebuffer's images.

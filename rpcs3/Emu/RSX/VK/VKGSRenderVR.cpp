@@ -3547,6 +3547,7 @@ void VKGSRender::vr_destroy_resources()
 	m_vr_staged.clear();
 	m_vr_right_rtts.destroy();
 	m_xr_overlay_img.reset();
+	m_vr_vrs_maps.clear();
 	m_vr_warp_scratch.clear();
 
 	if (s_vr_batch_owner == this)
@@ -3687,6 +3688,8 @@ void VKGSRender::vr_after_clear(bool cleared, bool full_frame, bool update_color
 
 	if (cleared && full_frame && update_z)
 	{
+		const auto depth_format = rsx::method_registers.surface_depth_fmt();
+		vk::vr_vrs_note_depth_clear(static_cast<f32>(rsx::method_registers.z_clear_value(is_depth_stencil_format(depth_format))) / get_max_depth_value(depth_format));
 		vr_fill_hidden_area();
 	}
 }
@@ -5414,4 +5417,160 @@ vk::viewable_image* VKGSRender::vr_mv_right_eye_image(vk::command_buffer& cmd, v
 	const areai whole{0, 0, static_cast<s32>(stereo_image->width()), static_cast<s32>(stereo_image->height())};
 	vk::copy_image(cmd, stereo_image, m_vr_mv_right_eye.get(), whole, whole, {.src_layer = 1, .dst_layer = 0});
 	return m_vr_mv_right_eye.get();
+}
+
+// Variable-rate shading (plans/11-vrs-plan.md): passes into eye-sized view targets get a fragment shading rate
+// attachment that keeps the centre of each eye at 1x1 and shades the lens periphery at 2x2 and the hidden corners at
+// 4x4. Dev RPCS3_VR_VRS (see VKMultiviewVR.cpp). Called from vr_renderpass_key() after the DLSS motion attachment.
+void VKGSRender::vr_vrs_prepare_framebuffer(bool no_input_attachments)
+{
+	const bool was_bound = m_vr_vrs_bound;
+	m_vr_vrs_bound = false;
+	const int mode = vk::vr_vrs_mode();
+	// Dev: RPCS3_VR_VRS_TARGET=<hex colour address> limits the attachment to passes into that target (0: depth-only passes).
+	static const s64 s_only = []() -> s64
+	{
+		const char* v = std::getenv("RPCS3_VR_VRS_TARGET");
+		return v ? static_cast<s64>(std::strtoull(v, nullptr, 16)) : -1;
+	}();
+	if (mode && m_vr_multiview && vr_draw_view_mask() == 1 && no_input_attachments && !m_fbo_images.empty() &&
+		(s_only < 0 || static_cast<u32>(s_only) == m_framebuffer_layout.color_addresses[0]))
+	{
+		const auto& probe = rsx::vr::camera_probe::get();
+		const auto* profile = probe.profile();
+		f32 rendered[2][4], visible[2][4];
+		const size2u out = g_fxo->get<rsx::avconf>().video_frame_size();
+		const f32 output_aspect = out.height ? static_cast<f32>(out.width) / out.height : 0.f;
+		if (profile && probe.vr_eye_fovs(rendered, visible) &&
+			profile->is_view_target(m_framebuffer_layout.width, m_framebuffer_layout.height, output_aspect))
+		{
+			const auto [fbo_width, fbo_height] = rsx::apply_resolution_scale<true>(resolution_scaling_config, m_framebuffer_layout.width, m_framebuffer_layout.height);
+			// The shown part (Gran Turismo 5 draws 1280x720 into 2048x1080 buffers).
+			const f32 shown_w = fbo_width * (out.width ? std::min(1.f, static_cast<f32>(out.width) / m_framebuffer_layout.width) : 1.f);
+			const f32 shown_h = fbo_height * (out.height ? std::min(1.f, static_cast<f32>(out.height) / m_framebuffer_layout.height) : 1.f);
+			if (vk::image* rate = vr_vrs_rate_image(fbo_width, fbo_height, shown_w, shown_h, rendered, visible, mode))
+			{
+				const auto& base = m_dlss_motion_bound ? m_dlss_fbo_images : m_fbo_images;
+				m_vr_vrs_fbo_images = base;
+				const bool has_depth = (base.back()->aspect() & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0;
+				m_vr_vrs_fbo_images.insert(has_depth ? m_vr_vrs_fbo_images.end() - 1 : m_vr_vrs_fbo_images.end(), rate);
+				m_current_renderpass_key |= vk::vr_vrs_renderpass_bit;
+				m_vr_vrs_bound = true;
+			}
+		}
+	}
+	if (was_bound != m_vr_vrs_bound)
+	{
+		// The pipelines of this pass are built for the render pass with (or without) the rate attachment, and its fragment
+		// programs drop (or keep) the depth-compare emulation.
+		rsx::vr::set_vrs_bound(m_vr_vrs_bound);
+		m_graphics_state |= rsx::pipeline_state::fragment_program_state_dirty | rsx::pipeline_state::vertex_program_state_dirty |
+			rsx::pipeline_state::pipeline_config_dirty;
+	}
+}
+
+vk::image* VKGSRender::vr_vrs_rate_image(u32 width, u32 height, f32 shown_w, f32 shown_h, const f32 (&rendered)[2][4], const f32 (&visible)[2][4], int mode)
+{
+	const u32 texel = vk::vr_vrs_texel_size();
+	const u32 rw = (width + texel - 1) / texel;
+	const u32 rh = (height + texel - 1) / texel;
+	for (auto& map : m_vr_vrs_maps)
+	{
+		if (!map.current || map.image->width() != rw || map.image->height() != rh)
+		{
+			continue;
+		}
+		bool same = map.mode == mode;
+		for (u32 e = 0; same && e < 2; ++e)
+			for (u32 i = 0; same && i < 4; ++i)
+				same = std::fabs(map.visible[e][i] - visible[e][i]) < 0.01f && std::fabs(map.rendered[e][i] - rendered[e][i]) < 0.01f;
+		if (same)
+		{
+			return map.image.get();
+		}
+		// The eye fields changed: retire this map (cached framebuffers may still be in flight with it).
+		map.current = false;
+	}
+	if (m_vr_vrs_maps.size() >= 64)
+	{
+		rsx_log.error("VR: shading rate maps keep changing (%u built): variable-rate shading stops for this session.", ::size32(m_vr_vrs_maps));
+		return nullptr;
+	}
+
+	if (vk::is_renderpass_open(*m_current_command_buffer))
+	{
+		vk::end_renderpass(*m_current_command_buffer);
+	}
+	auto& entry = m_vr_vrs_maps.emplace_back();
+	auto& m_vr_vrs_image = entry.image;
+	m_vr_vrs_image = std::make_unique<vk::image>(*m_device, m_device->get_memory_mapping().device_local, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+		VK_IMAGE_TYPE_2D, VK_FORMAT_R8_UINT, rw, rh, 1, 1, 2, VK_SAMPLE_COUNT_1_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_TILING_OPTIMAL,
+		VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR | VK_IMAGE_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED, RSX_FORMAT_CLASS_COLOR);
+	m_vr_vrs_image->set_debug_name("VR shading rate map");
+	entry.mode = mode;
+	std::memcpy(entry.visible, visible, sizeof(entry.visible));
+	std::memcpy(entry.rendered, rendered, sizeof(entry.rendered));
+
+	// The map: each texel's distance from the eye's visible centre in its lens ellipse (the ellipse inscribed in the
+	// visible field in tangents). Rate codes (log2 height << 2 | log2 width): 0 = 1x1, 5 = 2x2, 10 = 4x4.
+	const f32 inner = mode == 2 ? 0.55f : 0.70f;
+	const u8 outer_code = vk::vr_vrs_max_rate_code();
+	std::vector<u8> bytes(usz{rw} * rh * 2, 0);
+	u32 counts[3]{};
+	for (u32 e = 0; e < 2; ++e)
+	{
+		const f32* r = rendered[e];
+		const f32* v = visible[e];
+		const f32 cx = 0.5f * (v[0] + v[1]), cy = 0.5f * (v[2] + v[3]);
+		const f32 ax = std::max(0.5f * (v[1] - v[0]), 1e-3f), ay = std::max(0.5f * (v[2] - v[3]), 1e-3f);
+		for (u32 j = 0; j < rh; ++j)
+		{
+			const f32 ty = r[2] - std::min((j + 0.5f) * texel / shown_h, 1.f) * (r[2] - r[3]);
+			for (u32 i = 0; i < rw; ++i)
+			{
+				const f32 tx = r[0] + std::min((i + 0.5f) * texel / shown_w, 1.f) * (r[1] - r[0]);
+				u8 code = mode == 4 ? 5 : 0;
+				if (mode < 3)
+				{
+					const f32 dx = (tx - cx) / ax, dy = (ty - cy) / ay;
+					const f32 d = std::sqrt(dx * dx + dy * dy);
+					code = d < inner ? 0 : (d < 1.f ? 5 : outer_code);
+				}
+				bytes[(usz{e} * rh + j) * rw + i] = code;
+				counts[code == 0 ? 0 : (code == 5 ? 1 : 2)]++;
+			}
+		}
+	}
+
+	auto& cmd = *m_current_command_buffer;
+	auto staging = std::make_unique<vk::buffer>(*m_device, bytes.size(), m_device->get_memory_mapping().host_visible_coherent,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
+	std::memcpy(staging->map(0, bytes.size()), bytes.data(), bytes.size());
+	staging->unmap();
+	const VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 2};
+	vk::change_image_layout(cmd, m_vr_vrs_image.get(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, range);
+	VkBufferImageCopy regions[2]{};
+	for (u32 e = 0; e < 2; ++e)
+	{
+		regions[e].bufferOffset = VkDeviceSize{e} * rw * rh;
+		regions[e].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, e, 1};
+		regions[e].imageExtent = {rw, rh, 1};
+	}
+	vkCmdCopyBufferToImage(cmd, staging->value, m_vr_vrs_image->value, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 2, regions);
+	VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barrier.dstAccessMask = VK_ACCESS_FRAGMENT_SHADING_RATE_ATTACHMENT_READ_BIT_KHR;
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barrier.newLayout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+	barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = m_vr_vrs_image->value;
+	barrier.subresourceRange = range;
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+	m_vr_vrs_image->current_layout = VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+	vk::get_resource_manager()->dispose(staging);
+
+	const u32 total = std::max(1u, counts[0] + counts[1] + counts[2]);
+	rsx_log.notice("VR: shading rate map %ux%u texels (%ux%u, texel %u, mode %d): 1x1 %.0f%%, 2x2 %.0f%%, %s %.0f%%", rw, rh, width, height, texel, mode,
+		100.0 * counts[0] / total, 100.0 * counts[1] / total, outer_code == 10 ? "4x4" : "2x2", 100.0 * counts[2] / total);
+	return m_vr_vrs_image.get();
 }

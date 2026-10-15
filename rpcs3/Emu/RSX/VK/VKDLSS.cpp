@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "VKDLSS.h"
+#include "VKMultiviewVR.h" // vr_vrs_apply_pipeline_props
 #include "VKFrameGen.h"
 
 #include "VKCompute.h"
@@ -869,6 +870,7 @@ namespace vk
 
 	void dlss_apply_pipeline_props(pipeline_props& props, u32 color_attachments)
 	{
+		vk::vr_vrs_apply_pipeline_props(props); // variable-rate shading: EQUAL tests without the depth-compare emulation
 		if (!dlss_renderpass_has_motion(props.renderpass_key) || color_attachments >= std::size(props.state.att_state))
 		{
 			return;

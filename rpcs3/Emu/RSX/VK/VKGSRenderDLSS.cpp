@@ -64,12 +64,13 @@ u64 VKGSRender::vr_renderpass_key(const std::vector<u8>& input_attachments)
 {
 	m_current_renderpass_key = vk::get_renderpass_key(m_fbo_images, input_attachments, vr_draw_view_mask()); // multiview
 	dlss_prepare_framebuffer(); // the motion attachment of the scene target
+	vr_vrs_prepare_framebuffer(input_attachments.empty()); // the shading rate attachment of an eye-sized view target
 	return m_current_renderpass_key;
 }
 
 std::vector<vk::image*>& VKGSRender::vr_framebuffer_images()
 {
-	return m_dlss_motion_bound ? m_dlss_fbo_images : m_fbo_images;
+	return m_vr_vrs_bound ? m_vr_vrs_fbo_images : (m_dlss_motion_bound ? m_dlss_fbo_images : m_fbo_images);
 }
 
 void VKGSRender::dlss_check_framebuffer()

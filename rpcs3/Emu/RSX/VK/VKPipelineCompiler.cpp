@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "VKPipelineCompiler.h"
 #include "VKRenderPass.h"
+#include "VKMultiviewVR.h" // VR fork: vr_vrs_pipeline_chain
 #include "vkutils/device.h"
 #include "Utilities/Thread.h"
 #include "Emu/system_config.h"
@@ -177,6 +178,7 @@ namespace vk
 
 		VkGraphicsPipelineCreateInfo info = {};
 		info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+		info.pNext = vk::vr_vrs_pipeline_chain(create_info.renderpass_key); // VR fork: the shading rate attachment's rate applies
 		info.pVertexInputState = &vi;
 		info.pInputAssemblyState = &create_info.state.ia;
 		info.pRasterizationState = &rs;

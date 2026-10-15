@@ -410,8 +410,25 @@ namespace rsx::vr
 		vr_dev_log.notice("VR camera offset: x %d, y %d, z %d cm", vr.camera_x.get(), vr.camera_y.get(), vr.camera_z.get());
 	}
 
+	static bool s_vrs_bound = false;
+
+	void set_vrs_bound(bool bound)
+	{
+		s_vrs_bound = bound;
+	}
+
+	bool vrs_bound()
+	{
+		return s_vrs_bound;
+	}
+
 	void set_vr_program_ctrl(u32& ctrl)
 	{
+		if (s_vrs_bound && (ctrl & RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE))
+		{
+			// Its multisampled-depth read goes with it (passes with input attachments never get the rate attachment).
+			ctrl &= ~(RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE | RSX_SHADER_CONTROL_ROP_MULTISAMPLED);
+		}
 		ctrl = s_dlss_motion ? (ctrl | RSX_SHADER_CONTROL_DLSS_MOTION) : (ctrl & ~RSX_SHADER_CONTROL_DLSS_MOTION); // DLSS test
 		ctrl = multiview_active() ? (ctrl | RSX_SHADER_CONTROL_VR_MULTIVIEW) : (ctrl & ~RSX_SHADER_CONTROL_VR_MULTIVIEW);
 		ctrl = s_exact_depth ? (ctrl | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) : (ctrl & ~RSX_SHADER_CONTROL_VR_EXACT_DEPTH);

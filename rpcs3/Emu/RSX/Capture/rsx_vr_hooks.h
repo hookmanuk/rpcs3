@@ -51,6 +51,11 @@ namespace rsx::vr
 	// control bits: RSX_SHADER_CONTROL_VR_MULTIVIEW as multiview_active() says, RSX_SHADER_CONTROL_VR_EXACT_DEPTH and
 	// RSX_SHADER_CONTROL_VR_DEPTH_REMAP as on_vertex_ucode() decided for the current vertex program.
 	void set_vr_program_ctrl(u32& ctrl);
+	// Variable-rate shading (VKGSRenderVR.cpp vr_vrs_prepare_framebuffer): the bound framebuffer has a shading rate
+	// attachment. Its draws drop the special depth-compare emulation (one gl_FragDepth per coarse fragment fails EQUAL for
+	// the other pixels); their pipelines test LESS_OR_EQUAL / GREATER_OR_EQUAL instead (vk::vr_vrs_apply_pipeline_props).
+	void set_vrs_bound(bool bound);
+	bool vrs_bound();
 	// DLSS test: the bound framebuffer has the motion attachment (set by the renderer before the programs are fetched);
 	// set_vr_program_ctrl() then adds RSX_SHADER_CONTROL_DLSS_MOTION.
 	void set_dlss_motion_variant(bool enabled);
