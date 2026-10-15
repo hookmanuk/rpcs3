@@ -235,6 +235,17 @@ namespace rsx::vr
 		// depth_remap_volume_programs: other programs drawing the remap passes' volumes (Sonic's stencil pre-pass
 		// 2fe8ebfb47d877be): they take the scene camera's eye transform as the remap passes do.
 		std::vector<u64> depth_remap_volume_programs;
+		// inverse_camera_programs: screen-space passes that build each pixel's world ray from the camera's INVERSE
+		// view-projection in a constant block (Prince of Persia's sandstorm haze 149a9a825056ebba, c[200]: NDC corners
+		// through it, divided by w). In the headset the block becomes H * G * E^-1 per eye (G, E: the eye's latest scene
+		// camera block as the game wrote it and as drawn for the eye), so each eye pixel gets its own ray and the effect
+		// turns with the head instead of following the game's screen.
+		struct inverse_camera_program
+		{
+			u64 program = 0; // vertex program ucode hash
+			u32 block = 0;   // first of its four constants
+		};
+		std::vector<inverse_camera_program> inverse_camera_programs;
 		// depth_remap_ray_texcoord: the texture coordinate holding the pass's view-space ray (built with the game's view);
 		// the remap replaces it with the game camera's ray to the point the eye sees (Sonic's shadow cascades). -1 = none.
 		s32 depth_remap_ray_texcoord = -1;
@@ -1146,6 +1157,8 @@ namespace rsx::vr
 		mutable f32 m_vr_last_block[2][4][4]{};
 		mutable f32 m_vr_last_eye_block[2][4][4]{};
 		mutable bool m_vr_last_block_valid[2]{};
+		// Profile inverse_camera_programs: rewrites the draw's inverse camera block for the eye. True when it applied.
+		bool apply_inverse_camera(const title_profile& profile, void* buffer, const u16* reloc, usz reloc_size, f32 eye_sign) const;
 		// The last scene camera draw's game and eye matrices per eye (a view target, not a depth_remap_programs volume):
 		// the depth remap of a remap pass drawn through its own volume matrix is built from these.
 		mutable f32 m_scene_game_block[2][4][4]{};

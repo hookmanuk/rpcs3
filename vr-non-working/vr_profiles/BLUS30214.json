@@ -22,6 +22,10 @@
     { "program": "f7865139bce5eba2", "constant": 17, "game_fov_deg": [71, 44] }
   ],
 
+  "inverse_camera_programs": [
+    { "program": "149a9a825056ebba", "block": 200 }
+  ],
+
   "matrix_layout": "column_vectors",
   "camera_blocks": [200, 202, 206],
   "require_rigid_camera": true,
