@@ -10,12 +10,12 @@
   "depth_remap_programs": [{ "program": "fc15ec0752d20290", "texture0": "1280x720", "texture0_format": "a5" }],
   "depth_remap_uv": true,
   "depth_remap_packed_unit": 0,
-  "head_aim": { "button": "L1", "mode": "gaze", "return_deg_per_s": 180, "direct": { "address": "0x11eff10", "yaw_sign": -1, "pitch_sign": -1 } },
   "culling_scale_f32": [
-    { "address": "0x7cdd80", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 12.0, "mode": "tangent_x" },
-    { "address": "0x7cdd84", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 12.0, "mode": "tangent_y" }
+    { "address": "0x7cdd80", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 6.0, "mode": "tangent_x" },
+    { "address": "0x7cdd84", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 6.0, "mode": "tangent_y" }
   ],
 
+  "head_aim": { "button": "L1", "mode": "gaze", "return_deg_per_s": 180, "direct": { "address": "0x11eff10", "yaw_sign": -1, "pitch_sign": -1 } },
   "matrix_layout": "column_vectors",
   "camera_blocks": [0, 16, 256],
   "output_aspect_tolerance": 0.02,

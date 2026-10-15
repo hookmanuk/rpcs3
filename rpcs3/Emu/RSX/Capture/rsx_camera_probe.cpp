@@ -4413,25 +4413,25 @@ namespace rsx::vr
 		}
 	}
 
-	void camera_probe::write_head_aim_direct(const title_profile::head_aim_rule& rule) const
+	void camera_probe::write_head_aim_direct(const title_profile::head_aim_rule& rule, bool driving) const
 	{
 		const u32 address = resolve_guest_address(rule.direct_address);
-		if (!address || !vm::check_addr(address, vm::page_writable, 32))
+		if (!address || !vm::check_addr(address, vm::page_writable, 20))
 		{
 			return;
 		}
-		constexpr f32 half_rad = 0.5f / 57.29578f;
-		const f32 yaw = rule.direct_yaw_sign * m_aim_direct[0] * half_rad;
-		const f32 pitch = rule.direct_pitch_sign * m_aim_direct[1] * half_rad;
-		const f32 q[8] = {0.f, std::sin(yaw), 0.f, std::cos(yaw), std::sin(pitch), 0.f, 0.f, std::cos(pitch)};
+		// The totals sent: the applied totals at the press plus the turn since (the patch applies the difference).
 		be_t<f32>* const words = vm::_ptr<be_t<f32>>(address);
-		for (u32 i = 0; i < 8; ++i)
-		{
-			if (words[i] != q[i])
-			{
-				words[i] = q[i];
-			}
-		}
+		const f32 yaw = m_aim_direct_base[0] + rule.direct_yaw_sign * m_aim_direct[0];
+		const f32 pitch = m_aim_direct_base[1] + rule.direct_pitch_sign * m_aim_direct[1];
+		// Only while driving: after a savestate load the patch's words start from zero again.
+		if (driving && words[0] != yaw)
+			words[0] = yaw;
+		if (driving && words[1] != pitch)
+			words[1] = pitch;
+		be_t<u32>& flag = *vm::_ptr<be_t<u32>>(address + 16);
+		if (flag != (driving ? 1u : 0u))
+			flag = driving ? 1u : 0u;
 	}
 
 	void camera_probe::update_head_aim(const title_profile& profile, const f32 (&game)[4][4]) const
@@ -4465,10 +4465,7 @@ namespace rsx::vr
 			out_x = g_head_aim.out_x;
 			out_y = g_head_aim.out_y;
 		}
-		// Direct: the camera turns the patch makes are also folded while the aim returns after the release, so the view
-		// holds still and the aim slides back to its centre.
-		const bool direct_returning = rule.direct && !active && (m_aim_direct[0] != 0.f || m_aim_direct[1] != 0.f);
-		const bool driving = (active && !manual) || direct_returning;
+		const bool driving = active && !manual;
 
 		// Row-vector block (rows[input][clip]): the clip x, y and w columns over the inputs x, y, z.
 		mat3 cam{game[0][0], game[1][0], game[2][0], game[0][1], game[1][1], game[2][1], game[0][3], game[1][3], game[2][3]};
@@ -4519,7 +4516,7 @@ namespace rsx::vr
 			m_aim_cam_valid = true;
 		}
 
-		if (!active && !direct_returning)
+		if (!active)
 		{
 			// Back onto the game camera: the offset's angle shrinks at return_deg_per_s, easing over the last 10 degrees.
 			const f32 angle = rotation_angle(m_aim_off);
@@ -4558,56 +4555,53 @@ namespace rsx::vr
 		f32 err_y = std::atan2(-ay, std::sqrt(ax * ax + az * az)) * deg;
 		if (rule.direct)
 		{
-			// Where the head looks in the view (+ right, + up). The view holds still while the patch turns the camera,
-			// so turning the camera by these angles puts its centre (the aim) where the head looks.
+			// Where the head looks in the view (+ right, + up). The view holds still while the camera turns (the offset
+			// above), so a camera turned by these angles from the press has its centre (the aim) where the head looks.
 			const f32 hx = std::atan2(-m_vr_head_rot[2], m_vr_head_rot[8]) * deg;
 			const f32 hy = std::atan2(-y_up * m_vr_head_rot[5], std::sqrt(m_vr_head_rot[2] * m_vr_head_rot[2] + m_vr_head_rot[8] * m_vr_head_rot[8])) * deg;
-			std::array<f32, 2> target = m_aim_direct;
+			if (active && !m_aim_was_active)
+			{
+				// From the patch's applied totals: nothing left over from before is sent again.
+				m_aim_direct = {};
+				const u32 address = resolve_guest_address(rule.direct_address);
+				if (address && vm::check_addr(address, vm::page_readable, 20))
+				{
+					const be_t<f32>* const words = vm::_ptr<be_t<f32>>(address);
+					m_aim_direct_base = {words[2], words[3]};
+				}
+				// Gaze: the camera has to turn by the error at the press (aim to the head's centre), then follow the head.
+				m_aim_bias = {err_x - rule.gain * hx, err_y - rule.gain * hy};
+			}
 			if (active && (!m_aim_was_active || manual))
 			{
 				// Relative: from the press (or the player's own stick) the aim moves by gain x the head's turn from where it is.
 				m_aim_head_ref = {hx - m_aim_direct[0] / rule.gain, hy - m_aim_direct[1] / rule.gain};
 			}
-			if (active && !m_aim_was_active)
+			if (active && !manual && rule.gaze && m_aim_was_active)
 			{
-				m_aim_bias = {};
-			}
-			if (active && !manual && rule.gaze)
-			{
-				// The game's own camera moves too (its over-the-shoulder shift at the press, folded into the view): the aim's
-				// remaining error from the head's centre is learned while the head is still (a moving head's error also
-				// holds the turns the game has not drawn yet).
+				// The game's own camera moves too (and the pitch is not exactly linear in its units): the aim's remaining
+				// error from the head's centre is learned while the head is still (a moving head's error also holds the
+				// turns the game has not drawn yet).
 				const f32 moved = std::max(std::fabs(hx - m_aim_head_last[0]), std::fabs(hy - m_aim_head_last[1]));
 				if (moved < 0.3f && std::fabs(err_x) < 20.f && std::fabs(err_y) < 20.f)
 				{
 					const f32 k = std::min(1.f, 4.f * dt);
-					m_aim_bias = {std::clamp(m_aim_bias[0] + k * err_x, -20.f, 20.f), std::clamp(m_aim_bias[1] + k * err_y, -20.f, 20.f)};
+					m_aim_bias = {std::clamp(m_aim_bias[0] + k * err_x, -90.f, 90.f), std::clamp(m_aim_bias[1] + k * err_y, -90.f, 90.f)};
 				}
-			}
-			else if (!active)
-			{
-				m_aim_bias = {};
 			}
 			m_aim_head_last = {hx, hy};
 			if (active && !manual)
 			{
-				target = rule.gaze ? std::array<f32, 2>{rule.gain * hx + m_aim_bias[0], rule.gain * hy + m_aim_bias[1]} :
+				std::array<f32, 2> target = rule.gaze ? std::array<f32, 2>{rule.gain * hx + m_aim_bias[0], rule.gain * hy + m_aim_bias[1]} :
 					std::array<f32, 2>{rule.gain * (hx - m_aim_head_ref[0]), rule.gain * (hy - m_aim_head_ref[1])};
-				target = {std::clamp(target[0], -90.f, 90.f), std::clamp(target[1], -60.f, 60.f)};
+				target = {std::clamp(target[0], -120.f, 120.f), std::clamp(target[1], -80.f, 80.f)};
+				// At most 20 degrees a frame (a gaze press far off centre): the view's offset only follows turns under 25.
+				for (u32 i = 0; i < 2; ++i)
+				{
+					m_aim_direct[i] += std::clamp(target[i] - m_aim_direct[i], -20.f, 20.f);
+				}
 			}
-			else if (!active)
-			{
-				// Back to the centre at return_deg_per_s, easing over the last 10 degrees.
-				const f32 len = std::sqrt(target[0] * target[0] + target[1] * target[1]);
-				const f32 step = rule.return_deg_per_s * dt * std::clamp(len / 10.f, 0.25f, 1.f);
-				target = len <= std::max(step, 0.2f) ? std::array<f32, 2>{} : std::array<f32, 2>{target[0] * (1.f - step / len), target[1] * (1.f - step / len)};
-			}
-			// At most 20 degrees a frame (a gaze press far off centre): the view's offset only follows turns under 25.
-			for (u32 i = 0; i < 2; ++i)
-			{
-				m_aim_direct[i] += std::clamp(target[i] - m_aim_direct[i], -20.f, 20.f);
-			}
-			write_head_aim_direct(rule);
+			write_head_aim_direct(rule, active && !manual);
 		}
 		if (active && !m_aim_was_active)
 		{
