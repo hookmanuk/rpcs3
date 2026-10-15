@@ -6,17 +6,32 @@ PPU-8363904e0b8fc276380a8f0e158dd81d7a9cefc5:
       "Uncharted: Drake's Fortune":
         BCUS98103: [ 01.10 ]
     Author: "VR fork"
-    Notes: "The game culls against its own 75 x 47 degree view, so in the headset the deck, hull and ocean end at its frustum when you look down or around. This multiplies the tangent of the camera's half field of view by a scale word (0x7cdd80, 1.0 here) where the camera's projection scale is built (0x4b4d3c), so the frustum the game culls against widens. The VR profile sets the word each frame to the smallest scale that holds both eyes' views at the current head pose (culling_scale_f32); without the profile it stays 1.0 and the game is unchanged. Version 2.0: the geometry jobs drop triangles that cover no pixel centre of the 1280x720 grid, and the wider projection shrinks every triangle, so models lost detail (version 1.0: about a quarter of the scene's vertices). Their viewport (built at 0x452420: scissor, viewport scales and offsets) is enlarged 16x about its origin, so the frustum and scissor tests are unchanged and the no-pixel test runs on a 16x finer grid: models keep more detail than the game shipped with at any Resolution Scale."
-    Patch Version: 2.0
+    Notes: "The game culls against its own 75 x 47 degree view, so in the headset the deck, hull and ocean end at its frustum when you look down or around. This multiplies the tangent of the camera's half field of view by a scale word (x: 0x7cdd80, 1.0 here) where the camera's projection scale is built (0x4b4d3c), and sets the camera's aspect (+0x1d0, from which the vertical scale is derived) to the game's aspect x sy / sx (y: 0x7cdd84), so the frustum the game culls against widens by its own amount on each axis. The VR profile sets both words each frame to the smallest scales that hold both eyes' views at the current head pose (culling_scale_f32): the headset needs ~3.6x the game's height but ~2x its width. Without the profile they stay 1.0 and the game is unchanged. Version 3.0: separate axes (2.0 widened the width as much as the height). Version 2.0: the geometry jobs drop triangles that cover no pixel centre of the 1280x720 grid, and the wider projection shrinks every triangle, so models lost detail (version 1.0: about a quarter of the scene's vertices). Their viewport (built at 0x452420: scissor, viewport scales and offsets) is enlarged 16x about its origin, so the frustum and scissor tests are unchanged and the no-pixel test runs on a 16x finer grid: models keep more detail than the game shipped with at any Resolution Scale."
+    Patch Version: 3.0
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
-      - [ be32, 0x007cdd80, 0x3f800000 ] # scale word, 1.0 (unused zeros at the end of the code segment)
-      # 0x4b4d28: f1 = tanf(fov x k); f1 += [r27+0x30]; cot = f31 / f1, stored at camera +0x1d4 (the projection's x scale)
-      - [ calloc, 0x004b4d3c, 4 ] # was lfs f0, 0x30(r27)
+      - [ be32, 0x007cdd80, 0x3f800000 ] # x scale word, 1.0 (unused zeros at the end of the code segment)
+      - [ be32, 0x007cdd84, 0x3f800000 ] # y scale word, 1.0
+      - [ be32, 0x007cdd88, 0x00000000 ] # the game's own aspect (camera +0x1d0), kept here
+      - [ be32, 0x007cdd8c, 0x00000000 ] # the aspect last written to the camera
+      # 0x4b4d28: f1 = tanf(fov x k); f1 += [r27+0x30]; cot = f31 / f1, stored at camera +0x1d4 (the projection's x scale).
+      # The y scale is derived as x / [camera +0x1d0] (0.5625): the aspect becomes base x sy / sx, so y widens by sy.
+      - [ calloc, 0x004b4d3c, 15 ] # was lfs f0, 0x30(r27)
       - [ be32, 0x0, 0x3d60007d ] # lis r11, 0x7d
-      - [ be32, 0x0, 0xc00bdd80 ] # lfs f0, -0x2280(r11)   scale word 0x7cdd80
-      - [ be32, 0x0, 0xec210032 ] # fmuls f1, f1, f0       tan(fov/2) x scale
+      - [ be32, 0x0, 0xc00bdd80 ] # lfs f0, -0x2280(r11)   x scale (0x7cdd80)
+      - [ be32, 0x0, 0xec210032 ] # fmuls f1, f1, f0       tan(fov/2) x sx
+      - [ be32, 0x0, 0xc04bdd84 ] # lfs f2, -0x227c(r11)   y scale (0x7cdd84)
+      - [ be32, 0x0, 0xc07f01d0 ] # lfs f3, 0x1d0(r31)     the camera's aspect now
+      - [ be32, 0x0, 0xc08bdd8c ] # lfs f4, -0x2274(r11)   the aspect last written
+      - [ be32, 0x0, 0xff832000 ] # fcmpu cr7, f3, f4
+      - [ be32, 0x0, 0x419e0008 ] # beq cr7, +8            unchanged: keep the base
+      - [ be32, 0x0, 0xd06bdd88 ] # stfs f3, -0x2278(r11)  the game set it: new base
+      - [ be32, 0x0, 0xc0abdd88 ] # lfs f5, -0x2278(r11)   base
+      - [ be32, 0x0, 0xeca500b2 ] # fmuls f5, f5, f2       base x sy
+      - [ be32, 0x0, 0xeca50024 ] # fdivs f5, f5, f0       / sx
+      - [ be32, 0x0, 0xd0bf01d0 ] # stfs f5, 0x1d0(r31)    camera aspect
+      - [ be32, 0x0, 0xd0abdd8c ] # stfs f5, -0x2274(r11)  last written
       - [ be32, 0x0, 0xc01b0030 ] # lfs f0, 0x30(r27)      the original instruction
       # 0x452420 builds the geometry jobs' viewport block (r9): u16 scissor 0, width, 0, height at +8..+0xe, the
       # view-projection at +0x10, viewport scales and offsets at +0x50..+0x5c.
