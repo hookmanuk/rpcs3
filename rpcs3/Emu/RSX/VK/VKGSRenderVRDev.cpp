@@ -328,10 +328,11 @@ void VKGSRender::vr_on_draw_begin()
 // submit the recorded draws when the GPU has nothing left to run. See VKGSRenderVR.inl.
 void VKGSRender::vr_eager_submit()
 {
+	// On by default at 256 draws; RPCS3_VR_EAGER_SUBMIT=<draws> changes the threshold, 0 turns it off.
 	static const u32 s_draws = []
 	{
 		const char* v = std::getenv("RPCS3_VR_EAGER_SUBMIT");
-		return v ? static_cast<u32>(std::max(0, std::atoi(v))) : 0u;
+		return v ? static_cast<u32>(std::max(0, std::atoi(v))) : 256u;
 	}();
 	if (!s_draws)
 	{
