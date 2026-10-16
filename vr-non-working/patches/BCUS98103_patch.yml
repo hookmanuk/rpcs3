@@ -148,10 +148,12 @@ PPU-8363904e0b8fc276380a8f0e158dd81d7a9cefc5:
         BCUS98103: [ 01.10 ]
     Author: "VR fork"
     Notes: "With the Wider view patch: the sun's shadow cascades are fitted to the camera's frustum (the slice-corner builder at 0x14fc60 reads the camera's x scale +0x1d4 and aspect +0x1d0). With the head-driven widening that frustum changed with every head movement, so the cascades were refitted every frame and the shadows smeared and jumped while the head turned (and swam when the stick turned the oversized frustum). Here the fit uses the game's own projection widened by its own pair of words (x at 0x7cdd88, y at 0x7cdd8c; 1.0 = the game's view), which the VR profile moves in coarse, held steps, so the cascades stay put while the head moves."
-    Patch Version: 1.0
+    Patch Version: 1.1
     Enabled By Default: true
     Apply To Savestates: true
     Patch:
+      - [ be32, 0x007cdd80, 0x3f800000 ] # culling x / y widening 1.0 as the Wider view patch sets them (without it they were 0: a division by zero hung the game)
+      - [ be32, 0x007cdd84, 0x3f800000 ]
       - [ be32, 0x007cdd88, 0x3f800000 ] # shadow-fit x widening, 1.0 (unused zeros after the culling words)
       - [ be32, 0x007cdd8c, 0x3f800000 ] # shadow-fit y widening, 1.0
       - [ calloc, 0x0014fc8c, 6 ]   # near corners: x scale for the shadow fit = the game's x scale x culling x / shadow x
@@ -177,7 +179,7 @@ PPU-8363904e0b8fc276380a8f0e158dd81d7a9cefc5:
       - [ be32, 0x0, 0xec0002f2 ]   # x shadow y
       - [ be32, 0x0, 0xc169dd88 ]   # lfs f11  shadow x
       - [ be32, 0x0, 0xec005824 ]   # / shadow x
-      - [ be32, 0x0, 0x3921ffa0 ]   # addi r9, r1, -0x60 (r9's value here)
+      - [ be32, 0x0, 0x392401b0 ]   # addi r9, r4, 0x1b0 (r9's value here: the camera's +0x1b0 row, set at 0x14fcf0, read at 0x14fdd8)
       - [ calloc, 0x0014fdc0, 7 ]   # far corners: x scale for the shadow fit
       - [ be32, 0x0, 0xc1a401d4 ]   # lfs f13, 0x1d4(r4) (original)
       - [ be32, 0x0, 0x3d20007d ]   # lis r9, 0x7d
@@ -185,4 +187,4 @@ PPU-8363904e0b8fc276380a8f0e158dd81d7a9cefc5:
       - [ be32, 0x0, 0xedad0332 ]   # the game's own x scale
       - [ be32, 0x0, 0xc189dd88 ]   # lfs f12  shadow x
       - [ be32, 0x0, 0xedad6024 ]   # / shadow x
-      - [ be32, 0x0, 0x3921ffa0 ]   # addi r9, r1, -0x60
+      - [ be32, 0x0, 0x392401b0 ]   # addi r9, r4, 0x1b0 (r9's value here: the camera's +0x1b0 row, set at 0x14fcf0, read at 0x14fdd8)
