@@ -163,6 +163,11 @@ namespace rsx::vr
 		// where the profile lists overlapping bases and a HUD block can pass the
 		// perspective and rigid tests.
 		bool require_camera_aspect = false;
+		// "reject_camera_aspect": 1.0: the opposite test, blocks within 3% of this aspect are not the camera. For a game
+		// whose Wider view widens its camera's axes separately (God of War III: 16:9 -> ~1.07 with both tangent floors
+		// up, so require_camera_aspect rejected the whole scene: no head tracking, the flat game held at an old pose,
+		// a box in the headset) while its full-screen passes carry a square matrix in the camera slot. 0: off.
+		f32 reject_camera_aspect = 0.f;
 		// Programs that index their constants (bone palettes) get the whole bank, so any slot of a camera
 		// block is found there: bones at c[3] in Dragon's Dogma's skinned programs looked like its static
 		// camera c[3]. true: in those programs a camera block counts only if the program reads its slots

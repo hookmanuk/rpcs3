@@ -394,11 +394,11 @@ namespace rsx::vr
 		}
 
 		// |clip y| / |clip x| of the block against the output aspect (10%).
-		bool has_camera_aspect(f32* const r[4], f32 aspect)
+		bool has_camera_aspect(f32* const r[4], f32 aspect, f32 tolerance = 0.1f)
 		{
 			const f32 nx = std::sqrt(r[0][0] * r[0][0] + r[1][0] * r[1][0] + r[2][0] * r[2][0]);
 			const f32 ny = std::sqrt(r[0][1] * r[0][1] + r[1][1] * r[1][1] + r[2][1] * r[2][1]);
-			return nx > 1e-8f && std::fabs((ny / nx) / aspect - 1.f) <= 0.1f;
+			return nx > 1e-8f && std::fabs((ny / nx) / aspect - 1.f) <= tolerance;
 		}
 
 		// Bind the first perspective (and, if required, rigid and output-aspect) block of the candidates.
@@ -420,7 +420,7 @@ namespace rsx::vr
 					if (block.bind(buffer, reloc, reloc_size, candidate, columns, xyw && !rows && pass == 0, slots) && is_perspective(block.rows) &&
 						w_from_position(block.rows) &&
 						(!require_rigid || std::find(nonrigid.begin(), nonrigid.end(), candidate) != nonrigid.end() || is_rigid(block.rows)) &&
-						(require_aspect <= 0.f || has_camera_aspect(block.rows, require_aspect)))
+						(require_aspect == 0.f || (require_aspect > 0.f ? has_camera_aspect(block.rows, require_aspect) : !has_camera_aspect(block.rows, -require_aspect, 0.03f))))
 					{
 						return true;
 					}
@@ -1050,6 +1050,7 @@ namespace rsx::vr
 		{
 			profile->require_camera_aspect = aspect == "true";
 		}
+		read(root, "reject_camera_aspect", profile->reject_camera_aspect, false);
 		if (std::string direct; read(root, "camera_slots_read_directly", direct, false))
 		{
 			profile->camera_slots_read_directly = direct == "true";
@@ -1746,7 +1747,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim"});
 		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
@@ -3398,7 +3399,9 @@ namespace rsx::vr
 		matrix_block block;
 		f32* const* const rows = block.rows;
 		const size2u output_eye = g_fxo->get<rsx::avconf>().video_frame_size();
-		const f32 camera_aspect = profile.require_camera_aspect && output_eye.height ? static_cast<f32>(output_eye.width) / output_eye.height : 0.f;
+		// bind_camera_block's aspect test: positive requires it, negative (reject_camera_aspect) rules it out.
+		const f32 camera_aspect = profile.require_camera_aspect && output_eye.height ? static_cast<f32>(output_eye.width) / output_eye.height :
+			-profile.reject_camera_aspect;
 
 		// Profile camera_block_cache: a draw whose camera block and everything else the eye transform below reads
 		// equal this eye's previous plain scene-camera draw gets that draw's results copied instead of rebuilt.
@@ -5612,7 +5615,8 @@ namespace rsx::vr
 		f32* const* const rows = block.rows;
 		if (!bind_camera_block(block, buffer, reloc, reloc_size, camera_blocks, column_vectors, profile && profile->require_rigid_camera,
 				m_base == umax && profile && profile->xyw_rows,
-				profile && profile->require_camera_aspect ? static_cast<f32>(g_fxo->get<rsx::avconf>().video_frame_size().width) / g_fxo->get<rsx::avconf>().video_frame_size().height : 0.f,
+				profile && profile->require_camera_aspect ? static_cast<f32>(g_fxo->get<rsx::avconf>().video_frame_size().width) / g_fxo->get<rsx::avconf>().video_frame_size().height :
+					profile ? -profile->reject_camera_aspect : 0.f,
 				m_base == umax && profile ? std::span<const std::array<u32, 4>>(profile->camera_block_slots) : std::span<const std::array<u32, 4>>(),
 				m_base == umax && profile ? std::span<const u32>(profile->nonrigid_camera_blocks) : std::span<const u32>(),
 				m_base == umax && profile ? std::span<const u32>(profile->row_vector_blocks) : std::span<const u32>(),
