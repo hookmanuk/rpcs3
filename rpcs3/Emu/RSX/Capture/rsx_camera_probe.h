@@ -642,6 +642,9 @@ namespace rsx::vr
 			// (one or two frames behind the head) still holds the leading edge while the head turns: scenery and the
 			// shadows it casts into view don't drop out during the turn (Uncharted's jungle). 0: off.
 			f32 lead_s = 0.f;
+			// "hold_s": the scale only falls once the head has been still (under 5 degrees per second) this long, so a
+			// word that something is fitted to (Uncharted's shadow cascades) only grows during a head movement. 0: off.
+			f32 hold_s = 0.f;
 			// "head_turn_only": true: widen by the head turn alone, the game's own half-angle around the direction the
 			// head looks (straight ahead: the game's culling, so the headset view's edges can miss scenery). Gran
 			// Turismo 5 looking ahead: scale 1.0 instead of 2.0, ~1.2 ms of the RSX thread on a busy race. Default: the

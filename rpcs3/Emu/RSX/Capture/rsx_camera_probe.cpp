@@ -1456,6 +1456,7 @@ namespace rsx::vr
 				read(node, "step", rule.step, false);
 				read(node, "lead_s", rule.lead_s, false);
 				rule.lead_s = std::clamp(rule.lead_s, 0.f, 0.5f);
+				read(node, "hold_s", rule.hold_s, false);
 				std::string head_turn_only;
 				read(node, "head_turn_only", head_turn_only, false);
 				rule.head_turn_only = head_turn_only == "true";
@@ -2540,6 +2541,7 @@ namespace rsx::vr
 		static std::array<f32, 3> s_last_dir{};
 		static u64 s_last_us = 0;
 		static f32 s_turn_deg_s = 0.f;
+		static f32 s_still_s = 0.f; // seconds the head has turned slower than 5 degrees per second
 		if (head_view)
 		{
 			const std::array<f32, 3> dir{R[2], R[5], R[8]};
@@ -2551,6 +2553,7 @@ namespace rsx::vr
 				const f32 speed = std::acos(d) * 57.29578f / dt;
 				// Rises at once, falls over ~0.2 s (a turn's speed holds the margin until the culling has caught up).
 				s_turn_deg_s = std::max(speed, s_turn_deg_s - (s_turn_deg_s - speed) * std::min(1.f, dt / 0.2f));
+				s_still_s = speed < 5.f ? s_still_s + dt : 0.f;
 			}
 			if (dt == 0.f || dt < 0.2f)
 			{
@@ -2628,13 +2631,15 @@ namespace rsx::vr
 			// write there froze the emulator on the title screen).
 			be_t<f32>& value = *vm::get_super_ptr<f32>(address);
 			const f32 current = value;
-			f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : std::max(wanted, current - 0.01f);
+			// hold_s: down only after the head has been still that long.
+			const bool may_fall = rule.hold_s <= 0.f || s_still_s >= rule.hold_s;
+			f32 next = !(current >= rule.min && current <= rule.max) || wanted >= current ? wanted : may_fall ? std::max(wanted, current - 0.01f) : current;
 			if (rule.step > 0.f)
 			{
 				// Stepped: up to the next step at once; down only when the head no longer needs the step below this one.
 				const f32 stepped = std::min(rule.max, rule.min + std::ceil((wanted - rule.min) / rule.step - 1e-4f) * rule.step);
 				const bool valid = current >= rule.min && current <= rule.max;
-				next = !valid || stepped > current || stepped < current - rule.step - 1e-4f ? stepped : current;
+				next = !valid || stepped > current || (may_fall && stepped < current - rule.step - 1e-4f) ? stepped : current;
 			}
 			if (next != current)
 			{
