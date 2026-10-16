@@ -398,10 +398,10 @@ namespace rsx::vr
 		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
 		// of a 2D fire background), which the headset view pulls apart. List a draw only the menu makes (its logo).
 		std::vector<unboxed_draw> screen_space_screen_frame_draws;
-		// "screen_frame_max_camera_draws": a frame with more camera draws than this stays in the headset view even when
-		// one of screen_frame_draws matched: gameplay can use the same generic draw as a menu or movie (God of War III's
-		// full-screen copy program also draws its movies). 0: no limit.
-		u32 screen_space_screen_frame_max_camera_draws = 0;
+		// Per screen_frame_draws entry, "without_camera": true: the entry counts only in a frame with no camera draws.
+		// For a generic draw that marks a movie but also turns up in gameplay (God of War III's full-screen copy program
+		// draws its movies, and gameplay after the pause menu: the whole game went on the fixed screen).
+		std::vector<bool> screen_space_screen_frame_draw_without_camera;
 		// frame_rate_draws (same match): the frame-rate words (game_refresh_rate_f32, game_frame_time_f32, ...) get the VR
 		// rate only while one of these draws was seen in the last 2 s, the game's own 60 Hz values otherwise. Sonic & All-Stars
 		// Racing Transformed: a step rate other than 60 anywhere in the menus left the next race unable to start (the

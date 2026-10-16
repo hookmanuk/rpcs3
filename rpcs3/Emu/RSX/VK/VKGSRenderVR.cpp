@@ -1754,15 +1754,17 @@ void VKGSRender::vr_update_view()
 	// shots share with the main menu (screen_frame_draws) could send them to the fixed screen at any setting.
 	rsx::vr::note_reduced_scale_frame(m_vr_reduced_scale_draws != 0);
 	m_vr_reduced_scale_draws = 0;
-	// screen_frame_max_camera_draws: a frame drawing more of the 3D scene than that is gameplay, whatever matched.
-	const u32 screen_max_camera = no_3d_profile ? no_3d_profile->screen_space_screen_frame_max_camera_draws : 0;
-	const bool screen_draw_frame = m_vr_screen_frame_draws != 0 && !(screen_max_camera && vr_frame_camera_draws > screen_max_camera);
-	if (m_vr_screen_frame_draws && !screen_draw_frame)
+	// "without_camera" entries count only in a frame without camera draws. A frame can be split over two updates (one at
+	// the frame boundary for its 3D part, one at the flip for its post-processing), so the other half's count is included.
+	const u32 whole_frame_camera_draws = std::max(vr_frame_camera_draws, m_vr_prev_update_camera_draws);
+	const bool screen_draw_frame = m_vr_screen_frame_draws != 0 || (m_vr_screen_frame_draws_without_camera != 0 && whole_frame_camera_draws == 0);
+	if (m_vr_screen_frame_draws_without_camera && whole_frame_camera_draws && !m_vr_screen_frame_draws)
 	{
 		static u32 s_logged = 0;
 		if (s_logged++ < 5)
-			rsx_log.notice("VR: a screen-frame draw in a frame with %u camera draws: kept in the headset view (screen_frame_max_camera_draws %u).", vr_frame_camera_draws, screen_max_camera);
+			rsx_log.notice("VR: a without_camera screen-frame draw in a frame with %u camera draws: kept in the headset view.", whole_frame_camera_draws);
 	}
+	m_vr_prev_update_camera_draws = vr_frame_camera_draws;
 	const bool screen_frame = rsx::vr::cinematic_frame() ? rsx::vr::cinematic_frame_on_screen() :
 		(screen_draw_frame || rsx::vr::screen_frame_by_game_state());
 	const bool no_3d = screen_frame || (no_3d_mode == frames_without_3d_mode::always ? m_vr_frames_without_camera >= 3 :
@@ -1771,9 +1773,10 @@ void VKGSRender::vr_update_view()
 	{
 		s_no_3d = no_3d;
 		rsx_log.notice("VR: %s (camera draws %u, screen-frame draws %u)", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view",
-			vr_frame_camera_draws, m_vr_screen_frame_draws);
+			vr_frame_camera_draws, m_vr_screen_frame_draws + m_vr_screen_frame_draws_without_camera);
 	}
 	m_vr_screen_frame_draws = 0;
+	m_vr_screen_frame_draws_without_camera = 0;
 	m_vr_video_on_screen = no_3d;
 	rsx::vr::set_frame_on_screen(no_3d); // dev frame log
 	// An orthographic game (profile orthographic_stereo: Fez) has no view to turn with the head: it is a diorama on the
@@ -3310,10 +3313,20 @@ bool VKGSRender::vr_skip_draw()
 				}))
 		{
 			const u64 h = hash();
-			m_vr_screen_frame_draws += std::any_of(list.begin(), list.end(), [&](const auto& d)
+			for (usz i = 0; i < list.size(); ++i)
+			{
+				if (list[i].program != h || !vr_texture_size_matches(*profile, list[i].width, list[i].height, width, height))
+					continue;
+				const bool without_camera = i < profile->screen_space_screen_frame_draw_without_camera.size() && profile->screen_space_screen_frame_draw_without_camera[i];
+				(without_camera ? m_vr_screen_frame_draws_without_camera : m_vr_screen_frame_draws)++;
+				static u32 s_logged[8]{};
+				if (i < 8 && s_logged[i] < 3)
 				{
-					return d.program == h && vr_texture_size_matches(*profile, d.width, d.height, width, height);
-				});
+					s_logged[i]++;
+					rsx_log.notice("VR: screen_frame_draws entry %u (%016llx %ux%u) drawn after %u camera draws this frame half.", static_cast<u32>(i), h, width, height, m_vr_camera_draws);
+				}
+				break;
+			}
 		}
 	}
 

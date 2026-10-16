@@ -911,7 +911,6 @@ namespace rsx::vr
 				profile->frame_rate_draw_min_counts.push_back(std::max(min_count, 1u));
 			}
 		}
-		read(screen_space, "screen_frame_max_camera_draws", profile->screen_space_screen_frame_max_camera_draws, false);
 		if (const YAML::Node draws = child(screen_space, "screen_frame_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -931,6 +930,9 @@ namespace rsx::vr
 				draw.width = static_cast<u16>(w);
 				draw.height = static_cast<u16>(h);
 				profile->screen_space_screen_frame_draws.push_back(draw);
+				std::string without_camera;
+				read(node, "without_camera", without_camera, false);
+				profile->screen_space_screen_frame_draw_without_camera.push_back(without_camera == "true");
 			}
 		}
 		if (const YAML::Node programs = child(screen_space, "hud_exact_depth_programs"); programs && programs.IsSequence())
@@ -1749,7 +1751,7 @@ namespace rsx::vr
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
-		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_over_scene", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frame_max_camera_draws", "screen_frames_when", "scaled_draws"});
+		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_over_scene", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)

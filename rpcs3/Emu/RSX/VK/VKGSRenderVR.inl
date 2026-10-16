@@ -96,6 +96,8 @@
 	u32 m_vr_flip_pose = 0;               // the pose the last displayed buffer's content was drawn with (0: unknown)
 	u32 m_vr_frames_2d = 3;               // consecutive frames with no camera draws whose displayed buffer held no 3D (3: a new renderer starts on the fixed screen)
 	u32 m_vr_screen_frame_draws = 0;      // draws this frame matching the profile's screen_frame_draws
+	u32 m_vr_screen_frame_draws_without_camera = 0; // ... matching entries with "without_camera"
+	u32 m_vr_prev_update_camera_draws = 0; // camera draws seen by the previous vr_update_view (the frame's other half)
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
 	// pose (ICO blends last frame's scene and glow into each new frame) sample it
