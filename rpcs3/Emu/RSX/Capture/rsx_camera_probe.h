@@ -650,6 +650,11 @@ namespace rsx::vr
 			// "hold_s": the scale only falls once the head has been still (under 5 degrees per second) this long, so a
 			// word that something is fitted to (Uncharted's shadow cascades) only grows during a head movement. 0: off.
 			f32 hold_s = 0.f;
+			// "option": "vertical_view" / "horizontal_view": the VR setting Vertical View / Horizontal View (%) scales how far
+			// this word widens past the game's own view (100: all the headset needs; 0: the game's own culling). For games
+			// where the widening is costly (Uncharted's boat: 88 FPS at the game's view, ~57 with the full widening).
+			bool vertical_view_option = false;
+			bool horizontal_view_option = false;
 			// "head_turn_only": true: widen by the head turn alone, the game's own half-angle around the direction the
 			// head looks (straight ahead: the game's culling, so the headset view's edges can miss scenery). Gran
 			// Turismo 5 looking ahead: scale 1.0 instead of 2.0, ~1.2 ms of the RSX thread on a busy race. Default: the

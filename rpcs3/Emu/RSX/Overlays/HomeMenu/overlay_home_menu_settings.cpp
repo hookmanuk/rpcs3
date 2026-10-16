@@ -229,7 +229,8 @@ namespace rsx
 				rsx::vr::profile_has_option(*profile, "highest_detail") || rsx::vr::profile_has_option(*profile, "reflections") ||
 				rsx::vr::profile_has_option(*profile, "mirror") || rsx::vr::profile_has_option(*profile, "distant_cars") ||
 				rsx::vr::profile_has_option(*profile, "simpler_vehicles") || rsx::vr::profile_has_option(*profile, "fewer_shadows") ||
-				rsx::vr::profile_has_option(*profile, "head_aim")))
+				rsx::vr::profile_has_option(*profile, "head_aim") || rsx::vr::profile_has_option(*profile, "vertical_view") ||
+				rsx::vr::profile_has_option(*profile, "horizontal_view")))
 			{
 				const auto heading = [this](localized_string_id id)
 				{
@@ -240,6 +241,8 @@ namespace rsx
 				if (rsx::vr::profile_has_option(*profile, "simpler_vehicles")) add_checkbox(&g_cfg.video.vr.simpler_vehicles, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES);
 				if (rsx::vr::profile_has_option(*profile, "fewer_shadows")) add_checkbox(&g_cfg.video.vr.fewer_shadows, localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS);
 				if (rsx::vr::profile_has_option(*profile, "head_aim")) add_checkbox(&g_cfg.video.vr.head_aim, localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM);
+				if (rsx::vr::profile_has_option(*profile, "horizontal_view")) add_unsigned_slider(&g_cfg.video.vr.horizontal_view, localized_string_id::HOME_MENU_SETTINGS_VR_HORIZONTAL_VIEW, " %", 5); // VR fork
+				if (rsx::vr::profile_has_option(*profile, "vertical_view")) add_unsigned_slider(&g_cfg.video.vr.vertical_view, localized_string_id::HOME_MENU_SETTINGS_VR_VERTICAL_VIEW, " %", 5); // VR fork
 				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);
 				if (rsx::vr::profile_has_option(*profile, "mirror")) add_checkbox(&g_cfg.video.vr.reduced_rate_mirror, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_MIRROR);
 				if (rsx::vr::profile_has_option(*profile, "distant_cars")) add_checkbox(&g_cfg.video.vr.simpler_distant_cars, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_DISTANT_CARS);

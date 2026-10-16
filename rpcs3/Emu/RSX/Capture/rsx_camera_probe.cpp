@@ -1460,6 +1460,10 @@ namespace rsx::vr
 				read(node, "lead_s", rule.lead_s, false);
 				rule.lead_s = std::clamp(rule.lead_s, 0.f, 0.5f);
 				read(node, "hold_s", rule.hold_s, false);
+				std::string option;
+				read(node, "option", option, false);
+				rule.vertical_view_option = option == "vertical_view";
+				rule.horizontal_view_option = option == "horizontal_view";
 				std::string head_turn_only;
 				read(node, "head_turn_only", head_turn_only, false);
 				rule.head_turn_only = head_turn_only == "true";
@@ -2122,6 +2126,13 @@ namespace rsx::vr
 		{
 			return true;
 		}
+		if ((option == "vertical_view" || option == "horizontal_view") && std::any_of(profile.culling_scale_f32.begin(), profile.culling_scale_f32.end(), [&](const auto& r)
+				{
+					return option == "vertical_view" ? r.vertical_view_option : r.horizontal_view_option;
+				}))
+		{
+			return true;
+		}
 		return std::any_of(profile.shared_frame_targets.begin(), profile.shared_frame_targets.end(), [&](const auto& t)
 			{
 				return t.option == option;
@@ -2625,7 +2636,15 @@ namespace rsx::vr
 			const f32 game_half_deg = rule.tangent ? std::atan(game_tan) * 57.29578f : rule.fov_deg / 2.f;
 			const f32 lead_deg = std::min(30.f, s_turn_deg_s * rule.lead_s);
 			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg + lead_deg;
-			const f32 half_deg = !rule.head_turn_only ? full_half_deg : std::min(full_half_deg, game_half_deg + head_deg);
+			f32 half_deg = !rule.head_turn_only ? full_half_deg : std::min(full_half_deg, game_half_deg + head_deg);
+			if (rule.vertical_view_option || rule.horizontal_view_option)
+			{
+				// Vertical / Horizontal View setting: only that share of the widening past the rule's min (the game's own view:
+				// Uncharted's scale 1.0, God of War III's tangent floors at 0.01, i.e. off).
+				const u32 percent = rule.vertical_view_option ? g_cfg.video.vr.vertical_view.get() : g_cfg.video.vr.horizontal_view.get();
+				const f32 base_deg = rule.tangent ? std::atan(rule.min * game_tan) * 57.29578f : rule.min * rule.fov_deg / 2.f;
+				half_deg = std::min(half_deg, base_deg + std::max(0.f, half_deg - base_deg) * (percent / 100.f));
+			}
 			const f32 wanted = std::clamp(rule.tangent ? std::tan(std::min(half_deg, 89.f) / 57.29578f) / game_tan :
 				2.f * half_deg / rule.fov_deg, rule.min, rule.max);
 			// Up at once (newly visible scenery must not be missing); down slowly, so a glance back and forth does not
