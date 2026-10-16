@@ -4505,6 +4505,21 @@ namespace rsx::vr
 			return std::acos(std::clamp((r[0] + r[4] + r[8] - 1.f) / 2.f, -1.f, 1.f));
 		}
 
+		// The same rotation about the same axis by a fraction of its angle (the convention of the head aim's return easing).
+		mat3 scale_rotation(const mat3& r, f32 fraction)
+		{
+			const f32 angle = rotation_angle(r);
+			const f32 sn = 2.f * std::sin(angle);
+			if (!(sn > 1e-6f))
+				return {1.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f};
+			const f32 ax = (r[7] - r[5]) / sn, ay = (r[2] - r[6]) / sn, az = (r[3] - r[1]) / sn;
+			const f32 a = angle * fraction, c = std::cos(a), si = std::sin(a), t = 1.f - c;
+			return {
+				c + t * ax * ax, t * ax * ay - si * az, t * ax * az + si * ay,
+				t * ax * ay + si * az, c + t * ay * ay, t * ay * az - si * ax,
+				t * ax * az - si * ay, t * ay * az + si * ax, c + t * az * az};
+		}
+
 		// Rows made orthonormal again (third row first: the forward axis is the one the aim is about).
 		bool orthonormalize(mat3& m)
 		{
@@ -4615,7 +4630,11 @@ namespace rsx::vr
 			{
 				if (driving)
 				{
-					m_aim_off = mul3(m_aim_off, turn);
+					// The view holds still against 1 / gain of the camera's turn: at a Head Aim Speed above 100 % the camera
+					// turns gain x the head, and the view turns with it by the rest, so the aim stays where the head looks
+					// (all of it held still left the aim off centre by (gain - 1) x the head's turn).
+					const f32 aim_gain = std::clamp(rule.gain * (g_cfg.video.vr.head_aim_speed.get() / 100.f), 0.25f, 10.f);
+					m_aim_off = mul3(m_aim_off, aim_gain == 1.f ? turn : scale_rotation(turn, 1.f / aim_gain));
 					m_aim_turned[0] += std::atan2(turn[2], turn[8]) * deg;
 					m_aim_turned[1] += std::atan2(y_up * turn[5], turn[8]) * deg;
 				}
@@ -4762,10 +4781,10 @@ namespace rsx::vr
 		err_y -= m_aim_ref[1];
 		if (active && !gaze && gain != 1.f)
 		{
-			// The error is the head's turn since the press minus the camera's (the offset keeps the view from turning with
-			// the camera); with a gain the camera's target is gain x the head's turn.
-			err_x = gain * err_x + (gain - 1.f) * m_aim_turned[0];
-			err_y = gain * err_y + (gain - 1.f) * m_aim_turned[1];
+			// The error is the head's turn since the press minus 1 / gain of the camera's (the view holds still against that
+			// much, see above): gain x it is what the camera still has to turn.
+			err_x *= gain;
+			err_y *= gain;
 		}
 		if (active && m_aim_active_frames % 90 == 0)
 		{
