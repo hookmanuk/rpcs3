@@ -17,7 +17,7 @@
     { "address": "0x7cdd8c", "fov_deg": 46.7, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 6.0, "step": 1.0, "hold_s": 1.0, "lead_s": 0.1, "mode": "tangent_y" }
   ],
 
-  "head_aim": { "button": "L1", "mode": "gaze", "return_deg_per_s": 180, "direct": { "address": "0x11eff10", "yaw_sign": 1, "pitch_sign": 1 } },
+  "head_aim": { "button": "L1", "mode": "gaze", "return_deg_per_s": 180, "direct": { "address": "0x11eff10", "yaw_sign": -1, "pitch_sign": -1 } },
   "matrix_layout": "column_vectors",
   "camera_blocks": [0, 16, 256],
   "output_aspect_tolerance": 0.02,
