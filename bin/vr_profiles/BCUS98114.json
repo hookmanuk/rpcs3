@@ -14,7 +14,7 @@
   "camera_block_cache": false,
   "spu_async_compile": true,
   "display_area_sizes": true,
-  "culling_scale_f32": [{ "address": "0x1a48200", "fov_deg": 46.43, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 8.0, "mode": "tangent_x", "step": 0.25, "head_turn_only": true }],
+  "culling_scale_f32": [{ "address": "0x1a48200", "fov_deg": 46.43, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 8.0, "mode": "tangent_x", "step": 0.25, "head_turn_only": true, "option": "horizontal_view" }],
   "car_draw_limit": { "option": "distant_cars", "full_nearest": 1, "tiers": [{ "cars": 0 }, { "cars": 0, "keep_percent": 85, "min_distance": 30 }, { "cars": 0, "keep_percent": 70, "min_distance": 45 }], "body_programs": ["84b91fd2a878d672", "47aeae27a85d4863"] },
   "max_fps": 0,
   "default_fps": 0,

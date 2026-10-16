@@ -7,7 +7,7 @@
   "default_fps": 0,
   "game_frame_time_f32": ["0x145ff00"],
   "clear_view_targets": true,
-  "culling_scale_f32": [{ "address": "0x145fe00", "fov_deg": 56.31, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 8.0, "mode": "tangent_x", "step": 0.25 }],
+  "culling_scale_f32": [{ "address": "0x145fe00", "fov_deg": 56.31, "aspect": 1.7778, "margin_deg": 3, "min": 1.0, "max": 8.0, "mode": "tangent_x", "step": 0.25, "option": "horizontal_view" }],
   "option_f32": [
     { "address": "0x145fe10", "option": "highest_detail", "on": -8, "off": 100 },
     { "address": "0x145fe14", "option": "highest_detail", "on": -8, "off": 100 },
