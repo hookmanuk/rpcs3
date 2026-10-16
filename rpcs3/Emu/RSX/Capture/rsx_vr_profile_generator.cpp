@@ -1359,9 +1359,15 @@ namespace rsx::vr
 		{
 			std::sort(camera_w_scales.begin(), camera_w_scales.end());
 			const f64 lo = camera_w_scales[camera_w_scales.size() / 10], hi = camera_w_scales[camera_w_scales.size() * 9 / 10];
-			eye_offset_per_w = lo > 0 && hi / lo > 2.0;
-			vr_gen_log.notice("Camera block w-row scale over %u draws: 10%% %.4g, 90%% %.4g%s.", ::size32(camera_w_scales), lo, hi,
-				eye_offset_per_w ? ": per-object matrices, eye_offset baseline_per_w (check eye_baseline in view units against a known size)" : "");
+			// Also when most objects are unscaled (median 1: w = +-z, so the per-w offset equals the plain one for them) but
+			// some are not: Uncharted's scaled and stretched rocks (0.6 to 3.6, 10-90% only 0.89-1.0) took the plain offset
+			// times their scale and stood far in front of their depth.
+			const f64 median = camera_w_scales[camera_w_scales.size() / 2];
+			const usz scaled = std::count_if(camera_w_scales.begin(), camera_w_scales.end(), [&](f64 w) { return std::fabs(w / median - 1.0) > 0.05; });
+			const bool some_scaled = std::fabs(median - 1.0) < 0.02 && scaled * 50 > camera_w_scales.size();
+			eye_offset_per_w = lo > 0 && (hi / lo > 2.0 || some_scaled);
+			vr_gen_log.notice("Camera block w-row scale over %u draws: 10%% %.4g, median %.4g, 90%% %.4g, %u scaled objects%s.", ::size32(camera_w_scales), lo, median, hi,
+				static_cast<u32>(scaled), eye_offset_per_w ? ": per-object matrices, eye_offset baseline_per_w (check eye_baseline in view units against a known size)" : "");
 		}
 		// A palette of per-bone clip matrices after the first camera block (indexed programs, counted while sampling):
 		// the renderer gives each such block the camera's eye transform. Kingdom Hearts: c[260..444]; without it only

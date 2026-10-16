@@ -3977,8 +3977,15 @@ namespace rsx::vr
 					if (profile.stereo_eye_offset_per_w && sprite_x_per_unit <= 0.f)
 					{
 						// The x row is the projection's x scale times any object scale, the w row the w scale (1 for
-						// w = +-z) times the same object scale: their ratio is the object-free x scale.
-						if (const f32 w_len = std::sqrt(rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]); w_len > 1e-12f)
+						// w = +-z) times the same object scale: their ratio is the object-free x scale. Only for a
+						// uniform scale: an object stretched unevenly (Uncharted's flattened rock slabs) scales the two
+						// rows differently, so the projection's x scale cached from the last rigid block is used
+						// (apply_vr_rotation refreshes it, from this draw when its block is rigid).
+						if (m_vr_proj_valid)
+						{
+							clip_x_per_unit = m_vr_proj_x;
+						}
+						else if (const f32 w_len = std::sqrt(rows[0][3] * rows[0][3] + rows[1][3] * rows[1][3] + rows[2][3] * rows[2][3]); w_len > 1e-12f)
 						{
 							clip_x_per_unit /= w_len;
 						}

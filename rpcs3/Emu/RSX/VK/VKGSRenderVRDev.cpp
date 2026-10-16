@@ -261,7 +261,7 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 	static u32 s_dump_index = 0;
 	vr_batch_flush();
 	std::string suffix;
-	const auto dump = [&](vk::render_target* rt, const char* eye)
+	const auto dump = [&](vk::render_target* rt, const char* eye, u32 layer = 0)
 	{
 		// 4- or 8-byte colour (8: RGBA16F, raw), or the depth aspect of a depth surface (D24: 24-bit depth in a 32-bit
 		// word, D32F: float).
@@ -277,7 +277,7 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMM_ALLOCATION_POOL_UNDEFINED);
 		VkBufferImageCopy region{};
 		region.bufferRowLength = w;
-		region.imageSubresource = {static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, 0, 1};
+		region.imageSubresource = {static_cast<VkImageAspectFlags>(depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, layer, 1};
 		region.imageExtent = {w, h, 1};
 		if (vk::is_renderpass_open(*m_current_command_buffer))
 			vk::end_renderpass(*m_current_command_buffer);
@@ -304,7 +304,11 @@ void VKGSRender::vr_rtdump(const std::vector<u32>& addresses, const std::string&
 	{
 		suffix = fmt::format(".%x", a);
 		dump(m_rtts.get_surface_at(a), "left");
-		dump(m_vr_right_rtts.get_surface_at(a), "right");
+		// Multiview: both eyes are layers of the one surface (the right store has none).
+		if (vk::render_target* rt = m_rtts.get_surface_at(a); rt && !m_vr_right_rtts.get_surface_at(a) && rt->layers() > 1)
+			dump(rt, "right", 1);
+		else
+			dump(m_vr_right_rtts.get_surface_at(a), "right");
 	}
 	rsx_log.success("VR surface dump %u written (%s, %u surfaces)", s_dump_index, tag, ::size32(addresses));
 	s_dump_index++;

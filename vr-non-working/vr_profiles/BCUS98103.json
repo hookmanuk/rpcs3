@@ -36,7 +36,7 @@
     "formula": "clip_x_shear",
     "per_eye_separation": 0.0162903,
     "convergence": 2.56,
-    "eye_offset": "baseline"
+    "eye_offset": "baseline_per_w"
   },
 
   "screen_space": {
