@@ -1684,7 +1684,12 @@ namespace rsx::vr
 			vr_gen_log.notice("Stray data in a camera block is off the output aspect: require_camera_aspect.");
 		}
 		if (overlapping || (stray_offaspect && view_aspect == output_aspect))
+		{
 			json += "  \"require_camera_aspect\": true,\n";
+			// A Wider view patch that widens x and y separately moves the camera's aspect: the real camera then fails the test
+			// (God of War III: the scene froze at an old pose, a flat box in the headset).
+			vr_gen_log.notice("require_camera_aspect: if a Wider view patch widens the camera's axes separately, use reject_camera_aspect for the off-aspect block instead.");
+		}
 		{
 			// The scene's viewport flips y (NDC +Y down the screen): without view_y_down head pitch and roll turn the
 			// world the wrong way (Kingdom Hearts 1.5 and 2.5). Judged on the depth-tested draws at the view's aspect.
