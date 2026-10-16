@@ -1464,6 +1464,7 @@ namespace rsx::vr
 				read(node, "option", option, false);
 				rule.vertical_view_option = option == "vertical_view";
 				rule.horizontal_view_option = option == "horizontal_view";
+				rule.shadow_coverage_option = option == "shadow_coverage";
 				std::string head_turn_only;
 				read(node, "head_turn_only", head_turn_only, false);
 				rule.head_turn_only = head_turn_only == "true";
@@ -2126,9 +2127,10 @@ namespace rsx::vr
 		{
 			return true;
 		}
-		if ((option == "vertical_view" || option == "horizontal_view") && std::any_of(profile.culling_scale_f32.begin(), profile.culling_scale_f32.end(), [&](const auto& r)
+		if ((option == "vertical_view" || option == "horizontal_view" || option == "shadow_coverage") &&
+			std::any_of(profile.culling_scale_f32.begin(), profile.culling_scale_f32.end(), [&](const auto& r)
 				{
-					return option == "vertical_view" ? r.vertical_view_option : r.horizontal_view_option;
+					return option == "vertical_view" ? r.vertical_view_option : option == "horizontal_view" ? r.horizontal_view_option : r.shadow_coverage_option;
 				}))
 		{
 			return true;
@@ -2637,11 +2639,12 @@ namespace rsx::vr
 			const f32 lead_deg = std::min(30.f, s_turn_deg_s * rule.lead_s);
 			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg + lead_deg;
 			f32 half_deg = !rule.head_turn_only ? full_half_deg : std::min(full_half_deg, game_half_deg + head_deg);
-			if (rule.vertical_view_option || rule.horizontal_view_option)
+			if (rule.vertical_view_option || rule.horizontal_view_option || rule.shadow_coverage_option)
 			{
 				// Vertical / Horizontal View setting: only that share of the widening past the rule's min (the game's own view:
 				// Uncharted's scale 1.0, God of War III's tangent floors at 0.01, i.e. off).
-				const u32 percent = rule.vertical_view_option ? g_cfg.video.vr.vertical_view.get() : g_cfg.video.vr.horizontal_view.get();
+				const u32 percent = rule.shadow_coverage_option ? g_cfg.video.vr.shadow_coverage.get() :
+					rule.vertical_view_option ? g_cfg.video.vr.vertical_view.get() : g_cfg.video.vr.horizontal_view.get();
 				const f32 base_deg = rule.tangent ? std::atan(rule.min * game_tan) * 57.29578f : rule.min * rule.fov_deg / 2.f;
 				half_deg = std::min(half_deg, base_deg + std::max(0.f, half_deg - base_deg) * (percent / 100.f));
 			}

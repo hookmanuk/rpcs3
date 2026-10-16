@@ -408,6 +408,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM_SPEED: return tr("Head Aim Speed", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_VERTICAL_VIEW: return tr("Vertical View (lower = faster)", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HORIZONTAL_VIEW: return tr("Horizontal View (lower = faster)", "VR"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_SHADOW_COVERAGE: return tr("Shadow Coverage (lower = sharper)", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL: return tr("General", "VR settings section"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_WORLD_SCALE: return tr("World Scale", "VR");
 		case localized_string_id::HOME_MENU_SETTINGS_VR_GENERATE_PROFILE: return tr("Generate VR Profile (samples 10 seconds of gameplay)", "VR");

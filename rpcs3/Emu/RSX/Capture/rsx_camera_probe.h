@@ -655,6 +655,10 @@ namespace rsx::vr
 			// where the widening is costly (Uncharted's boat: 88 FPS at the game's view, ~57 with the full widening).
 			bool vertical_view_option = false;
 			bool horizontal_view_option = false;
+			// "option": "shadow_coverage": the VR setting Shadow Coverage (%) scales the widening the same way, for words a
+			// shadow-map fit uses: the map's resolution is fixed, so a wider fit gives coarser, steadier-to-swim texels
+			// (Uncharted: at the full headset view x 3 / y 6, jagged sun patches that flicker as the camera turns).
+			bool shadow_coverage_option = false;
 			// "head_turn_only": true: widen by the head turn alone, the game's own half-angle around the direction the
 			// head looks (straight ahead: the game's culling, so the headset view's edges can miss scenery). Gran
 			// Turismo 5 looking ahead: scale 1.0 instead of 2.0, ~1.2 ms of the RSX thread on a busy race. Default: the
