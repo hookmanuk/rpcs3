@@ -241,6 +241,7 @@ namespace rsx
 				if (rsx::vr::profile_has_option(*profile, "simpler_vehicles")) add_checkbox(&g_cfg.video.vr.simpler_vehicles, localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES);
 				if (rsx::vr::profile_has_option(*profile, "fewer_shadows")) add_checkbox(&g_cfg.video.vr.fewer_shadows, localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS);
 				if (rsx::vr::profile_has_option(*profile, "head_aim")) add_checkbox(&g_cfg.video.vr.head_aim, localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM);
+				if (rsx::vr::profile_has_option(*profile, "head_aim")) add_unsigned_slider(&g_cfg.video.vr.head_aim_speed, localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM_SPEED, " %", 10); // VR fork
 				if (rsx::vr::profile_has_option(*profile, "horizontal_view")) add_unsigned_slider(&g_cfg.video.vr.horizontal_view, localized_string_id::HOME_MENU_SETTINGS_VR_HORIZONTAL_VIEW, " %", 5); // VR fork
 				if (rsx::vr::profile_has_option(*profile, "vertical_view")) add_unsigned_slider(&g_cfg.video.vr.vertical_view, localized_string_id::HOME_MENU_SETTINGS_VR_VERTICAL_VIEW, " %", 5); // VR fork
 				if (rsx::vr::profile_has_option(*profile, "reflections")) add_checkbox(&g_cfg.video.vr.reduced_rate_reflections, localized_string_id::HOME_MENU_SETTINGS_VR_REDUCED_RATE_REFLECTIONS);

@@ -281,6 +281,7 @@ struct cfg_root : cfg::node
 			cfg::_bool simpler_vehicles{ this, "Simpler Other Vehicles", true, true };           // VR fork: "simpler_vehicles": option_f32
 			cfg::_bool fewer_shadows{ this, "Fewer Shadows", true, true };                       // VR fork: "fewer_shadows": option_f32
 			cfg::_bool head_aim{ this, "Head Aim", true, true };                                 // VR fork: "head_aim": the profile's head_aim (aim with the head while its button is held)
+			cfg::uint<50, 500> head_aim_speed{ this, "Head Aim Speed", 100, true };              // VR fork: % of the profile's head_aim gain (200: the aim turns twice as far as the head)
 			cfg::uint<0, 100> vertical_view{ this, "Vertical View", 100, true };                 // VR fork: "vertical_view": % of the extra vertical culling the headset needs (100 = no missing scenery up / down)
 			cfg::uint<0, 100> horizontal_view{ this, "Horizontal View", 100, true };             // VR fork: "horizontal_view": the same for the horizontal culling (left / right)
 			cfg::_enum<vr_dlss_mode> dlss{ this, "DLSS (experimental)", vr_dlss_mode::off, true };         // VR fork: DLSS (env RPCS3_DLSS overrides); live

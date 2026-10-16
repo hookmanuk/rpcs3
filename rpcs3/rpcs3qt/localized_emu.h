@@ -405,6 +405,7 @@ private:
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SIMPLER_VEHICLES: return tr("Simpler Other Vehicles", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_FEWER_SHADOWS: return tr("Fewer Shadows", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM: return tr("Head Aim", "VR"); // VR fork
+		case localized_string_id::HOME_MENU_SETTINGS_VR_HEAD_AIM_SPEED: return tr("Head Aim Speed", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_VERTICAL_VIEW: return tr("Vertical View (lower = faster)", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_HORIZONTAL_VIEW: return tr("Horizontal View (lower = faster)", "VR"); // VR fork
 		case localized_string_id::HOME_MENU_SETTINGS_VR_SECTION_GENERAL: return tr("General", "VR settings section"); // VR fork

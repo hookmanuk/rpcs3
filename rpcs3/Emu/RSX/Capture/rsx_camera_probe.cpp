@@ -4633,6 +4633,10 @@ namespace rsx::vr
 		const f32 ax = m_vr_rot[2], ay = y_up * m_vr_rot[5], az = m_vr_rot[8];
 		f32 err_x = std::atan2(-ax, az) * deg;
 		f32 err_y = std::atan2(-ay, std::sqrt(ax * ax + az * az)) * deg;
+		// The Head Aim Speed setting scales the profile's gain. Gaze mode only at a gain of 1: its correction pulls the aim
+		// back onto where the head looks while the head is still, which would undo a larger gain; otherwise relative.
+		const f32 gain = std::clamp(rule.gain * (g_cfg.video.vr.head_aim_speed.get() / 100.f), 0.25f, 10.f);
+		const bool gaze = rule.gaze && std::fabs(gain - 1.f) < 0.01f;
 		if (rule.direct)
 		{
 			// Where the head looks in the view (+ right, + up). The view holds still while the camera turns (the offset
@@ -4650,14 +4654,14 @@ namespace rsx::vr
 					m_aim_direct_base = {words[2], words[3]};
 				}
 				// Gaze: the camera has to turn by the error at the press (aim to the head's centre), then follow the head.
-				m_aim_bias = {err_x - rule.gain * hx, err_y - rule.gain * hy};
+				m_aim_bias = {err_x - gain * hx, err_y - gain * hy};
 			}
 			if (active && (!m_aim_was_active || manual))
 			{
 				// Relative: from the press (or the player's own stick) the aim moves by gain x the head's turn from where it is.
-				m_aim_head_ref = {hx - m_aim_direct[0] / rule.gain, hy - m_aim_direct[1] / rule.gain};
+				m_aim_head_ref = {hx - m_aim_direct[0] / gain, hy - m_aim_direct[1] / gain};
 			}
-			if (active && !manual && rule.gaze && m_aim_was_active)
+			if (active && !manual && gaze && m_aim_was_active)
 			{
 				// The game's own camera moves too (and the pitch is not exactly linear in its units): the aim's remaining
 				// error from the head's centre is learned while the head is still (a moving head's error also holds the
@@ -4672,8 +4676,8 @@ namespace rsx::vr
 			m_aim_head_last = {hx, hy};
 			if (active && !manual)
 			{
-				std::array<f32, 2> target = rule.gaze ? std::array<f32, 2>{rule.gain * hx + m_aim_bias[0], rule.gain * hy + m_aim_bias[1]} :
-					std::array<f32, 2>{rule.gain * (hx - m_aim_head_ref[0]), rule.gain * (hy - m_aim_head_ref[1])};
+				std::array<f32, 2> target = gaze ? std::array<f32, 2>{gain * hx + m_aim_bias[0], gain * hy + m_aim_bias[1]} :
+					std::array<f32, 2>{gain * (hx - m_aim_head_ref[0]), gain * (hy - m_aim_head_ref[1])};
 				target = {std::clamp(target[0], -120.f, 120.f), std::clamp(target[1], -80.f, 80.f)};
 				// At most 20 degrees a frame (a gaze press far off centre): the view's offset only follows turns under 25.
 				for (u32 i = 0; i < 2; ++i)
@@ -4686,7 +4690,7 @@ namespace rsx::vr
 		if (active && !m_aim_was_active)
 		{
 			// Relative: the aim keeps its place in the view it had at the press; gaze: it goes to the view's centre.
-			m_aim_ref = rule.gaze ? std::array<f32, 2>{} : std::array<f32, 2>{err_x, err_y};
+			m_aim_ref = gaze ? std::array<f32, 2>{} : std::array<f32, 2>{err_x, err_y};
 			m_aim_turned = {};
 			m_aim_votes = {};
 			m_aim_active_frames = 0;
@@ -4700,12 +4704,12 @@ namespace rsx::vr
 		m_aim_active_frames = active ? m_aim_active_frames + 1 : 0;
 		err_x -= m_aim_ref[0];
 		err_y -= m_aim_ref[1];
-		if (active && !rule.gaze && rule.gain != 1.f)
+		if (active && !gaze && gain != 1.f)
 		{
 			// The error is the head's turn since the press minus the camera's (the offset keeps the view from turning with
 			// the camera); with a gain the camera's target is gain x the head's turn.
-			err_x = rule.gain * err_x + (rule.gain - 1.f) * m_aim_turned[0];
-			err_y = rule.gain * err_y + (rule.gain - 1.f) * m_aim_turned[1];
+			err_x = gain * err_x + (gain - 1.f) * m_aim_turned[0];
+			err_y = gain * err_y + (gain - 1.f) * m_aim_turned[1];
 		}
 		if (active && m_aim_active_frames % 90 == 0)
 		{
