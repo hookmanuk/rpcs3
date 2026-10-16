@@ -100,6 +100,7 @@ namespace rsx::vr
 	struct fragment_constant_override
 	{
 		u64 program = 0;  // vertex program ucode hash
+		u64 fragment = 0; // "fragment": fragment program ucode hash too (0: any; a full-screen vertex program serves many passes)
 		u32 constant = 0; // index into the fragment program's constants (_fetch_constant(n))
 		std::array<f32, 4> value{};
 		bool replace = true; // "value": replace the constant; else scale the game's own value
@@ -107,6 +108,13 @@ namespace rsx::vr
 		// "game_fov_deg": [h, v]: in the headset view x and y are also scaled by the game's tangent range over the eye's
 		// rendered one, so screen-space offsets (filter taps) keep the flat game's size relative to the picture.
 		f32 game_fov_h = 0.f, game_fov_v = 0.f;
+		// "inverse_fit_words": { "x": "0x...", "y": "0x...", "fov_deg": v, "aspect": a }: the constant is also divided by the
+		// growth of a camera-frustum fit's radius under the culling words at x / y (read each draw; 1 = the game's view):
+		// sqrt((wx tx)^2 + (wy ty)^2) / sqrt(tx^2 + ty^2), tx = tan(fov / 2) aspect, ty = tan(fov / 2). For shadow-map filter
+		// taps spaced in texels (Uncharted: 4 jittered taps) over cascades a Wider view enlarged: in texels they stayed the
+		// same, so on the ground they spread 2-3x and the per-pixel jitter showed as stripes in the sun patches.
+		u32 fit_word_x = 0, fit_word_y = 0;
+		f32 fit_fov_deg = 0.f, fit_aspect = 1.f;
 	};
 
 	// A title's VR profile, bin/vr_profiles/<TITLE_ID>.json (schema 1). Every
@@ -727,6 +735,19 @@ namespace rsx::vr
 		// the scale multiplies like the view (16x the pixels at 400%) for no visible gain: Gran Turismo 5's 256x511
 		// reflection maps and 512-wide exposure and glare passes (~2 ms a frame at 400% in stereo).
 		u16 min_scalable_dimension = 0;
+		// "boosted_targets": [{ "size": "2432x1216", "depth_only": true, "scale": 4.0 }]: render targets of that guest size
+		// (with depth_only: bound with no colour target, e.g. a shadow map) are rendered at the Resolution Scale times
+		// `scale` per axis, capped at 16384 pixels. For shadow maps a Wider view stretches over the headset view (Uncharted:
+		// the fit is 3x wider and 6x taller, so each shadow texel was 3-6x larger: jagged edges that swam with the camera).
+		// While such a target is bound the renderer's scaling config is swapped for the boosted one (the surface keeps
+		// its own config, which everything reading it uses); it goes back at the next target change and at each flip.
+		struct boosted_target
+		{
+			u16 width = 0, height = 0;
+			bool depth_only = false;
+			f32 scale = 1.f;
+		};
+		std::vector<boosted_target> boosted_targets;
 		// image_pool_mb: the texture cache's pool of temporary images (copies of render-target parts, kept between frames
 		// for reuse) may hold this many MB, and 4x upstream's 256 images, while stereo renders. For games that make
 		// hundreds of copies a frame: the pool was halved every frame and the images destroyed and created again. Their

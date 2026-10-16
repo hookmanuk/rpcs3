@@ -1129,16 +1129,18 @@ const std::vector<const rsx::vr::fragment_constant_override*>* VKGSRender::find_
 		return nullptr;
 	}
 
-	// Looked up once per vertex program (the hash walks the ucode).
-	if (m_fc_overrides_program != m_vertex_prog || m_fc_overrides_profile != profile)
+	// Looked up once per vertex program (the hash walks the ucode) and fragment program.
+	const usz fp_hash = current_fragment_program.ucode_hash ? current_fragment_program.ucode_hash : program_hash_util::fragment_program_utils::get_fragment_program_ucode_hash(current_fragment_program);
+	if (m_fc_overrides_program != m_vertex_prog || m_fc_overrides_profile != profile || m_fc_overrides_fragment != fp_hash)
 	{
 		m_fc_overrides_program = m_vertex_prog;
 		m_fc_overrides_profile = profile;
+		m_fc_overrides_fragment = fp_hash;
 		m_fc_overrides.clear();
 		const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(current_vertex_program);
 		for (const auto& rule : profile->fragment_constant_overrides)
 		{
-			if (rule.program == hash)
+			if (rule.program == hash && (!rule.fragment || rule.fragment == fp_hash))
 			{
 				m_fc_overrides.push_back(&rule);
 			}
@@ -3752,6 +3754,21 @@ void VKGSRender::vr_apply_fragment_constant_overrides(const std::vector<const rs
 		dst[1] *= rule->scale[1] * fov_y;
 		dst[2] *= rule->scale[2];
 		dst[3] *= rule->scale[3];
+		if (rule->fit_word_x)
+		{
+			// inverse_fit_words: divided by the growth of a frustum fit's radius under the culling words (see the struct).
+			const f32 wx = std::bit_cast<f32>(static_cast<u32>(vm::read32(rule->fit_word_x)));
+			const f32 wy = std::bit_cast<f32>(static_cast<u32>(vm::read32(rule->fit_word_y)));
+			const f32 ty = std::tan(rule->fit_fov_deg / 2.f / 57.29578f), tx = ty * rule->fit_aspect;
+			if (std::isfinite(wx) && std::isfinite(wy) && wx > 0.f && wy > 0.f)
+			{
+				const f32 k = std::sqrt(tx * tx + ty * ty) / std::sqrt(wx * tx * wx * tx + wy * ty * wy * ty);
+				for (f32* v = dst; v != dst + 4; ++v)
+				{
+					*v *= k;
+				}
+			}
+		}
 	}
 	m_fragment_constants_overridden = true;
 }
@@ -3920,8 +3937,62 @@ bool VKGSRender::vr_screen_tile_matrix(f32 (&pre)[4][4]) const
 // each frame, and the texture cache flushed the target, waiting for both eyes' queued work).
 // Dev, live A/B from the probe file: dev=1 keeps the old order (copies after the right eye), dev=2 leaves
 // the RSX's own reads out. RPCS3_VR_NO_RSX_EARLY=1 does the latter from the start.
+void VKGSRender::vr_restore_target_scale()
+{
+	if (m_vr_boost_active)
+	{
+		resolution_scaling_config = m_vr_boost_saved_config;
+		m_vr_boost_active = false;
+	}
+}
+
+// vr_before_prepare_rtts(): profile boosted_targets. The surface store creates (and matches) the bound targets with the
+// renderer's scaling config, and the draws into them scale their viewport and scissor by it, so swapping it while a
+// boosted target is bound renders that target at a higher resolution; the surface records its own config, which texture
+// reads and copies of it use.
+void VKGSRender::vr_select_target_scale()
+{
+	vr_restore_target_scale();
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!profile || profile->boosted_targets.empty() || !rsx::vr::camera_probe::get().render_enabled())
+	{
+		return;
+	}
+	// No colour target: every slot the surface target uses has no address (the other slots hold stale addresses).
+	bool no_colour = true;
+	for (const u8 index : rsx::utility::get_rtt_indexes(m_framebuffer_layout.target))
+	{
+		no_colour &= m_framebuffer_layout.color_addresses[index] == 0;
+	}
+	const auto it = std::find_if(profile->boosted_targets.begin(), profile->boosted_targets.end(), [&](const auto& t)
+		{
+			return t.width == m_framebuffer_layout.width && t.height == m_framebuffer_layout.height && (!t.depth_only || (no_colour && m_framebuffer_layout.zeta_address));
+		});
+	if (it == profile->boosted_targets.end())
+	{
+		return;
+	}
+	m_vr_boost_saved_config = resolution_scaling_config;
+	rsx::surface_scaling_config_t boosted = resolution_scaling_config;
+	// Each axis at most 16384 pixels (the largest image the device takes).
+	const auto cap = [](u32 percent, f32 scale, u16 size)
+	{
+		return static_cast<u16>(std::clamp<u32>(static_cast<u32>(percent * scale), percent, size ? 16384u * 100u / size : 800u));
+	};
+	boosted.scale_percent = cap(resolution_scaling_config.scale_percent, it->scale, it->width);
+	boosted.scale_percent_y = cap(resolution_scaling_config.percent_y(), it->scale, it->height);
+	resolution_scaling_config = boosted;
+	m_vr_boost_active = true;
+	if (static u32 s_logged = 0; s_logged++ < 2)
+	{
+		rsx_log.notice("VR: boosted target %ux%u%s: %u%% x %u%% (renderer %u%% x %u%%)", it->width, it->height, it->depth_only ? " (depth only)" : "",
+			boosted.scale_percent, boosted.percent_y(), m_vr_boost_saved_config.scale_percent, m_vr_boost_saved_config.percent_y());
+	}
+}
+
 bool VKGSRender::vr_before_prepare_rtts()
 {
+	vr_select_target_scale();
 	const bool vr_early_readback = rsx::vr::camera_probe::get().render_enabled();
 	bool vr_copied_before_right_eye = false;
 	const u32 vr_dev = rsx::vr::camera_probe::get().dev_flags();

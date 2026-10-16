@@ -339,7 +339,8 @@ namespace rsx::vr
 		   << ",\"vp_storage_hash\":\"" << std::hex << storage_hash << std::dec << '"'
 		   << ",\"vp_ucode_hash\":\"" << std::hex << ucode_hash << std::dec << '"'
 		   << ",\"vp_session_id\":" << in.vp_session_id
-		   << ",\"fp_session_id\":" << in.fp_session_id;
+		   << ",\"fp_session_id\":" << in.fp_session_id
+		   << ",\"fp_ucode_hash\":\"" << std::hex << (in.fragment_program ? in.fragment_program->ucode_hash : 0) << std::dec << '"';
 
 		// Primitive / vertex signature
 		os << ",\"primitive\":" << static_cast<u32>(regs.current_draw_clause.primitive)

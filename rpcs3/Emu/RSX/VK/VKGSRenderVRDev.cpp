@@ -360,6 +360,16 @@ void VKGSRender::vr_eager_submit()
 // flip(), first thing: the pending right-eye batch, the surface dump request and the GPU profiler's frame end.
 void VKGSRender::vr_flip_begin(const rsx::display_flip_info_t& info)
 {
+	// Profile boosted_targets: the renderer's own scaling config again before flip compares it with the configured one.
+	if (m_vr_boost_active)
+	{
+		vr_restore_target_scale();
+		// The boosted target may still be bound: the next draw must rebind it through prepare_rtts (which swaps the config
+		// back in), not take its fast paths with the renderer's own config.
+		m_graphics_state |= rsx::rtt_config_dirty;
+		m_depth_surface_info = {};
+	}
+
 	vk::vr_complete_late_readbacks();
 
 	// Gate 6: the right eye's last batched draws must land before it is presented.

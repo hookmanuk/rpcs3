@@ -98,6 +98,12 @@
 	u32 m_vr_screen_frame_draws = 0;      // draws this frame matching the profile's screen_frame_draws
 	u32 m_vr_screen_frame_draws_without_camera = 0; // ... matching entries with "without_camera"
 	u32 m_vr_prev_update_camera_draws = 0; // camera draws seen by the previous vr_update_view (the frame's other half)
+	// Profile boosted_targets: the renderer's own scaling config while a boosted target is bound (resolution_scaling_config
+	// then holds the boosted one); restored at the next target change and at each flip.
+	bool m_vr_boost_active = false;
+	rsx::surface_scaling_config_t m_vr_boost_saved_config{};
+	void vr_select_target_scale();
+	void vr_restore_target_scale();
 	std::vector<u32> m_vr_camera_targets; // colour targets of recent camera draws (addresses, newest last)
 	// Screen-space passes that read a full-screen target drawn with an older head
 	// pose (ICO blends last frame's scene and glow into each new frame) sample it
@@ -325,6 +331,7 @@
 	const std::vector<const rsx::vr::fragment_constant_override*>* find_fragment_constant_overrides();
 	const void* m_fc_overrides_program = nullptr;
 	const void* m_fc_overrides_profile = nullptr;
+	usz m_fc_overrides_fragment = 0; // the fragment program the list was built for (rules with "fragment")
 	std::vector<const rsx::vr::fragment_constant_override*> m_fc_overrides;
 	bool m_fragment_constants_overridden = false;
 	u64 m_vr_last_emu_flip_us = 0;     // last game flip (not an overlay/UI refresh)

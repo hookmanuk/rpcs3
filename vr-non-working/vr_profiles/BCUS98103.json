@@ -7,6 +7,10 @@
   "default_fps": 45,
   "vblanks_per_frame": 2,
   "video_vblank_rate": 60,
+  "boosted_targets": [{ "size": "2432x1216", "depth_only": true, "scale": 2.0 }],
+  "fragment_constant_overrides": [
+    { "program": "fc15ec0752d20290", "fragment": "135614811b7e2009", "constant": 19, "inverse_fit_words": { "x": "0x7cdd88", "y": "0x7cdd8c", "fov_deg": 46.7, "aspect": 1.7778 } }
+  ],
   "late_readback_lengths": [64],
   "depth_remap_programs": [{ "program": "fc15ec0752d20290", "texture0": "1280x720", "texture0_format": "a5" }],
   "depth_remap_uv": true,

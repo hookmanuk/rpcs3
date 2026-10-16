@@ -284,7 +284,7 @@ struct cfg_root : cfg::node
 			cfg::uint<50, 500> head_aim_speed{ this, "Head Aim Speed", 100, true };              // VR fork: % of the profile's head_aim gain (200: the aim turns twice as far as the head)
 			cfg::uint<0, 100> vertical_view{ this, "Vertical View", 100, true };                 // VR fork: "vertical_view": % of the extra vertical culling the headset needs (100 = no missing scenery up / down)
 			cfg::uint<0, 100> horizontal_view{ this, "Horizontal View", 100, true };             // VR fork: "horizontal_view": the same for the horizontal culling (left / right)
-			cfg::uint<0, 100> shadow_coverage{ this, "Shadow Coverage", 50, true };              // VR fork: "shadow_coverage": % of the headset view the sun shadows are fitted to (lower = sharper, steadier shadows; edges can lose shadow)
+			cfg::uint<0, 100> shadow_coverage{ this, "Shadow Coverage", 100, true };             // VR fork: "shadow_coverage": % of the headset view the sun shadows are fitted to (lower = sharper, steadier shadows; edges can lose shadow)
 			cfg::_enum<vr_dlss_mode> dlss{ this, "DLSS (experimental)", vr_dlss_mode::off, true };         // VR fork: DLSS (env RPCS3_DLSS overrides); live
 			cfg::_enum<vr_dlss_model> dlss_model{ this, "DLSS Model (experimental)", vr_dlss_model::default_model, true }; // the NGX render preset (env RPCS3_DLSS_PRESET overrides); live
 			cfg::uint<0, 100> dlss_sharpening{ this, "DLSS Sharpening", 0, true }; // VR fork: RCAS on DLSS's outputs, 0 = off; live

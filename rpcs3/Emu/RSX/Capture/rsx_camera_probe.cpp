@@ -1360,6 +1360,28 @@ namespace rsx::vr
 				}
 			}
 		};
+		if (const YAML::Node rules = child(root, "boosted_targets"); rules && rules.IsSequence())
+		{
+			for (const YAML::Node& node : rules)
+			{
+				check_keys(node, " in boosted_targets", {"size", "depth_only", "scale"});
+				std::string size, depth_only;
+				read(node, "size", size);
+				read(node, "depth_only", depth_only, false);
+				title_profile::boosted_target t;
+				read(node, "scale", t.scale, false);
+				u32 w = 0, h = 0;
+				if (std::sscanf(size.c_str(), "%ux%u", &w, &h) != 2 || !w || !h || !(t.scale >= 1.f && t.scale <= 16.f))
+				{
+					fail("boosted_targets: expected {\"size\": \"<width>x<height>\", \"depth_only\": true, \"scale\": 1..16}");
+					continue;
+				}
+				t.width = static_cast<u16>(w);
+				t.height = static_cast<u16>(h);
+				t.depth_only = depth_only == "true";
+				profile->boosted_targets.push_back(t);
+			}
+		}
 		if (const YAML::Node rules = child(root, "native_rate_when"); rules && rules.IsSequence())
 		{
 			// [{ "address": "0xf17060", "values": [1], "rate": 60 }]
@@ -1573,22 +1595,46 @@ namespace rsx::vr
 			// "scale": [x, y, z, w] and / or "game_fov_deg": [h, v] (scale the game's own value, see the struct)
 			for (const auto& node : rules)
 			{
-				check_keys(node, " in fragment_constant_overrides", {"program", "constant", "value", "scale", "game_fov_deg"});
+				check_keys(node, " in fragment_constant_overrides", {"program", "fragment", "constant", "value", "scale", "game_fov_deg", "inverse_fit_words"});
 				fragment_constant_override rule;
 				const std::string text = node["program"] ? node["program"].as<std::string>() : std::string();
 				char* end = nullptr;
 				rule.program = std::strtoull(text.c_str(), &end, 16);
 				if (text.empty() || !end || *end)
 					fail("fragment_constant_overrides: '" + text + "' is not a hex program hash");
+				if (node["fragment"])
+				{
+					const std::string fp_text = node["fragment"].as<std::string>();
+					rule.fragment = std::strtoull(fp_text.c_str(), &end, 16);
+					if (fp_text.empty() || !end || *end)
+						fail("fragment_constant_overrides: fragment '" + fp_text + "' is not a hex program hash");
+				}
 				rule.constant = node["constant"] ? node["constant"].as<u32>() : 0;
 				const YAML::Node value = node["value"];
 				const YAML::Node scale = node["scale"];
 				const YAML::Node game_fov = node["game_fov_deg"];
+				const YAML::Node fit = node["inverse_fit_words"];
 				rule.replace = !!value;
-				if (rule.replace ? (!value.IsSequence() || value.size() != 4) : (!scale && !game_fov))
+				if (rule.replace ? (!value.IsSequence() || value.size() != 4) : (!scale && !game_fov && !fit))
 				{
-					fail("fragment_constant_overrides: needs \"value\" (4 numbers), or \"scale\" and / or \"game_fov_deg\"");
+					fail("fragment_constant_overrides: needs \"value\" (4 numbers), or \"scale\", \"game_fov_deg\" and / or \"inverse_fit_words\"");
 					continue;
+				}
+				if (fit)
+				{
+					std::string x, y;
+					read(fit, "x", x);
+					read(fit, "y", y);
+					read(fit, "fov_deg", rule.fit_fov_deg);
+					read(fit, "aspect", rule.fit_aspect, false);
+					title_profile::guest_address ax, ay;
+					if (!parse_guest_address("fragment_constant_overrides", x, ax) || !parse_guest_address("fragment_constant_overrides", y, ay) || ax.deref || ay.deref || !(rule.fit_fov_deg > 0.f && rule.fit_fov_deg < 180.f))
+					{
+						fail("fragment_constant_overrides: inverse_fit_words needs {\"x\": \"0x...\", \"y\": \"0x...\", \"fov_deg\": v, \"aspect\": a} (plain addresses)");
+						continue;
+					}
+					rule.fit_word_x = ax.address + ax.offset;
+					rule.fit_word_y = ay.address + ay.offset;
 				}
 				for (u32 i = 0; rule.replace && i < 4; ++i)
 				{
@@ -1752,7 +1798,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim", "boosted_targets"});
 		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});

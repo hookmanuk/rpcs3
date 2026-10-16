@@ -1040,6 +1040,7 @@
     <ClInclude Include="Emu\RSX\Capture\rsx_camera_probe.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_vr_profile_generator.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_vr_hooks.h" />
+    <ClInclude Include="Emu\RSX\Capture\rsx_vr_texture_gather.h" />
     <ClInclude Include="Emu\RSX\Capture\rsx_vr_eye_shape.h" />
     <ClInclude Include="Emu\Cell\PPUDevHooks.inl" />
     <ClInclude Include="Emu\RSX\Capture\rsx_trace.h" />

@@ -4,6 +4,7 @@
 #include "TextureUtils.h"
 #include "Emu/RSX/RSXThread.h"
 #include "../Utils/rsx_utils.h"
+#include "../Capture/rsx_vr_texture_gather.h" // VR fork: boosted_targets gather scale
 
 namespace rsx
 {
@@ -432,7 +433,7 @@ namespace rsx
 				{
 					// Since output is upscaled, also upscale on dst
 
-					const auto& scaling_config = rsx::get_current_renderer()->resolution_scaling_config;
+					const auto& scaling_config = rsx::vr::gather_scaling_config(fbos); // VR fork: a boosted surface's scale sizes the gather
 					const auto [_dst_x, _dst_y] = rsx::apply_resolution_scale<false>(scaling_config, static_cast<u16>(dst_offset.x), static_cast<u16>(dst_y), attr.width, attr.height);
 					const auto [_dst_w, _dst_h] = rsx::apply_resolution_scale<true>(scaling_config, dst_w, height, attr.width, attr.height);
 
@@ -896,7 +897,7 @@ namespace rsx
 			}
 
 			// If this method was called, there is no easy solution, likely means atlas gather is needed
-			const auto& scaling_config = rsx::get_current_renderer()->resolution_scaling_config;
+			const auto& scaling_config = rsx::vr::gather_scaling_config(fbos); // VR fork: a boosted surface's scale sizes the gather
 			const auto [scaled_w, scaled_h] = rsx::apply_resolution_scale(scaling_config, attr2.width, attr2.height);
 			const auto format_class = classify_format(attr2.gcm_format);
 			const auto upload_context = (fbos.empty()) ? texture_upload_context::shader_read : texture_upload_context::framebuffer_storage;
