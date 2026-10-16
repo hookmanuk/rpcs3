@@ -6,6 +6,7 @@
   "max_fps": 0,
   "default_fps": 45,
   "vblanks_per_frame": 2,
+  "video_vblank_rate": 60,
   "late_readback_lengths": [64],
   "depth_remap_programs": [{ "program": "fc15ec0752d20290", "texture0": "1280x720", "texture0_format": "a5" }],
   "depth_remap_uv": true,
