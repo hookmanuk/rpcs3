@@ -911,6 +911,7 @@ namespace rsx::vr
 				profile->frame_rate_draw_min_counts.push_back(std::max(min_count, 1u));
 			}
 		}
+		read(screen_space, "screen_frame_max_camera_draws", profile->screen_space_screen_frame_max_camera_draws, false);
 		if (const YAML::Node draws = child(screen_space, "screen_frame_draws"); draws && draws.IsSequence())
 		{
 			for (const YAML::Node& node : draws)
@@ -1453,6 +1454,8 @@ namespace rsx::vr
 				read(node, "min", rule.min, false);
 				read(node, "max", rule.max, false);
 				read(node, "step", rule.step, false);
+				read(node, "lead_s", rule.lead_s, false);
+				rule.lead_s = std::clamp(rule.lead_s, 0.f, 0.5f);
 				std::string head_turn_only;
 				read(node, "head_turn_only", head_turn_only, false);
 				rule.head_turn_only = head_turn_only == "true";
@@ -1745,7 +1748,7 @@ namespace rsx::vr
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
 		check_keys(stereo, " in stereo", {"formula", "per_eye_separation", "convergence", "by_target_width", "eye_offset"});
-		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_over_scene", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frames_when", "scaled_draws"});
+		check_keys(screen_space, " in screen_space", {"orthographic_block", "orthographic_block_layout", "hud_block_programs", "bare_projection", "depth_offset_projection", "offaspect_projection", "rotation_only_passthrough", "passthrough_hud", "preprojected_programs", "hud_programs", "output_pixel_draws_not_hud", "subviewport_cameras_in_box", "boxed_cameras", "hud_keep_depth", "hud_over_scene", "hud_exact_depth_programs", "hud_skips_passes", "hud_display_buffers_only", "hud_box_after_shader", "frames_without_3d_as_screen", "clear_outside_box", "unboxed_draws", "screen_frame_draws", "screen_frame_max_camera_draws", "screen_frames_when", "scaled_draws"});
 		if (const YAML::Node rules = child(stereo, "by_target_width"); rules && rules.IsSequence())
 		{
 			for (const auto& node : rules)
@@ -2532,6 +2535,29 @@ namespace rsx::vr
 		// the game's own culling, so a patch that widens the game's projection with the scale shows the game's own
 		// framing on the screen instead of a zoomed-out one.
 		const bool head_view = camera_probe::get().vr_view_rotation(R, tx, ty);
+		// The head's turn speed (degrees per second, smoothed) for rules with lead_s: the angle between this call's view
+		// direction and the last one's.
+		static std::array<f32, 3> s_last_dir{};
+		static u64 s_last_us = 0;
+		static f32 s_turn_deg_s = 0.f;
+		if (head_view)
+		{
+			const std::array<f32, 3> dir{R[2], R[5], R[8]};
+			const u64 now_us = get_system_time();
+			const f32 dt = s_last_us ? (now_us - s_last_us) / 1e6f : 0.f;
+			if (dt > 0.001f && dt < 0.2f)
+			{
+				const f32 d = std::clamp(dir[0] * s_last_dir[0] + dir[1] * s_last_dir[1] + dir[2] * s_last_dir[2], -1.f, 1.f);
+				const f32 speed = std::acos(d) * 57.29578f / dt;
+				// Rises at once, falls over ~0.2 s (a turn's speed holds the margin until the culling has caught up).
+				s_turn_deg_s = std::max(speed, s_turn_deg_s - (s_turn_deg_s - speed) * std::min(1.f, dt / 0.2f));
+			}
+			if (dt == 0.f || dt < 0.2f)
+			{
+				s_last_dir = dir;
+			}
+			s_last_us = now_us;
+		}
 		for (const auto& rule : profile->culling_scale_f32)
 		{
 			const u32 address = resolve_guest_address(rule.address);
@@ -2591,7 +2617,8 @@ namespace rsx::vr
 				head_deg = std::max(head_deg, z <= 0.05f ? 90.f : std::atan(rule.horizontal ? std::fabs(x / z) : std::max(std::fabs(y / z), rule.vertical ? 0.f : std::fabs(x / z) / rule.aspect)) * 57.29578f);
 			}
 			const f32 game_half_deg = rule.tangent ? std::atan(game_tan) * 57.29578f : rule.fov_deg / 2.f;
-			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg;
+			const f32 lead_deg = std::min(30.f, s_turn_deg_s * rule.lead_s);
+			const f32 full_half_deg = behind ? 90.f : std::atan(rule.horizontal ? hx : h) * 57.29578f + rule.margin_deg + lead_deg;
 			const f32 half_deg = !rule.head_turn_only ? full_half_deg : std::min(full_half_deg, game_half_deg + head_deg);
 			const f32 wanted = std::clamp(rule.tangent ? std::tan(std::min(half_deg, 89.f) / 57.29578f) / game_tan :
 				2.f * half_deg / rule.fov_deg, rule.min, rule.max);

@@ -398,6 +398,10 @@ namespace rsx::vr
 		// game's own camera included: a menu composed of a 3D model and 2D layers (God of War's main menu: Kratos in front
 		// of a 2D fire background), which the headset view pulls apart. List a draw only the menu makes (its logo).
 		std::vector<unboxed_draw> screen_space_screen_frame_draws;
+		// "screen_frame_max_camera_draws": a frame with more camera draws than this stays in the headset view even when
+		// one of screen_frame_draws matched: gameplay can use the same generic draw as a menu or movie (God of War III's
+		// full-screen copy program also draws its movies). 0: no limit.
+		u32 screen_space_screen_frame_max_camera_draws = 0;
 		// frame_rate_draws (same match): the frame-rate words (game_refresh_rate_f32, game_frame_time_f32, ...) get the VR
 		// rate only while one of these draws was seen in the last 2 s, the game's own 60 Hz values otherwise. Sonic & All-Stars
 		// Racing Transformed: a step rate other than 60 anywhere in the menus left the next race unable to start (the
@@ -634,6 +638,10 @@ namespace rsx::vr
 			// small head movements leave it (and the game's shadow-map fit to its frustum: Gran Turismo 5) unchanged.
 			// 0: continuous (up at once, down 0.01 a frame).
 			f32 step = 0.f;
+			// "lead_s": the margin also grows by the head's turn speed times this many seconds, so the game's culling
+			// (one or two frames behind the head) still holds the leading edge while the head turns: scenery and the
+			// shadows it casts into view don't drop out during the turn (Uncharted's jungle). 0: off.
+			f32 lead_s = 0.f;
 			// "head_turn_only": true: widen by the head turn alone, the game's own half-angle around the direction the
 			// head looks (straight ahead: the game's culling, so the headset view's edges can miss scenery). Gran
 			// Turismo 5 looking ahead: scale 1.0 instead of 2.0, ~1.2 ms of the RSX thread on a busy race. Default: the

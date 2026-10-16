@@ -1740,6 +1740,7 @@ void VKGSRender::vr_update_view()
 	// menu) keeps that content's pose: drawn and declared with it, the compositor holds it world-fixed. With the
 	// newest pose it followed the head (Kingdom Hearts' pause), and on the fixed screen it was squeezed to 16:9.
 	const u32 vr_frozen_pose = !m_vr_camera_draws && m_vr_flip_has_3d ? m_vr_flip_pose : 0;
+	const u32 vr_frame_camera_draws = m_vr_camera_draws;
 	m_vr_frames_without_camera = m_vr_camera_draws ? 0 : m_vr_frames_without_camera + 1;
 	m_vr_frames_2d = m_vr_camera_draws || m_vr_flip_has_3d ? 0 : m_vr_frames_2d + 1;
 	m_vr_camera_draws = 0;
@@ -1753,16 +1754,26 @@ void VKGSRender::vr_update_view()
 	// shots share with the main menu (screen_frame_draws) could send them to the fixed screen at any setting.
 	rsx::vr::note_reduced_scale_frame(m_vr_reduced_scale_draws != 0);
 	m_vr_reduced_scale_draws = 0;
+	// screen_frame_max_camera_draws: a frame drawing more of the 3D scene than that is gameplay, whatever matched.
+	const u32 screen_max_camera = no_3d_profile ? no_3d_profile->screen_space_screen_frame_max_camera_draws : 0;
+	const bool screen_draw_frame = m_vr_screen_frame_draws != 0 && !(screen_max_camera && vr_frame_camera_draws > screen_max_camera);
+	if (m_vr_screen_frame_draws && !screen_draw_frame)
+	{
+		static u32 s_logged = 0;
+		if (s_logged++ < 5)
+			rsx_log.notice("VR: a screen-frame draw in a frame with %u camera draws: kept in the headset view (screen_frame_max_camera_draws %u).", vr_frame_camera_draws, screen_max_camera);
+	}
 	const bool screen_frame = rsx::vr::cinematic_frame() ? rsx::vr::cinematic_frame_on_screen() :
-		(m_vr_screen_frame_draws != 0 || rsx::vr::screen_frame_by_game_state());
-	m_vr_screen_frame_draws = 0;
+		(screen_draw_frame || rsx::vr::screen_frame_by_game_state());
 	const bool no_3d = screen_frame || (no_3d_mode == frames_without_3d_mode::always ? m_vr_frames_without_camera >= 3 :
 																					   no_3d_mode == frames_without_3d_mode::automatic && m_vr_frames_2d >= 3);
 	if (static bool s_no_3d = false; no_3d != s_no_3d)
 	{
 		s_no_3d = no_3d;
-		rsx_log.notice("VR: %s", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view");
+		rsx_log.notice("VR: %s (camera draws %u, screen-frame draws %u)", no_3d ? "frames without camera draws: shown as the fixed screen" : "camera draws again: headset view",
+			vr_frame_camera_draws, m_vr_screen_frame_draws);
 	}
+	m_vr_screen_frame_draws = 0;
 	m_vr_video_on_screen = no_3d;
 	rsx::vr::set_frame_on_screen(no_3d); // dev frame log
 	// An orthographic game (profile orthographic_stereo: Fez) has no view to turn with the head: it is a diorama on the
