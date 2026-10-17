@@ -670,23 +670,26 @@ bool VKGSRender::vr_is_passthrough_hud()
 // Profile screen_space.unboxed_draws (vertex program ucode hash + texture 0 size), or the dev probe key
 // unboxfp=<fragment program session id>, which also logs the draw's vertex program hash and texture size.
 // Profile screen_space.scaled_draws: the size factor for this draw (1 = none).
-f32 VKGSRender::vr_hud_draw_scale()
+// Profile screen_space.scaled_draws: the rule for this draw (program and the texture size at the rule's unit), or null.
+const rsx::vr::title_profile::scaled_draw* VKGSRender::vr_scaled_draw_rule()
 {
 	const auto* profile = rsx::vr::camera_probe::get().profile();
 	if (!profile || profile->screen_space_scaled_draws.empty() || !m_vertex_prog)
 	{
-		return 1.f;
+		return nullptr;
 	}
-	const auto& tex = rsx::method_registers.fragment_textures[0];
-	const u16 width = tex.enabled() ? tex.width() : 0;
-	const u16 height = tex.enabled() ? tex.height() : 0;
+	const auto size_at = [](u8 unit) -> std::pair<u16, u16>
+	{
+		const auto& tex = rsx::method_registers.fragment_textures[unit];
+		return tex.enabled() ? std::pair<u16, u16>{tex.width(), tex.height()} : std::pair<u16, u16>{0, 0};
+	};
 	const auto& list = profile->screen_space_scaled_draws;
 	if (std::none_of(list.begin(), list.end(), [&](const auto& d)
 			{
-				return d.width == width && d.height == height;
+				return size_at(d.texture_unit) == std::pair<u16, u16>{d.width, d.height};
 			}))
 	{
-		return 1.f;
+		return nullptr;
 	}
 	static std::unordered_map<u32, u64> s_hashes; // vertex program session id -> ucode hash
 	auto [it, added] = s_hashes.try_emplace(m_vertex_prog->id, 0);
@@ -696,12 +699,19 @@ f32 VKGSRender::vr_hud_draw_scale()
 	}
 	for (const auto& d : list)
 	{
-		if (d.program == it->second && d.width == width && d.height == height)
+		if (d.program == it->second && size_at(d.texture_unit) == std::pair<u16, u16>{d.width, d.height})
 		{
-			return d.scale;
+			return &d;
 		}
 	}
-	return 1.f;
+	return nullptr;
+}
+
+f32 VKGSRender::vr_hud_draw_scale()
+{
+	const auto* rule = vr_scaled_draw_rule();
+	rsx::vr::camera_probe::get().set_draw_hud_depth(rule ? rule->depth : 0.f);
+	return rule ? rule->scale : 1.f;
 }
 
 bool VKGSRender::vr_unboxed_draw()

@@ -46,6 +46,7 @@
   },
 
   "screen_space": {
-    "passthrough_hud": true
+    "passthrough_hud": true,
+    "scaled_draws": [{ "program": "ae47d5452ce87794", "texture": "32x32", "texture_unit": 1, "depth": 10 }]
   }
 }

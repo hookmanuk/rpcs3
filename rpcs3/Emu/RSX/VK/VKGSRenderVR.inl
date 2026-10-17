@@ -131,6 +131,7 @@
 	};
 	u32 vr_sampled_textures();
 	bool vr_unboxed_draw();
+	const rsx::vr::title_profile::scaled_draw* vr_scaled_draw_rule();
 	f32 vr_hud_draw_scale();
 	// Point the vertex context at a copy whose viewport matrix also maps the draw
 	// into this eye's HUD box, or, for a profile pre-projected program (hash), from

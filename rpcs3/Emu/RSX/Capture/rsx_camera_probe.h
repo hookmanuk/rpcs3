@@ -440,6 +440,11 @@ namespace rsx::vr
 			u16 width = 0;
 			u16 height = 0;
 			f32 scale = 1.f;
+			// Optional "texture_unit": the unit whose texture size is matched (default 0). Optional "depth": metres; the draw is
+			// placed that far in the HUD box's direction instead of at the HUD depth (Uncharted's aim reticle at 10 m, in
+			// the scene, while the rest of the HUD stays at its depth).
+			u8 texture_unit = 0;
+			f32 depth = 0.f;
 		};
 		std::vector<scaled_draw> screen_space_scaled_draws;
 		// Draws whose orthographic block maps output pixels 1:1 are screen fills, not HUD: Gran Turismo 5
@@ -1071,6 +1076,10 @@ namespace rsx::vr
 			m_draw_depth_test = v;
 		}
 		// Profile screen_space.scaled_draws: this draw's size factor in the HUD box (1 = as drawn).
+		void set_draw_hud_depth(f32 v) const
+		{
+			m_draw_hud_depth = v;
+		}
 		void set_draw_hud_scale(f32 v) const
 		{
 			m_draw_hud_scale = v;
@@ -1251,6 +1260,8 @@ namespace rsx::vr
 		mutable bool m_hud_env_request = false;
 		mutable bool m_draw_depth_test = true;
 		mutable f32 m_draw_hud_scale = 1.f;
+		mutable f32 m_draw_hud_depth = 0.f; // metres, 0: the HUD depth (screen_space.scaled_draws depth)
+		f32 m_vr_ipd = 0.f;
 		mutable bool m_box_mapped = false;
 		mutable bool m_box_identity_pass = false;
 		mutable f32 m_box_map[4][4] = {};

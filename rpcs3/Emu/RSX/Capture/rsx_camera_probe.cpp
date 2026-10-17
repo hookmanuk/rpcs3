@@ -819,10 +819,12 @@ namespace rsx::vr
 		{
 			for (const YAML::Node& node : draws)
 			{
-				std::string program, texture, scale;
+				std::string program, texture, scale = "1", unit = "0", depth = "0";
 				read(node, "program", program);
 				read(node, "texture", texture);
-				read(node, "scale", scale);
+				read(node, "scale", scale, false);
+				read(node, "texture_unit", unit, false);
+				read(node, "depth", depth, false);
 				char* end = nullptr;
 				title_profile::scaled_draw draw{};
 				draw.program = std::strtoull(program.c_str(), &end, 16);
@@ -835,6 +837,8 @@ namespace rsx::vr
 				}
 				draw.width = static_cast<u16>(w);
 				draw.height = static_cast<u16>(h);
+				draw.texture_unit = static_cast<u8>(std::clamp(std::atoi(unit.c_str()), 0, 15));
+				draw.depth = std::max(0.f, static_cast<f32>(std::atof(depth.c_str())));
 				profile->screen_space_scaled_draws.push_back(draw);
 			}
 		}
@@ -3575,6 +3579,7 @@ namespace rsx::vr
 			cache_key[k++] = static_cast<u32>(m_draw_program);
 			cache_key[k++] = static_cast<u32>(m_draw_program >> 32);
 			put(m_draw_hud_scale);
+			put(m_draw_hud_depth);
 			put(rsx::method_registers.viewport_scale_x());
 			put(rsx::method_registers.viewport_scale_y());
 			put(rsx::method_registers.viewport_offset_x());
@@ -4534,6 +4539,7 @@ namespace rsx::vr
 		f32 hud_offset_x, f32 hud_offset_y, f32 hud_depth, f32 ipd)
 	{
 		m_vr_hud_parallax = hud_depth > 0.f ? ipd / (2.f * hud_depth) : 0.f;
+		m_vr_ipd = ipd;
 		if (static std::pair<f32, f32> s_logged{-1.f, -1.f}; std::fabs(s_logged.first - hud_depth) > 1e-3f || std::fabs(s_logged.second - ipd) > 1e-4f)
 		{
 			s_logged = {hud_depth, ipd};
@@ -5130,7 +5136,10 @@ namespace rsx::vr
 		// Box centre, in view tangents (y in the clip basis, which is down when flip_y).
 		// At a finite depth each eye sees the HUD shifted away from its own side:
 		// the eye sits at eye_sign * ipd/2, so the point appears at -eye_sign * ipd/(2d).
-		const f32 parallax = -eye_sign * m_vr_hud_parallax;
+		// A draw with its own depth (screen_space.scaled_draws depth) takes that distance's parallax and head lean; not the
+		// identity pass that records the box's map for scissors.
+		const f32 own_depth = !m_box_identity_pass && m_draw_hud_depth > 0.f ? m_draw_hud_depth : 0.f;
+		const f32 parallax = -eye_sign * (own_depth > 0.f ? m_vr_ipd / (2.f * own_depth) : m_vr_hud_parallax);
 		const f32 cx = m_vr_hud_offset_x * box_y * aspect;
 		const f32 cy = m_vr_hud_offset_y * box_y * (m_vr_flip_y ? -1.f : 1.f);
 
@@ -5172,7 +5181,7 @@ namespace rsx::vr
 		// The box hangs at a known distance, so the head's own position moves across
 		// it: a point at distance d is (u * d - head), divided through by d to keep
 		// w on the scale the depth test expects. At infinity it is a pure direction.
-		const f32 lean = m_vr_hud_depth > 0.f ? 1.f / m_vr_hud_depth : 0.f;
+		const f32 lean = own_depth > 0.f ? 1.f / own_depth : m_vr_hud_depth > 0.f ? 1.f / m_vr_hud_depth : 0.f;
 
 		const auto& R = m_vr_rot;
 		for (u32 r = 0; r < 4; ++r)
