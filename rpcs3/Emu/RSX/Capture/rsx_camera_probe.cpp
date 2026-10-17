@@ -1597,7 +1597,7 @@ namespace rsx::vr
 		{
 			for (const auto& node : rules)
 			{
-				check_keys(node, " in fragment_camera_rows", {"program", "fragment", "rows", "from_camera"});
+				check_keys(node, " in fragment_camera_rows", {"program", "fragment", "rows", "from_camera", "eye_position"});
 				title_profile::fragment_camera_rows_rule rule;
 				const std::string vp = node["program"] ? node["program"].as<std::string>() : std::string();
 				const std::string fp = node["fragment"] ? node["fragment"].as<std::string>() : std::string();
@@ -1616,6 +1616,7 @@ namespace rsx::vr
 					rule.rows[i] = rows[i].as<u32>();
 				}
 				rule.from_camera = node["from_camera"] && node["from_camera"].as<bool>();
+				rule.eye_position = node["eye_position"] ? node["eye_position"].as<u32>() : umax;
 				profile->fragment_camera_rows.push_back(rule);
 			}
 		}

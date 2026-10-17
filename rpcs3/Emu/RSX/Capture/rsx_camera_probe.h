@@ -486,6 +486,11 @@ namespace rsx::vr
 			u64 fragment = 0;
 			std::array<u32, 3> rows{};
 			bool from_camera = false;
+			// "eye_position": the fragment constant holding the game camera's world position that the shader takes its view
+			// vector from (Uncharted's water: c52, normalize(c52 - position) reflected about the normal): each eye gets its
+			// own, so each eye reflects its own view ray and the reflections take their depth (with the game camera's, both
+			// eyes reflected the same direction at a point: the reflections lay on the water's surface).
+			u32 eye_position = umax;
 		};
 		std::vector<fragment_camera_rows_rule> fragment_camera_rows;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box

@@ -4021,6 +4021,17 @@ void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16
 				out[i][3] += static_cast<f32>((S0[i][0] * E[0][j] + S0[i][1] * E[1][j] + S0[i][2] * E[2][j]) * shift[j]);
 	}
 	std::memcpy(block + vk::vr_depth_remap_matrix_vec4s(ctrl) * 16, out, sizeof(out));
+	// eye_position: this eye's world position (where its camera block's clip x, y and w are 0) for the game camera's, the
+	// game constant's w kept.
+	if (f64 Einv_pos[3][3]; rule->eye_position < m_fragment_prog->constant_offsets.size() && inverse3(E, Einv_pos))
+	{
+		const u32* data = reinterpret_cast<const u32*>(static_cast<const char*>(current_fragment_program.get_data()) + m_fragment_prog->constant_offsets[rule->eye_position]);
+		f32 pos[4];
+		for (u32 j = 0; j < 3; ++j)
+			pos[j] = static_cast<f32>(-(Einv_pos[j][0] * E[0][3] + Einv_pos[j][1] * E[1][3] + Einv_pos[j][2] * E[2][3]));
+		pos[3] = std::bit_cast<f32>(((data[3] >> 8) & 0xff00ff) | ((data[3] << 8) & 0xff00ff00));
+		std::memcpy(block + vk::vr_depth_remap_matrix_vec4s(ctrl) * 16 + sizeof(out), pos, sizeof(pos));
+	}
 }
 
 void VKGSRender::vr_read_screen_tile()

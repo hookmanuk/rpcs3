@@ -34,11 +34,11 @@ namespace vk
 	{
 		return (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) ? 6 : (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) ? 5 : 0;
 	}
-	// Profile fragment_camera_rows: three more after the depth remap's (the eye's world-to-texture rows), with their own
-	// varyings from location 26.
+	// Profile fragment_camera_rows: four more after the depth remap's (the eye's world-to-texture rows, then its position),
+	// with their own varyings from location 26.
 	inline u32 vr_frag_rows_vec4s(u32 ctrl)
 	{
-		return (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS) ? 3 : 0;
+		return (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS) ? 4 : 0;
 	}
 	// The whole per-eye block after a draw's constants (DLSS's follows it).
 	inline u32 vr_depth_remap_vec4s(u32 ctrl)

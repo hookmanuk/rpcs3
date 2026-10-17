@@ -325,7 +325,7 @@ namespace vk
 		}
 		if (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS)
 		{
-			OS << "layout(location=" << vr_frag_rows_location << ") flat out vec4 vr_frag_rows[3];\n";
+			OS << "layout(location=" << vr_frag_rows_location << ") flat out vec4 vr_frag_rows[4];\n";
 		}
 		vk::dlss_insert_vertex_output(OS, ctrl); // DLSS test: motion
 	}
@@ -341,9 +341,9 @@ namespace vk
 			// Profile fragment_camera_rows: this eye's rows, after the depth remap's vec4s (zeros without constants: the
 			// fragment program then keeps the game's own).
 			if (ctrl & RSX_SHADER_CONTROL_INSTANCED_CONSTANTS)
-				OS << "	vr_frag_rows = vec4[3](vec4(0.), vec4(0.), vec4(0.));\n";
+				OS << "	vr_frag_rows = vec4[4](vec4(0.), vec4(0.), vec4(0.), vec4(0.));\n";
 			else
-				OS << "	for (uint vr_i = 0; vr_i < 3u; ++vr_i) vr_frag_rows[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots + remap_vec4s << "u + vr_i];\n";
+				OS << "	for (uint vr_i = 0; vr_i < 4u; ++vr_i) vr_frag_rows[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots + remap_vec4s << "u + vr_i];\n";
 		}
 		if (!(ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)))
 		{
@@ -372,12 +372,16 @@ namespace vk
 			const usz hash = prog.ucode_hash ? prog.ucode_hash : program_hash_util::fragment_program_utils::get_fragment_program_ucode_hash(prog);
 			if (const auto* rule = rsx::vr::fragment_camera_rows_rule(0, hash))
 			{
-				OS << "layout(location=" << vr_frag_rows_location << ") flat in vec4 vr_frag_rows[3]; // VR fork\n";
+				OS << "layout(location=" << vr_frag_rows_location << ") flat in vec4 vr_frag_rows[4]; // VR fork\n";
 				OS << "vec4 vr_fetch_constant(const in uint x)\n{\n";
 				OS << "	const bool vr_rows = dot(abs(vr_frag_rows[2]), vec4(1.)) != 0.;\n";
 				for (u32 i = 0; i < 3; ++i)
 				{
 					OS << "	if (vr_rows && x == " << rule->rows[i] << "u) return vr_frag_rows[" << i << "];\n";
+				}
+				if (rule->eye_position != umax)
+				{
+					OS << "	if (vr_rows && x == " << rule->eye_position << "u) return vr_frag_rows[3];\n";
 				}
 				OS << "	return fc[x + _fs_constants_offset];\n}\n";
 				OS << "#undef _fetch_constant\n#define _fetch_constant(x) vr_fetch_constant(uint(x))\n";
