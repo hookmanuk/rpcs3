@@ -623,7 +623,9 @@ namespace rsx::vr
 			};
 			if (const auto found = s_program_bits_by_fingerprint.find(fingerprint); found != s_program_bits_by_fingerprint.end())
 			{
-				bits = (found->second & (2 | 8)) ? decide() : found->second;
+				// The fingerprint (16 words) is shared by other programs: Uncharted's water program took another's bits (no
+				// fragment rows) and its reflection kept the game's lookup. With fragment_camera_rows, decided every time.
+				bits = ((found->second & (2 | 8)) || fragment_camera_rows_listed()) ? decide() : found->second;
 			}
 			else
 			{

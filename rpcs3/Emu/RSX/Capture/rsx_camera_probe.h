@@ -976,7 +976,7 @@ namespace rsx::vr
 			return m_active.load();
 		}
 		bool render_enabled() const;
-		// Probe "hide=<hash>[@<target>][+...]": vertex programs (ucode hashes) whose draws are skipped, optionally
+		// Probe "hide=<hash>[@<target>][+...]": vertex or fragment programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const
 		{

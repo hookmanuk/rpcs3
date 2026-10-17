@@ -3382,14 +3382,17 @@ bool VKGSRender::vr_skip_draw()
 		vr_rtdump(m_vr_rtdump_addresses, fmt::format("before program %x", hash()));
 	}
 
-	// Probe hide=<hash>[@<target>]: skip this vertex program's draws (development: finding which program draws an artefact).
+	// Probe hide=<hash>[@<target>]: skip this vertex (or fragment) program's draws (development: finding which program draws an
+	// artefact).
 	if (const auto& hidden = rsx::vr::camera_probe::get().hidden_programs(); !hidden.empty())
 	{
 		const u64 h = hash();
+		const u64 fh = current_fragment_program.ucode_hash ? current_fragment_program.ucode_hash :
+			program_hash_util::fragment_program_utils::get_fragment_program_ucode_hash(current_fragment_program);
 		const u32 target = m_framebuffer_layout.color_addresses[0];
 		if (std::any_of(hidden.begin(), hidden.end(), [&](const auto& entry)
 				{
-					return entry.first == h && (!entry.second || entry.second == target);
+					return (entry.first == h || entry.first == fh) && (!entry.second || entry.second == target);
 				}))
 		{
 			execute_nop_draw();
