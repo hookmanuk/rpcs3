@@ -1284,6 +1284,7 @@ namespace rsx::vr
 		// patches (grey holes that came and went with the view). A measurement within 2e-4 of one this frame takes that one
 		// (set_vr_projection); a non-rigid block takes last frame's dominant one (apply_vr_rotation): both deterministic.
 		mutable std::vector<std::pair<std::array<f32, 2>, u32>> m_vr_proj_frame;
+		mutable std::vector<std::pair<std::array<f32, 2>, u32>> m_vr_proj_offaspect; // rigid measurements not at the dominant aspect
 		mutable std::array<f32, 2> m_vr_proj_dominant{};
 		void set_vr_projection(f32 x, f32 y) const;
 		// The projection of the last camera draw into a view target that refreshed it (the scene camera), for the depth
