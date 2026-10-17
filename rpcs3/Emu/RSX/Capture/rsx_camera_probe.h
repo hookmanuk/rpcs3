@@ -543,6 +543,10 @@ namespace rsx::vr
 		bool zcull_approximate = false;
 		// true: while VR renders, the RSX thread does not wait for occlusion query results (as Relaxed ZCULL Sync). SEGA Rally Revo.
 		bool zcull_relaxed_sync = false;
+		// "zcull_all_visible": true: while VR renders, every occlusion pixel-count report the game reads is answered at once
+		// with "visible" (0xffff): no wait for the GPU, nothing culled by a query. Uncharted: Precise ZCull's waits took ~23 %
+		// of the RSX thread; Approximate's stale answers made treetops vanish for a frame as the eyes moved.
+		bool zcull_all_visible = false;
 		// orthographic_stereo: a game drawn with an orthographic camera (Fez) is shown on the fixed screen as a diorama.
 		// Depth-tested view draws through a camera block with no perspective (w = 1) get each eye's view turned by this
 		// angle (degrees) about the convergence depth (world units beyond the block's world origin): clip x moves by

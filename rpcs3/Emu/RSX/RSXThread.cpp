@@ -2796,6 +2796,7 @@ namespace rsx
 	void thread::get_zcull_stats(u32 type, vm::addr_t sink)
 	{
 		u32 value = 0;
+		if (type == CELL_GCM_ZPASS_PIXEL_CNT && rsx::reports::zcull_all_visible()) value = 0xffff; else // VR fork: profile zcull_all_visible
 		if (!g_cfg.video.disable_zcull_queries)
 		{
 			switch (type)

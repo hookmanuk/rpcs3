@@ -306,6 +306,14 @@ namespace rsx::reports
 		return !(profile && profile->zcull_approximate && probe.render_enabled());
 	}
 
+	// Profile zcull_all_visible while VR renders: pixel-count reports answered "visible" at once (thread::get_zcull_stats).
+	bool zcull_all_visible()
+	{
+		const auto& probe = rsx::vr::camera_probe::get();
+		const auto* profile = probe.profile();
+		return profile && profile->zcull_all_visible && probe.render_enabled();
+	}
+
 	// Relaxed ZCULL Sync: the setting, or the VR profile's zcull_relaxed_sync while VR renders (the RSX thread then
 	// does not wait for occlusion results the game reads back each frame; in stereo each wait covers both eyes' work).
 	bool relaxed_zcull_sync()
