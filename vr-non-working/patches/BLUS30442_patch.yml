@@ -1,0 +1,34 @@
+Version: 1.2
+
+PPU-9d8f7464991444526c6f9ca001dc1eb061fe367b:
+  "Wider view (VR culling)":
+    Games:
+      "Midnight Club: Los Angeles Complete Edition":
+        BLUS30442: [ 01.06 ]
+    Author: "VR fork"
+    Notes: "The game culls against its own camera frustum (25 to 45 degrees high, narrower than the headset's view), so in the headset the scene ends at that frustum when you look around. The viewport's projection is built at 0x536358 from tan(fov / 2) (the vertical tangent, f1) and the aspect factor (f31); right after the tangent is computed this raises the vertical tangent to the word at 0xe9ef04 and the horizontal one to the word at 0xe9ef00 (each a maximum, for viewports at least 960 wide: the game's 960x704 scene, whose record the main thread's culling also reads, and 1280x720; the minimap and reflection views keep theirs), so the projection, frustum and tangents the game culls with cover the headset's view. The VR profile writes the two words each frame (culling_scale_f32, absolute tangents); without it they stay 0 and the game is unchanged."
+    Patch Version: 1.2
+    Enabled By Default: true
+    Apply To Savestates: true
+    Patch:
+      - [ be32, 0x00e9ef00, 0x00000000 ] # horizontal tangent floor (0: off; unused zeros after the data segment's end)
+      - [ be32, 0x00e9ef04, 0x00000000 ] # vertical tangent floor
+      - [ be32, 0x005367d4, 0x4800006c ] # b 0x536840 (was bne cr7: rebuild only when the viewport is dirty): the render thread rebuilds the projection every frame, so the floors apply while the view is unchanged too
+      - [ calloc, 0x00536408, 17 ] # was nop, after bl tan: f1 = tan(fov / 2), f31 = horizontal / vertical tangent factor
+      - [ be32, 0x0, 0x813f02b0 ] # lwz r9, 0x2b0(r31)     viewport width
+      - [ be32, 0x0, 0x2c0903c0 ] # cmpwi r9, 960
+      - [ be32, 0x0, 0x41800038 ] # blt +0x38               smaller viewports (minimap, reflections) unchanged
+      - [ be32, 0x0, 0x60000000 ] # nop
+      - [ be32, 0x0, 0x60000000 ] # nop
+      - [ be32, 0x0, 0x60000000 ] # nop
+      - [ be32, 0x0, 0x3d2000ea ] # lis r9, 0xea
+      - [ be32, 0x0, 0xc009ef04 ] # lfs f0, -0x10fc(r9)    vertical floor (0xe9ef04)
+      - [ be32, 0x0, 0xeda10028 ] # fsubs f13, f1, f0
+      - [ be32, 0x0, 0xfdad006e ] # fsel f13, f13, f1, f0  ty = max(ty, floor)
+      - [ be32, 0x0, 0xed9f0072 ] # fmuls f12, f31, f1     tx = factor x ty (the game's)
+      - [ be32, 0x0, 0xc009ef00 ] # lfs f0, -0x1100(r9)    horizontal floor (0xe9ef00)
+      - [ be32, 0x0, 0xed6c0028 ] # fsubs f11, f12, f0
+      - [ be32, 0x0, 0xfd8b032e ] # fsel f12, f11, f12, f0 tx = max(tx, floor)
+      - [ be32, 0x0, 0xefec6824 ] # fdivs f31, f12, f13    factor = tx / ty
+      - [ be32, 0x0, 0xfc206890 ] # fmr f1, f13            ty
+      - [ be32, 0x0, 0x60000000 ] # nop                    the original instruction

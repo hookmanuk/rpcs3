@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "title_id": "BLUS30442",
+  "app_version": "01.06",
+  "name": "Midnight Club: Los Angeles",
+  "max_fps": 80,
+  "default_fps": 80,
+  "vblanks_per_frame": 3,
+
+  "culling_scale_f32": [
+    { "address": "0xe9ef00", "fov_deg": 90, "aspect": 1.0, "margin_deg": 3, "min": 0.1, "max": 3.0, "lead_s": 0.1, "mode": "tangent_x", "option": "horizontal_view" },
+    { "address": "0xe9ef04", "fov_deg": 90, "aspect": 1.0, "margin_deg": 3, "min": 0.1, "max": 3.0, "lead_s": 0.1, "mode": "tangent_y", "option": "vertical_view" }
+  ],
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [8],
+  "require_rigid_camera": true,
+  "camera_slots_read_directly": true,
+  "camera_block_cache": true,
+  "output_aspect_tolerance": 0.02,
+  "camera_target_aspect": 1.36364,
+
+  "camera_position": {
+    "slot": 15,
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0200607,
+    "convergence": 2.56,
+    "eye_offset": "baseline_per_w"
+  },
+
+  "screen_space": {
+    "orthographic_block": 8,
+    "hud_box_after_shader": true
+  }
+}
