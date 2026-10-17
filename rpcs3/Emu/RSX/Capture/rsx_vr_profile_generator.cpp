@@ -520,9 +520,9 @@ namespace rsx::vr
 		const f64 output_aspect = static_cast<f64>(eye.width) / eye.height;
 
 		// Frame rate: game frames per second of play against the vblank rate. A game drawing
-		// every second vblank (ICO: 30 at 60 Hz) gets vblanks_per_frame 2. The measured rate is
-		// also its maximum: whether the game keeps real-time speed faster (max_fps 0: WipEout,
-		// Pure) only shows by playing it, so a generated profile never offers more.
+		// every second vblank (ICO: 30 at 60 Hz) gets vblanks_per_frame 2. The measured rate is only
+		// logged: a generated profile writes no max_fps / default_fps (Matt, 2026-10-17: a WIP game's Frame
+		// Rate setting stays free; the rate at a raised vblank is often only where the RSX thread ran out).
 		const f64 vblank = static_cast<f64>(effective_vblank_rate());
 		const f64 fps = m_played_us ? m_flips * 1'000'000.0 / m_played_us : 0.0;
 		u32 vblanks_per_frame = 1, max_fps = 0;
@@ -530,7 +530,7 @@ namespace rsx::vr
 		{
 			vblanks_per_frame = static_cast<u32>(std::clamp<f64>(std::round(vblank / fps), 1.0, 4.0));
 			max_fps = static_cast<u32>(std::lround(vblank / vblanks_per_frame));
-			vr_gen_log.notice("Frame rate %.1f FPS at a %.2f Hz vblank: a frame every %u vblank(s), max_fps %u%s.", fps, vblank,
+			vr_gen_log.notice("Frame rate %.1f FPS at a %.2f Hz vblank: a frame every %u vblank(s), %u FPS%s.", fps, vblank,
 				vblanks_per_frame, max_fps, std::fabs(fps * vblanks_per_frame / vblank - 1.0) > 0.1 ? " (uneven: the game ran slow while sampled?)" : "");
 		}
 
@@ -674,8 +674,6 @@ namespace rsx::vr
 			json += fmt::format("  \"title_id\": \"%s\",\n", title);
 			if (!Emu.GetAppVersion().empty())
 				json += fmt::format("  \"app_version\": \"%s\",\n", Emu.GetAppVersion());
-			if (max_fps)
-				json += fmt::format("  \"max_fps\": %u,\n  \"default_fps\": %u,\n", max_fps, max_fps);
 			json += fmt::format("\n  \"matrix_layout\": \"%s\",\n  \"camera_blocks\": [%u],\n  \"output_aspect_tolerance\": 0.02,\n\n",
 				layout_names[best->first.first], best->first.second);
 			json += "  \"camera_position\": {\n    \"eye_baseline\": 0.064\n  },\n\n";
@@ -1576,11 +1574,9 @@ namespace rsx::vr
 			}
 			json += fmt::format("  \"name\": \"%s\",\n", name);
 		}
-		if (max_fps)
+		if (max_fps && vblanks_per_frame > 1)
 		{
-			json += fmt::format("  \"max_fps\": %u,\n  \"default_fps\": %u,\n", max_fps, max_fps);
-			if (vblanks_per_frame > 1)
-				json += fmt::format("  \"vblanks_per_frame\": %u,\n", vblanks_per_frame);
+			json += fmt::format("  \"vblanks_per_frame\": %u,\n", vblanks_per_frame);
 		}
 		{
 			// GPU readbacks during the play time. Each waits for the GPU (in stereo for both eyes' work so far); small
@@ -1831,7 +1827,7 @@ namespace rsx::vr
 			return;
 		}
 
-		vr_gen_log.success("VR profile written to '%s': %s c[%s]%s, camera position %s, HUD %s, projection A %.4f (%u of %u camera-view draws covered), max_fps %u.",
+		vr_gen_log.success("VR profile written to '%s': %s c[%s]%s, camera position %s, HUD %s, projection A %.4f (%u of %u camera-view draws covered), measured %u FPS.",
 			path, layout_names[columns], blocks_text, require_rigid ? " (rigid)" : "",
 			position_slot != umax ? fmt::format("c[%u]", position_slot) : "none",
 			hud_block != umax ? fmt::format("c[%u]", hud_block) : "none", a, covered_draws, ::size32(views), max_fps);
