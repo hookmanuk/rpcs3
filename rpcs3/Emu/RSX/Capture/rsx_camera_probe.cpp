@@ -3876,9 +3876,7 @@ namespace rsx::vr
 				// screens with no other camera draws. Not an off-aspect HUD's projection.
 				if (!off_aspect)
 				{
-					m_vr_proj_x = std::fabs(rows[0][0] / rows[2][3]);
-					m_vr_proj_y = std::fabs(rows[1][1] / rows[2][3]);
-					m_vr_proj_valid = true;
+					set_vr_projection(std::fabs(rows[0][0] / rows[2][3]), std::fabs(rows[1][1] / rows[2][3]));
 				}
 				map_vr_screen_box(rows, eye_sign, output_aspect);
 				return false;
@@ -4405,6 +4403,14 @@ namespace rsx::vr
 		m_vr_fov_scale = fov_scale;
 		m_vr_flip_y = flip_y;
 		m_vr_view = true;
+		// A new frame: the projection most rigid blocks measured serves this frame's non-rigid ones, and the cameras are
+		// measured again (set_vr_projection).
+		if (const auto it = std::max_element(m_vr_proj_frame.begin(), m_vr_proj_frame.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+			it != m_vr_proj_frame.end())
+		{
+			m_vr_proj_dominant = it->first;
+		}
+		m_vr_proj_frame.clear();
 
 		// Head aim: keep the pose as computed, then turn it by the head aim's offset (the previous frame's until this
 		// frame's first camera draw updates it). Without head_aim in the profile nothing changes.
@@ -5564,6 +5570,30 @@ namespace rsx::vr
 		}
 	}
 
+	void camera_probe::set_vr_projection(f32 x, f32 y) const
+	{
+		// One camera's draws in a frame all get the projection it was first measured with.
+		bool known = false;
+		for (auto& [k, count] : m_vr_proj_frame)
+		{
+			if (std::fabs(x - k[0]) <= 2e-4f * k[0] && std::fabs(y - k[1]) <= 2e-4f * k[1])
+			{
+				x = k[0];
+				y = k[1];
+				count++;
+				known = true;
+				break;
+			}
+		}
+		if (!known && m_vr_proj_frame.size() < 64)
+		{
+			m_vr_proj_frame.push_back({{x, y}, 1u});
+		}
+		m_vr_proj_x = x;
+		m_vr_proj_y = y;
+		m_vr_proj_valid = true;
+	}
+
 	void camera_probe::apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head, bool refresh_projection) const
 	{
 		// Row-vector camera block M (clip = v * M). For M = L * P with L affine and
@@ -5595,10 +5625,18 @@ namespace rsx::vr
 			std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
 			std::fabs(dot(1, 3)) <= tol * n1 * n3)
 		{
-			m_vr_proj_x = n0 / n3;
-			m_vr_proj_y = n1 / n3;
-			m_vr_proj_valid = true;
+			set_vr_projection(n0 / n3, n1 / n3);
 			m_proj_refreshed = true;
+		}
+		else if (m_vr_proj_dominant[0] > 0.f && m_vr_proj_valid && std::fabs(m_vr_proj_x - m_vr_proj_dominant[0]) <= 0.02f * m_vr_proj_dominant[0] &&
+			std::fabs(m_vr_proj_y - m_vr_proj_dominant[1]) <= 0.02f * m_vr_proj_dominant[1])
+		{
+			// Not rigid (or not a camera that sets it), and the last measured projection is the scene camera's family (within
+			// 2 %): last frame's dominant projection, the same for every such draw this frame, not whichever the previous draw
+			// measured. Another camera (a reflection's own FOV) keeps its last measurement.
+			m_vr_proj_x = m_vr_proj_dominant[0];
+			m_vr_proj_y = m_vr_proj_dominant[1];
+			m_vr_proj_valid = true;
 		}
 
 		if (!m_vr_proj_valid)

@@ -1261,6 +1261,16 @@ namespace rsx::vr
 		mutable f32 m_vr_proj_x = 0.f;
 		mutable f32 m_vr_proj_y = 0.f;
 		mutable bool m_vr_proj_valid = false;
+		// This frame's projections as first measured, with how many rigid blocks measured each (cleared with each new
+		// pose), and the one most blocks measured last frame. A block's scale read from its matrix differs in the last bits
+		// from object to object, and a non-rigid block (an object scaled unevenly) used to take whatever the draw before it
+		// measured: Uncharted draws each object twice with depth EQUAL (depth pass, then normal pass), its frames mix two
+		// projections 0.5 % apart, and the two draws of one object, remapped with different numbers, failed the test in
+		// patches (grey holes that came and went with the view). A measurement within 2e-4 of one this frame takes that one
+		// (set_vr_projection); a non-rigid block takes last frame's dominant one (apply_vr_rotation): both deterministic.
+		mutable std::vector<std::pair<std::array<f32, 2>, u32>> m_vr_proj_frame;
+		mutable std::array<f32, 2> m_vr_proj_dominant{};
+		void set_vr_projection(f32 x, f32 y) const;
 		// The projection of the last camera draw into a view target that refreshed it (the scene camera), for the depth
 		// remap's ray scale: m_vr_proj_* follow whichever camera drew last (shadow-map, culling and volume cameras too).
 		mutable f32 m_scene_proj_x = 0.f;
