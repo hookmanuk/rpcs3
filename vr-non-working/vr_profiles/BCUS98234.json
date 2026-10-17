@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "title_id": "BCUS98234",
+  "app_version": "01.00",
+  "name": "Killzone®3",
+  "max_fps": 120,
+  "default_fps": 120,
+  "vblanks_per_frame": 2,
+
+  "hidden_draws": [{ "name": "Helghast helmet visor (opening mission): a screen-space refraction of the scene", "program": "cbfd222185dfe6fc", "texture": "1280x720", "hidden": true }],
+
+  "matrix_layout": "row_vectors",
+  "camera_blocks": [0],
+  "linked_camera_blocks": [25],
+  "require_rigid_camera": true,
+  "require_camera_aspect": true,
+  "output_aspect_tolerance": 0.02,
+
+  "camera_position": {
+    "eye_baseline": 0.064
+  },
+
+  "stereo": {
+    "formula": "clip_x_shear",
+    "per_eye_separation": 0.0148969,
+    "convergence": 2.56,
+    "eye_offset": "baseline_per_w"
+  },
+
+  "screen_space": {
+    "orthographic_block": 8
+  }
+}
