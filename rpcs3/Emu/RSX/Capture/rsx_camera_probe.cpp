@@ -4458,15 +4458,12 @@ namespace rsx::vr
 		m_vr_view = true;
 		// A new frame: the projection most rigid blocks measured serves this frame's non-rigid ones, and the cameras are
 		// measured again (set_vr_projection).
-		// A frame with no measurement of the dominant aspect (the game's camera changed aspect) takes the off-aspect ones.
-		const auto& tally = m_vr_proj_frame.empty() ? m_vr_proj_offaspect : m_vr_proj_frame;
-		if (const auto it = std::max_element(tally.begin(), tally.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
-			it != tally.end())
+		if (const auto it = std::max_element(m_vr_proj_frame.begin(), m_vr_proj_frame.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+			it != m_vr_proj_frame.end())
 		{
 			m_vr_proj_dominant = it->first;
 		}
 		m_vr_proj_frame.clear();
-		m_vr_proj_offaspect.clear();
 
 		// Head aim: keep the pose as computed, then turn it by the head aim's offset (the previous frame's until this
 		// frame's first camera draw updates it). Without head_aim in the profile nothing changes.
@@ -5626,28 +5623,25 @@ namespace rsx::vr
 		}
 	}
 
-	static void tally_vr_projection(std::vector<std::pair<std::array<f32, 2>, u32>>& tally, f32& x, f32& y)
+	void camera_probe::set_vr_projection(f32 x, f32 y) const
 	{
-		for (auto& [k, count] : tally)
+		// One camera's draws in a frame all get the projection it was first measured with.
+		bool known = false;
+		for (auto& [k, count] : m_vr_proj_frame)
 		{
 			if (std::fabs(x - k[0]) <= 2e-4f * k[0] && std::fabs(y - k[1]) <= 2e-4f * k[1])
 			{
 				x = k[0];
 				y = k[1];
 				count++;
-				return;
+				known = true;
+				break;
 			}
 		}
-		if (tally.size() < 64)
+		if (!known && m_vr_proj_frame.size() < 64)
 		{
-			tally.push_back({{x, y}, 1u});
+			m_vr_proj_frame.push_back({{x, y}, 1u});
 		}
-	}
-
-	void camera_probe::set_vr_projection(f32 x, f32 y) const
-	{
-		// One camera's draws in a frame all get the projection it was first measured with.
-		tally_vr_projection(m_vr_proj_frame, x, y);
 		m_vr_proj_x = x;
 		m_vr_proj_y = y;
 		m_vr_proj_valid = true;
@@ -5679,23 +5673,10 @@ namespace rsx::vr
 		}
 
 		constexpr f32 tol = 1e-3f;
-		// A block stretched along view axes can pass the orthogonality test by chance (Uncharted's scaffolding beams: A 0.27,
-		// B 0.60, the camera's 0.76 / 1.05); its scales are no projection. Taken as one, the beams' depth pass and EQUAL normal
-		// pass were remapped with different numbers and whole beams lost their normals (grey). A measurement whose aspect
-		// (B / A) is not last frame's dominant projection's within 1 % is not taken.
-		// It is only counted, so a lasting change of the camera's aspect moves the dominant projection next frame.
-		const bool camera_aspect = !(m_vr_proj_dominant[0] > 0.f) ||
-		                           std::fabs((n1 / n0) / (m_vr_proj_dominant[1] / m_vr_proj_dominant[0]) - 1.f) <= 0.01f;
-		const bool rigid = refresh_projection &&
+		if (refresh_projection &&
 			std::fabs(dot(0, 1)) <= tol * n0 * n1 &&
 			std::fabs(dot(0, 3)) <= tol * n0 * n3 &&
-			std::fabs(dot(1, 3)) <= tol * n1 * n3;
-		if (rigid && !camera_aspect)
-		{
-			f32 x = n0 / n3, y = n1 / n3;
-			tally_vr_projection(m_vr_proj_offaspect, x, y);
-		}
-		if (rigid && camera_aspect)
+			std::fabs(dot(1, 3)) <= tol * n1 * n3)
 		{
 			set_vr_projection(n0 / n3, n1 / n3);
 			m_proj_refreshed = true;
