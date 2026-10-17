@@ -2857,6 +2857,8 @@ void VKGSRender::get_occlusion_query_result(rsx::reports::occlusion_query_info* 
 	if (data.indices.empty())
 		return;
 
+	if (vr_zcull_unready_visible(query)) return; // VR fork: profile zcull_no_wait
+
 	if (query->num_draws)
 	{
 		if (data.is_current(m_current_command_buffer))

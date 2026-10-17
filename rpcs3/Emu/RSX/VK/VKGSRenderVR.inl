@@ -330,6 +330,8 @@
 	const std::vector<u16>* m_scaled_constants_slots = nullptr;
 	// Profile fragment_constant_overrides for the current vertex program, or null.
 	const std::vector<const rsx::vr::fragment_constant_override*>* find_fragment_constant_overrides();
+	// Profile zcull_no_wait: an unanswered occlusion query counts as visible instead of being waited for (true: handled).
+	bool vr_zcull_unready_visible(rsx::reports::occlusion_query_info* query);
 	const void* m_fc_overrides_program = nullptr;
 	const void* m_fc_overrides_profile = nullptr;
 	usz m_fc_overrides_fragment = 0; // the fragment program the list was built for (rules with "fragment")

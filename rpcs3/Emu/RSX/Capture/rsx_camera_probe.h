@@ -552,6 +552,11 @@ namespace rsx::vr
 		// with "visible" (0xffff): no wait for the GPU, nothing culled by a query. Uncharted: Precise ZCull's waits took ~23 %
 		// of the RSX thread; Approximate's stale answers made treetops vanish for a frame as the eyes moved.
 		bool zcull_all_visible = false;
+		// "zcull_no_wait": true: while VR renders, the RSX thread never waits for an occlusion result: a query the GPU has
+		// answered gives its real count (the game still culls what it knows is hidden), an unanswered one counts as visible
+		// (nothing wrongly vanishes). zcull_all_visible removed the waits but the game then drew everything it culls (+15-20 %
+		// draws in Uncharted's turned views, no gain there).
+		bool zcull_no_wait = false;
 		// orthographic_stereo: a game drawn with an orthographic camera (Fez) is shown on the fixed screen as a diorama.
 		// Depth-tested view draws through a camera block with no perspective (w = 1) get each eye's view turned by this
 		// angle (degrees) about the convergence depth (world units beyond the block's world origin): clip x moves by

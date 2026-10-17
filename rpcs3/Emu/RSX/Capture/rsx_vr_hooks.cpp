@@ -306,6 +306,14 @@ namespace rsx::reports
 		return !(profile && profile->zcull_approximate && probe.render_enabled());
 	}
 
+	// Profile zcull_no_wait while VR renders (VKGSRender::vr_zcull_unready_visible).
+	bool zcull_no_wait()
+	{
+		const auto& probe = rsx::vr::camera_probe::get();
+		const auto* profile = probe.profile();
+		return profile && profile->zcull_no_wait && probe.render_enabled();
+	}
+
 	// Profile zcull_all_visible while VR renders: pixel-count reports answered "visible" at once (thread::get_zcull_stats).
 	bool zcull_all_visible()
 	{

@@ -1131,6 +1131,29 @@ void VKGSRender::vr_batch_execute()
 	m_vr_batch_executing = false;
 }
 
+bool VKGSRender::vr_zcull_unready_visible(rsx::reports::occlusion_query_info* query)
+{
+	if (!query->num_draws || !rsx::reports::zcull_no_wait())
+	{
+		return false;
+	}
+	auto& data = m_occlusion_map[query->driver_handle];
+	if (data.indices.empty())
+	{
+		return false;
+	}
+	// Answered by the GPU (all of its segments): the normal path reads the real count without waiting.
+	if (!data.is_current(m_current_command_buffer) &&
+		std::all_of(data.indices.begin(), data.indices.end(), [&](u32 index) { return m_occlusion_query_manager->check_query_status(index); }))
+	{
+		return false;
+	}
+	query->result = 1; // visible
+	m_occlusion_query_manager->free_queries(*m_current_command_buffer, data.indices);
+	data.indices.clear();
+	return true;
+}
+
 const std::vector<const rsx::vr::fragment_constant_override*>* VKGSRender::find_fragment_constant_overrides()
 {
 	const auto* profile = rsx::vr::camera_probe::get().profile();

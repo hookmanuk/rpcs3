@@ -9,7 +9,7 @@
   "video_vblank_rate": 60,
   "boosted_targets": [{ "size": "2432x1216", "depth_only": true, "scale": 2.0 }],
   "scaled_camera_blocks": true,
-  "zcull_all_visible": true,
+  "zcull_no_wait": true,
   "fragment_camera_rows": [
     { "program": "292d56e8bfecaf63", "fragment": "59c0ac681f999e51", "rows": [69, 73, 72], "from_camera": true, "eye_position": 52 },
     { "program": "fc15ec0752d20290", "fragment": "9fe5ec00ef1c6d6f", "ray": 5, "view_vector": 13 }
