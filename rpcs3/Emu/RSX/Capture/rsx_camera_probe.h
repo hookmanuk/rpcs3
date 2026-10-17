@@ -472,11 +472,16 @@ namespace rsx::vr
 		// reflection projects the reflected ray into the half-resolution scene c31e0000), so each eye gets them remapped
 		// onto its own view: S x the eye's camera rows, S the game's clip-to-texture mapping solved from the game's rows and
 		// the draw's own camera block (which must be world to clip). Fork shader control RSX_SHADER_CONTROL_VR_FRAG_ROWS.
+		// "from_camera": true: the projected point is the game camera's position plus a direction (Uncharted's water: the
+		// camera position + the reflected view ray, 1 m out); each eye's rows then project its own position plus that
+		// direction (from the game camera's, the 3 cm eye offset and the head's translation moved the reflections against
+		// the scene, differently in each eye).
 		struct fragment_camera_rows_rule
 		{
 			u64 program = 0;
 			u64 fragment = 0;
 			std::array<u32, 3> rows{};
+			bool from_camera = false;
 		};
 		std::vector<fragment_camera_rows_rule> fragment_camera_rows;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box

@@ -3919,9 +3919,10 @@ void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16
 		}
 	}
 	// What the eye transform did to the camera block: E = T x G + d (T linear on the clip x, y, w rows, d added to their
-	// translations: the eye's offset). The rows were made with the game's camera (possibly another frame's): F = S x G_F,
-	// S the clip-to-texture mapping (u w, v w, w), estimated as F x G^-1 on the linear parts. The eye's rows are
-	// S x (T x G_F + d) = (S T S^-1) x F, translations + S x d.
+	// translations: the eye's offset). The game's rows are F = S x G x M: S its clip-to-texture mapping (u w, v w, w), M
+	// the water plane's mirror (a planar reflection: Uncharted's river; none for other passes). The eye's view of the
+	// mirrored point is E x M = T x S^-1 x F + d, looked up with S0, the mapping of the eye's own render: the eye rows are
+	// (S0 T S^-1) x F, translations + S0 x d.
 	const auto inverse3 = [](const f64 (&m)[3][4], f64 (&inv)[3][3]) -> bool
 	{
 		const f64 det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
@@ -3938,25 +3939,63 @@ void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16
 		inv[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det;
 		return true;
 	};
-	f64 Ginv[3][3], Finv[3][3];
-	if (!inverse3(G, Ginv) || !inverse3(F, Finv))
+	f64 Ginv[3][3];
+	if (!inverse3(G, Ginv))
 	{
 		return;
 	}
-	f64 S[3][3], Sinv[3][3], T[3][3], d[3];
+	f64 FG[3][3], T[3][3], d[3];
 	for (u32 i = 0; i < 3; ++i)
 		for (u32 j = 0; j < 3; ++j)
 		{
-			S[i][j] = F[i][0] * Ginv[0][j] + F[i][1] * Ginv[1][j] + F[i][2] * Ginv[2][j];
+			FG[i][j] = F[i][0] * Ginv[0][j] + F[i][1] * Ginv[1][j] + F[i][2] * Ginv[2][j];
 			T[i][j] = E[i][0] * Ginv[0][j] + E[i][1] * Ginv[1][j] + E[i][2] * Ginv[2][j];
-			Sinv[i][j] = G[i][0] * Finv[0][j] + G[i][1] * Finv[1][j] + G[i][2] * Finv[2][j];
 		}
+	// S = (u = a x + b w, v = c y + e w, w). S^-1 x F = G x M with M orthogonal, so its rows keep G's lengths and dot
+	// products: that gives a, b, c, e whether or not M mirrors. F x G^-1 would hold the mirror (taken as part of S, the
+	// head's pitch turned the lookup the wrong way). u grows with clip x; v's direction from det(F G^-1) = a c det(M),
+	// det(M) = -1 when F x G^-1's w row is not (0, 0, k).
+	const auto dot3 = [](const f64 (&a)[4], const f64 (&b)[4]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+	const f64 f22 = dot3(F[2], F[2]);
+	if (!(f22 > 0.) || std::fabs(f22 / dot3(G[2], G[2]) - 1.) > 0.01)
+	{
+		return;
+	}
+	f64 scale[2], offset[2];
+	for (u32 r = 0; r < 2; ++r)
+	{
+		const f64 p = dot3(F[r], F[2]), gr2 = dot3(G[r], G[2]);
+		const f64 a2 = (dot3(F[r], F[r]) - p * p / f22) / (dot3(G[r], G[r]) - gr2 * gr2 / f22);
+		if (!(a2 > 0.))
+		{
+			return;
+		}
+		scale[r] = std::sqrt(a2);
+		offset[r] = (p - scale[r] * gr2) / f22;
+	}
+	const bool mirrored = std::fabs(FG[2][0]) + std::fabs(FG[2][1]) > 1e-3 * std::fabs(FG[2][2]);
+	const f64 det = FG[0][0] * (FG[1][1] * FG[2][2] - FG[1][2] * FG[2][1]) - FG[0][1] * (FG[1][0] * FG[2][2] - FG[1][2] * FG[2][0]) + FG[0][2] * (FG[1][0] * FG[2][1] - FG[1][1] * FG[2][0]);
+	if ((det > 0.) == mirrored)
+	{
+		scale[1] = -scale[1];
+		offset[1] = (dot3(F[1], F[2]) - scale[1] * dot3(G[1], G[2])) / f22;
+	}
+	f64 Sinv[3][3];
+	const f64 S[3][4] = {{scale[0], 0., offset[0], 0.}, {0., scale[1], offset[1], 0.}, {0., 0., 1., 0.}};
+	if (!inverse3(S, Sinv))
+	{
+		return;
+	}
+	// S0: Uncharted's reflection source is drawn with a taller camera than the scene (its v scale is 0.5 x A / B of the
+	// scene camera's clip y, the u scale 0.5), but each eye draws it with its own camera, filling the texture: the eye's
+	// lookup takes the u scale for v too.
+	const f64 S0[3][3] = {{scale[0], 0., offset[0]}, {0., scale[1] < 0. ? -std::fabs(scale[0]) : std::fabs(scale[0]), offset[1]}, {0., 0., 1.}};
 	for (u32 i = 0; i < 3; ++i)
 		d[i] = E[i][3] - (T[i][0] * G[0][3] + T[i][1] * G[1][3] + T[i][2] * G[2][3]);
 	f64 M[3][3], ST[3][3];
 	for (u32 i = 0; i < 3; ++i)
 		for (u32 j = 0; j < 3; ++j)
-			ST[i][j] = S[i][0] * T[0][j] + S[i][1] * T[1][j] + S[i][2] * T[2][j];
+			ST[i][j] = S0[i][0] * T[0][j] + S0[i][1] * T[1][j] + S0[i][2] * T[2][j];
 	for (u32 i = 0; i < 3; ++i)
 		for (u32 j = 0; j < 3; ++j)
 			M[i][j] = ST[i][0] * Sinv[0][j] + ST[i][1] * Sinv[1][j] + ST[i][2] * Sinv[2][j];
@@ -3965,7 +4004,21 @@ void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16
 	{
 		for (u32 j = 0; j < 4; ++j)
 			out[i][j] = static_cast<f32>(M[i][0] * F[0][j] + M[i][1] * F[1][j] + M[i][2] * F[2][j]);
-		out[i][3] += static_cast<f32>(S[i][0] * d[0] + S[i][1] * d[1] + S[i][2] * d[2]);
+		out[i][3] += static_cast<f32>(S0[i][0] * d[0] + S0[i][1] * d[1] + S0[i][2] * d[2]);
+	}
+	// from_camera: the shader projects the game camera's position + a direction, mirrored (M camera + M direction); this
+	// eye's rows see that point moved by the eye's offset from the camera (eye - camera, not mirrored: through the mirror
+	// a head raised 6 cm lowered the point 6 cm and the reflections slid twice the head's movement). The camera and eye
+	// centres: where the camera block's clip x, y and w are all 0.
+	f64 Einv[3][3];
+	if (rule->from_camera && inverse3(E, Einv))
+	{
+		f64 shift[3];
+		for (u32 j = 0; j < 3; ++j)
+			shift[j] = -(Einv[j][0] * E[0][3] + Einv[j][1] * E[1][3] + Einv[j][2] * E[2][3]) + (Ginv[j][0] * G[0][3] + Ginv[j][1] * G[1][3] + Ginv[j][2] * G[2][3]);
+		for (u32 i = 0; i < 3; ++i)
+			for (u32 j = 0; j < 3; ++j)
+				out[i][3] += static_cast<f32>((S0[i][0] * E[0][j] + S0[i][1] * E[1][j] + S0[i][2] * E[2][j]) * shift[j]);
 	}
 	std::memcpy(block + vk::vr_depth_remap_matrix_vec4s(ctrl) * 16, out, sizeof(out));
 }
