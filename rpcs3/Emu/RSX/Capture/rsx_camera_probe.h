@@ -491,6 +491,13 @@ namespace rsx::vr
 			// own, so each eye reflects its own view ray and the reflections take their depth (with the game camera's, both
 			// eyes reflected the same direction at a point: the reflections lay on the water's surface).
 			u32 eye_position = umax;
+			// Or, without "rows": "ray": c, "view_vector": c: a full-screen pass that rebuilds view-space positions as
+			// (uv * c.xy + c.zw, 1) * depth with the game's view widths and dots them with a game-view vector (Uncharted's
+			// lighting pass: its height fog, c5 and c13). Each eye gets its own frustum's ray mapping and the vector turned
+			// into its view (with the game's, a head pitched up computed the fog for other heights and whitened it).
+			bool has_rows = false;
+			u32 eye_ray = umax;
+			u32 eye_view_vector = umax;
 		};
 		std::vector<fragment_camera_rows_rule> fragment_camera_rows;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box
@@ -978,6 +985,19 @@ namespace rsx::vr
 		bool render_enabled() const;
 		// Probe "hide=<hash>[@<target>][+...]": vertex or fragment programs (ucode hashes) whose draws are skipped, optionally
 		// only into one colour target (hex address), to find which program draws an artefact. Empty unless set.
+		// The headset eye's view: the head rotation (eye view = R x the game camera's view, x right, y up, z forward) and
+		// the eye's frustum tangents (left, right, up, down), and this frame's game projection scales (the scene camera's);
+		// false without a headset view.
+		bool vr_eye_view(f32 eye_sign, std::array<f32, 9>& rot, std::array<f32, 4>& tangents, std::array<f32, 2>& game_proj) const
+		{
+			if (!m_vr_view || !m_vr_hmd_fov || !(m_scene_proj_x > 0.f) || !(m_scene_proj_y > 0.f))
+				return false;
+			rot = m_vr_rot;
+			game_proj = {m_scene_proj_x, m_scene_proj_y};
+			const f32* t = m_vr_eye_fov[eye_sign < 0.f ? 0 : 1];
+			tangents = {t[0], t[1], t[2], t[3]};
+			return true;
+		}
 		const std::vector<std::pair<u64, u32>>& hidden_programs() const
 		{
 			return m_hidden_programs;

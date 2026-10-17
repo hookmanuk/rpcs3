@@ -494,7 +494,7 @@
 	void vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sign = 0.f) const;
 	// Profile fragment_camera_rows: after vr_write_depth_remap for an eye, that eye's world-to-texture rows (from its
 	// camera block in eye_constants, laid out as the program's constant_ids, or the whole bank when they are empty).
-	void vr_write_frag_rows(const u8* eye_constants, std::span<const u16> constant_ids, u8* block);
+	void vr_write_frag_rows(const u8* eye_constants, std::span<const u16> constant_ids, u8* block, f32 eye_sign);
 	// Profile depth_remap_screen: the current draw's tile quad (attribute 0, game NDC x0, y0, x1, y1), read before
 	// its eye constants; the quad is drawn through the head rotation and the shader keeps the tile's points.
 	void vr_read_screen_tile();

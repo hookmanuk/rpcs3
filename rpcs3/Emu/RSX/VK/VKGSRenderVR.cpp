@@ -1348,7 +1348,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 														   m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 	vr_write_depth_remap(scratch.data() + size, remap_size, true, eye_sign);
-	vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
+	vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size, eye_sign);
 	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
@@ -3856,7 +3856,7 @@ void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sig
 	}
 }
 
-void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16> constant_ids, u8* block)
+void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16> constant_ids, u8* block, f32 eye_sign)
 {
 	const u32 ctrl = current_vertex_program.ctrl;
 	const auto* profile = rsx::vr::camera_probe::get().profile();
@@ -3869,6 +3869,36 @@ void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16
 	const auto* rule = rsx::vr::fragment_camera_rows_rule(vr_vertex_program_hash(), fp_hash);
 	if (!rule)
 	{
+		return;
+	}
+	const auto game_constant = [&](u32 index, f32 (&v)[4]) -> bool
+	{
+		if (index >= m_fragment_prog->constant_offsets.size())
+			return false;
+		const u32* data = reinterpret_cast<const u32*>(static_cast<const char*>(current_fragment_program.get_data()) + m_fragment_prog->constant_offsets[index]);
+		for (u32 j = 0; j < 4; ++j)
+			v[j] = std::bit_cast<f32>(((data[j] >> 8) & 0xff00ff) | ((data[j] << 8) & 0xff00ff00));
+		return true;
+	};
+	// Eye-view rule: the game's ray is its NDC (uv * (2, -2) + (-1, 1)), so its positions are depth x (NDC x, NDC y, 1) and its
+	// vector f is in that space: (A f.x, B f.y, f.z) in view space, A and B the game projection's scales. Each eye gets the
+	// ray in its view's tangents (uv y down: x/z = l + (r - l) u, y/z = up + (down - up) v) and the view-space vector turned
+	// into its view (eye = R x game, so dot(game, g) = dot(eye, R g)), its w kept.
+	if (rule->eye_ray != umax)
+	{
+		std::array<f32, 9> R;
+		std::array<f32, 4> t;
+		std::array<f32, 2> P;
+		f32 f[4];
+		if (!rsx::vr::camera_probe::get().vr_eye_view(eye_sign, R, t, P) || !game_constant(rule->eye_view_vector, f))
+			return;
+		f[0] *= P[0];
+		f[1] *= P[1];
+		const f32 eye_rows[4][4] = {
+			{t[1] - t[0], t[3] - t[2], t[0], t[2]},
+			{R[0] * f[0] + R[1] * f[1] + R[2] * f[2], R[3] * f[0] + R[4] * f[1] + R[5] * f[2], R[6] * f[0] + R[7] * f[1] + R[8] * f[2], f[3]},
+			{}, {}};
+		std::memcpy(block + vk::vr_depth_remap_matrix_vec4s(ctrl) * 16, eye_rows, sizeof(eye_rows));
 		return;
 	}
 	// The game's three rows, from the fragment program's inline constants (as write_fragment_constants_to_buffer reads them).
@@ -5109,12 +5139,12 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		// the projection becoming known, must not leave the eyes apart) both are redone from the game's constants.
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 		vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
-		vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
+		vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size, -1.f);
 		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 		probe.clear_box_mapped();
 		const bool right_world = probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
 		vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
-		vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size);
+		vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size, 1.f);
 		bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		if (right_world != classified_world)
 		{
@@ -5128,13 +5158,13 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 			probe.clear_box_mapped();
 			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 			vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
-			vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
+			vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size, -1.f);
 			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 			probe.clear_box_mapped();
 			fill_guest(scratch.data() + stride);
 			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
 			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
-			vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size);
+			vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size, 1.f);
 			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		}
 		if (!left_box)

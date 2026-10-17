@@ -1597,7 +1597,7 @@ namespace rsx::vr
 		{
 			for (const auto& node : rules)
 			{
-				check_keys(node, " in fragment_camera_rows", {"program", "fragment", "rows", "from_camera", "eye_position"});
+				check_keys(node, " in fragment_camera_rows", {"program", "fragment", "rows", "from_camera", "eye_position", "ray", "view_vector"});
 				title_profile::fragment_camera_rows_rule rule;
 				const std::string vp = node["program"] ? node["program"].as<std::string>() : std::string();
 				const std::string fp = node["fragment"] ? node["fragment"].as<std::string>() : std::string();
@@ -1606,14 +1606,24 @@ namespace rsx::vr
 				rule.program = std::strtoull(vp.c_str(), &end_vp, 16);
 				rule.fragment = std::strtoull(fp.c_str(), &end_fp, 16);
 				const YAML::Node rows = node["rows"];
-				if (vp.empty() || *end_vp || fp.empty() || *end_fp || !rows || !rows.IsSequence() || rows.size() != 3)
+				const bool eye_view = node["ray"] && node["view_vector"] && !rows;
+				if (vp.empty() || *end_vp || fp.empty() || *end_fp || (!eye_view && (!rows || !rows.IsSequence() || rows.size() != 3)))
 				{
 					fail("fragment_camera_rows: expected {\"program\": \"<vertex hash>\", \"fragment\": \"<fragment hash>\", \"rows\": [x, y, w]}");
 					continue;
 				}
-				for (u32 i = 0; i < 3; ++i)
+				if (eye_view)
 				{
-					rule.rows[i] = rows[i].as<u32>();
+					rule.eye_ray = node["ray"].as<u32>();
+					rule.eye_view_vector = node["view_vector"].as<u32>();
+				}
+				else
+				{
+					rule.has_rows = true;
+					for (u32 i = 0; i < 3; ++i)
+					{
+						rule.rows[i] = rows[i].as<u32>();
+					}
 				}
 				rule.from_camera = node["from_camera"] && node["from_camera"].as<bool>();
 				rule.eye_position = node["eye_position"] ? node["eye_position"].as<u32>() : umax;

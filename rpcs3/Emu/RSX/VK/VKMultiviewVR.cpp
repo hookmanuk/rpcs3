@@ -374,8 +374,13 @@ namespace vk
 			{
 				OS << "layout(location=" << vr_frag_rows_location << ") flat in vec4 vr_frag_rows[4]; // VR fork\n";
 				OS << "vec4 vr_fetch_constant(const in uint x)\n{\n";
-				OS << "	const bool vr_rows = dot(abs(vr_frag_rows[2]), vec4(1.)) != 0.;\n";
-				for (u32 i = 0; i < 3; ++i)
+				OS << "	const bool vr_rows = dot(abs(vr_frag_rows[0]) + abs(vr_frag_rows[1]) + abs(vr_frag_rows[2]) + abs(vr_frag_rows[3]), vec4(1.)) != 0.;\n";
+				if (rule->eye_ray != umax)
+				{
+					OS << "	if (vr_rows && x == " << rule->eye_ray << "u) return vr_frag_rows[0];\n";
+					OS << "	if (vr_rows && x == " << rule->eye_view_vector << "u) return vr_frag_rows[1];\n";
+				}
+				for (u32 i = 0; i < (rule->has_rows ? 3u : 0u); ++i)
 				{
 					OS << "	if (vr_rows && x == " << rule->rows[i] << "u) return vr_frag_rows[" << i << "];\n";
 				}
