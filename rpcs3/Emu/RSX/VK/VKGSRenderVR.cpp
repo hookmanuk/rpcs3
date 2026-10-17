@@ -4196,10 +4196,13 @@ void VKGSRender::vr_select_target_scale()
 	}
 	m_vr_boost_saved_config = resolution_scaling_config;
 	rsx::surface_scaling_config_t boosted = resolution_scaling_config;
-	// Each axis at most 16384 pixels (the largest image the device takes).
+	// Each axis at most 16384 pixels (the largest image the device takes); a scale under 1 lowers the target's resolution
+	// (God of War III's 1408x1408 shadow map, 7040x7040 at 500 %), never below native.
 	const auto cap = [](u32 percent, f32 scale, u16 size)
 	{
-		return static_cast<u16>(std::clamp<u32>(static_cast<u32>(percent * scale), percent, size ? 16384u * 100u / size : 800u));
+		const u32 hi = size ? 16384u * 100u / size : 800u;
+		const u32 lo = std::min(scale < 1.f ? 100u : percent, hi);
+		return static_cast<u16>(std::clamp<u32>(static_cast<u32>(percent * scale), lo, hi));
 	};
 	boosted.scale_percent = cap(resolution_scaling_config.scale_percent, it->scale, it->width);
 	boosted.scale_percent_y = cap(resolution_scaling_config.percent_y(), it->scale, it->height);

@@ -1379,9 +1379,9 @@ namespace rsx::vr
 				title_profile::boosted_target t;
 				read(node, "scale", t.scale, false);
 				u32 w = 0, h = 0;
-				if (std::sscanf(size.c_str(), "%ux%u", &w, &h) != 2 || !w || !h || !(t.scale >= 1.f && t.scale <= 16.f))
+				if (std::sscanf(size.c_str(), "%ux%u", &w, &h) != 2 || !w || !h || !(t.scale >= 0.1f && t.scale <= 16.f))
 				{
-					fail("boosted_targets: expected {\"size\": \"<width>x<height>\", \"depth_only\": true, \"scale\": 1..16}");
+					fail("boosted_targets: expected {\"size\": \"<width>x<height>\", \"depth_only\": true, \"scale\": 0.1..16}");
 					continue;
 				}
 				t.width = static_cast<u16>(w);
