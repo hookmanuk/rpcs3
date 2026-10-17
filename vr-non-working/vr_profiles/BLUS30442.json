@@ -13,6 +13,8 @@
   "matrix_layout": "row_vectors",
   "camera_blocks": [8],
   "require_rigid_camera": true,
+  "nonrigid_camera_blocks": [8],
+  "scaled_camera_blocks": true,
   "camera_slots_read_directly": true,
   "camera_block_cache": true,
   "output_aspect_tolerance": 0.02,
