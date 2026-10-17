@@ -5740,8 +5740,17 @@ namespace rsx::vr
 		{
 			return false;
 		}
-		m_vr_proj_x = static_cast<f32>(std::sqrt(q[0] / q[2]));
-		m_vr_proj_y = static_cast<f32>(std::sqrt(q[1] / q[2]));
+		const f32 x = static_cast<f32>(std::sqrt(q[0] / q[2]));
+		const f32 y = static_cast<f32>(std::sqrt(q[1] / q[2]));
+		// An object scaled along tilted axes (not its own) has no diagonal metric, but the test can pass by chance near a
+		// degenerate pose: a wrong projection scaled the rock on screen as the camera turned (Matt, BCUS98103_2_12). The
+		// camera's projection changes by well under 1 % a frame, so a solution more than 3 % off last frame's is refused.
+		if (!(m_vr_proj_dominant[0] > 0.f) || std::fabs(x / m_vr_proj_dominant[0] - 1.f) > 0.03f || std::fabs(y / m_vr_proj_dominant[1] - 1.f) > 0.03f)
+		{
+			return false;
+		}
+		m_vr_proj_x = x;
+		m_vr_proj_y = y;
 		m_vr_proj_valid = true;
 		return true;
 	}
