@@ -289,6 +289,7 @@ namespace vk
 	// The varyings after the RSX's (locations 0-15): exact depth, then the depth remap's 6 (17 to 22)
 	static constexpr int vr_exact_depth_location = 16;
 	static constexpr int vr_depth_remap_location = 17;
+	static constexpr int vr_frag_rows_location = 26; // after DLSS's 23 to 25
 
 	void vr_insert_exact_depth_vertex_output(std::ostream& OS, u32 ctrl)
 	{
@@ -320,7 +321,11 @@ namespace vk
 	{
 		if (ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN))
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[" << vr_depth_remap_vec4s(ctrl) << "];\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat out vec4 vr_depth_remap[" << vr_depth_remap_matrix_vec4s(ctrl) << "];\n";
+		}
+		if (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS)
+		{
+			OS << "layout(location=" << vr_frag_rows_location << ") flat out vec4 vr_frag_rows[3];\n";
 		}
 		vk::dlss_insert_vertex_output(OS, ctrl); // DLSS test: motion
 	}
@@ -328,8 +333,18 @@ namespace vk
 	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots)
 	{
 		// DLSS test: motion and jitter (last: jitter moves the final position). Its block follows the depth remap's.
-		const u32 remap_vec4s = vr_depth_remap_vec4s(ctrl);
-		vk::dlss_insert_vertex_end(OS, ctrl, constant_slots + remap_vec4s, constant_slots != 0);
+		const u32 block_vec4s = vr_depth_remap_vec4s(ctrl);
+		const u32 remap_vec4s = vr_depth_remap_matrix_vec4s(ctrl);
+		vk::dlss_insert_vertex_end(OS, ctrl, constant_slots + block_vec4s, constant_slots != 0);
+		if (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS)
+		{
+			// Profile fragment_camera_rows: this eye's rows, after the depth remap's vec4s (zeros without constants: the
+			// fragment program then keeps the game's own).
+			if (ctrl & RSX_SHADER_CONTROL_INSTANCED_CONSTANTS)
+				OS << "	vr_frag_rows = vec4[3](vec4(0.), vec4(0.), vec4(0.));\n";
+			else
+				OS << "	for (uint vr_i = 0; vr_i < 3u; ++vr_i) vr_frag_rows[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots + remap_vec4s << "u + vr_i];\n";
+		}
 		if (!(ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN)))
 		{
 			return;
@@ -344,11 +359,29 @@ namespace vk
 		OS << "	for (uint vr_i = 0; vr_i < " << remap_vec4s << "u; ++vr_i) vr_depth_remap[vr_i] = vc[get_draw_params().xform_constants_offset + " << constant_slots << "u + vr_i];\n";
 	}
 
-	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count)
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count, const RSXFragmentProgram& prog)
 	{
 		if (ctrl & (RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN))
 		{
-			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[" << vr_depth_remap_vec4s(ctrl) << "]; // VR fork\n";
+			OS << "layout(location=" << vr_depth_remap_location << ") flat in vec4 vr_depth_remap[" << vr_depth_remap_matrix_vec4s(ctrl) << "]; // VR fork\n";
+		}
+		if (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS)
+		{
+			// Profile fragment_camera_rows: the rule's three constants are read from the eye's rows (all zero: none were
+			// written, the game's own are kept).
+			const usz hash = prog.ucode_hash ? prog.ucode_hash : program_hash_util::fragment_program_utils::get_fragment_program_ucode_hash(prog);
+			if (const auto* rule = rsx::vr::fragment_camera_rows_rule(0, hash))
+			{
+				OS << "layout(location=" << vr_frag_rows_location << ") flat in vec4 vr_frag_rows[3]; // VR fork\n";
+				OS << "vec4 vr_fetch_constant(const in uint x)\n{\n";
+				OS << "	const bool vr_rows = dot(abs(vr_frag_rows[2]), vec4(1.)) != 0.;\n";
+				for (u32 i = 0; i < 3; ++i)
+				{
+					OS << "	if (vr_rows && x == " << rule->rows[i] << "u) return vr_frag_rows[" << i << "];\n";
+				}
+				OS << "	return fc[x + _fs_constants_offset];\n}\n";
+				OS << "#undef _fetch_constant\n#define _fetch_constant(x) vr_fetch_constant(uint(x))\n";
+			}
 		}
 		vk::dlss_insert_fragment_input(OS, ctrl);              // DLSS test: motion
 		vk::dlss_insert_fragment_output(OS, ctrl, mrt_count);  // the motion attachment follows the colour attachments

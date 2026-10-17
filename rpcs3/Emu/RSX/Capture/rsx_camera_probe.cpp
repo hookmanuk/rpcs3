@@ -1589,6 +1589,31 @@ namespace rsx::vr
 				profile->resolution_scaled_constants.push_back(std::move(rule));
 			}
 		}
+		if (const YAML::Node rules = child(root, "fragment_camera_rows"); rules && rules.IsSequence())
+		{
+			for (const auto& node : rules)
+			{
+				check_keys(node, " in fragment_camera_rows", {"program", "fragment", "rows"});
+				title_profile::fragment_camera_rows_rule rule;
+				const std::string vp = node["program"] ? node["program"].as<std::string>() : std::string();
+				const std::string fp = node["fragment"] ? node["fragment"].as<std::string>() : std::string();
+				char* end_vp = nullptr;
+				char* end_fp = nullptr;
+				rule.program = std::strtoull(vp.c_str(), &end_vp, 16);
+				rule.fragment = std::strtoull(fp.c_str(), &end_fp, 16);
+				const YAML::Node rows = node["rows"];
+				if (vp.empty() || *end_vp || fp.empty() || *end_fp || !rows || !rows.IsSequence() || rows.size() != 3)
+				{
+					fail("fragment_camera_rows: expected {\"program\": \"<vertex hash>\", \"fragment\": \"<fragment hash>\", \"rows\": [x, y, w]}");
+					continue;
+				}
+				for (u32 i = 0; i < 3; ++i)
+				{
+					rule.rows[i] = rows[i].as<u32>();
+				}
+				profile->fragment_camera_rows.push_back(rule);
+			}
+		}
 		if (const YAML::Node rules = child(root, "fragment_constant_overrides"); rules && rules.IsSequence())
 		{
 			// [{ "program": "<vertex ucode hash>", "constant": 0, "value": [0, 0, 0, 0] }], or instead of "value":
@@ -1798,7 +1823,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim", "boosted_targets"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim", "boosted_targets", "fragment_camera_rows"});
 		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
@@ -2057,6 +2082,34 @@ namespace rsx::vr
 		}
 		const auto& list = profile->screen_space_hud_exact_depth_programs;
 		return std::find(list.begin(), list.end(), vertex_ucode_hash) != list.end();
+	}
+
+	bool fragment_camera_rows_listed()
+	{
+		const auto* profile = camera_probe::get().profile();
+		return profile && !profile->fragment_camera_rows.empty();
+	}
+
+	bool fragment_camera_rows_program(u64 vertex_ucode_hash)
+	{
+		return fragment_camera_rows_rule(vertex_ucode_hash, 0) != nullptr;
+	}
+
+	const title_profile::fragment_camera_rows_rule* fragment_camera_rows_rule(u64 vertex_ucode_hash, u64 fragment_ucode_hash)
+	{
+		const auto* profile = camera_probe::get().profile();
+		if (!profile)
+		{
+			return nullptr;
+		}
+		for (const auto& rule : profile->fragment_camera_rows)
+		{
+			if ((!vertex_ucode_hash || rule.program == vertex_ucode_hash) && (!fragment_ucode_hash || rule.fragment == fragment_ucode_hash))
+			{
+				return &rule;
+			}
+		}
+		return nullptr;
 	}
 
 	bool depth_remap_programs_listed()

@@ -25,6 +25,9 @@ constexpr u32 RSX_SHADER_CONTROL_DLSS_MOTION = 0x80000000;
 // variant (programs), alone the game-view depth variant (depth_programs). A bit of the GCM flag range that upstream
 // never sets (it copies only 0x0e, 0x40 and 0x80 of the game's shader control register) nor reads.
 constexpr u32 RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN = 0x00000200;
+// Profile fragment_camera_rows: the variants whose fragment program reads three fragment constants per eye (passed from
+// the vertex shader) instead of the game's. Another bit of the GCM flag range upstream never sets or reads.
+constexpr u32 RSX_SHADER_CONTROL_VR_FRAG_ROWS = 0x00000100;
 
 struct RSXVertexProgram;
 
@@ -96,6 +99,9 @@ namespace rsx::vr
 	bool exact_depth_program(u64 vertex_ucode_hash);
 	bool depth_remap_programs_listed();
 	bool depth_remap_program(u64 vertex_ucode_hash);
+	// Profile fragment_camera_rows: any listed, and whether this vertex ucode hash has a rule.
+	bool fragment_camera_rows_listed();
+	bool fragment_camera_rows_program(u64 vertex_ucode_hash);
 	bool depth_remap_screen_program(u64 vertex_ucode_hash);
 	bool depth_remap_game_view_program(u64 vertex_ucode_hash);
 	// The current vertex program is one of the profile's depth_remap_programs (its shaders carry RSX_SHADER_CONTROL_VR_DEPTH_REMAP).

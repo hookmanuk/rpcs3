@@ -324,15 +324,16 @@ namespace rsx::reports
 // other. After a merge from upstream, add any new RSX_SHADER_CONTROL_* bit here.
 static_assert((RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_EXACT_DEPTH) == 0 && (RSX_SHADER_CONTROL_VR_MULTIVIEW & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0 &&
 	(RSX_SHADER_CONTROL_VR_EXACT_DEPTH & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) == 0 &&
-	((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) == 0, "VR fork: two VR control bits overlap");
-static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
+	((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) == 0 &&
+	((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) & RSX_SHADER_CONTROL_VR_FRAG_ROWS) == 0, "VR fork: two VR control bits overlap");
+static_assert(((RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN | RSX_SHADER_CONTROL_VR_FRAG_ROWS) & (CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS |
 													 RSX_SHADER_CONTROL_USED_REGS_MASK | RSX_SHADER_CONTROL_USES_KIL | RSX_SHADER_CONTROL_UNKNOWN0 | RSX_SHADER_CONTROL_UNKNOWN1 |
 													 RSX_SHADER_CONTROL_FLAT_SHADING | RSX_SHADER_CONTROL_ATTRIBUTE_INTERPOLATION | RSX_SHADER_CONTROL_INSTANCED_CONSTANTS |
 													 RSX_SHADER_CONTROL_INTERPRETER_MODEL | RSX_SHADER_CONTROL_8BIT_FRAMEBUFFER | RSX_SHADER_CONTROL_SRGB_FRAMEBUFFER |
 													 RSX_SHADER_CONTROL_TEXTURE_ALPHA_KILL | RSX_SHADER_CONTROL_ALPHA_TEST | RSX_SHADER_CONTROL_POLYGON_STIPPLE |
 													 RSX_SHADER_CONTROL_ALPHA_TO_COVERAGE | RSX_SHADER_CONTROL_DISABLE_EARLY_Z | RSX_SHADER_CONTROL_TEXTURE_FORMAT_CONVERT |
 													 RSX_SHADER_CONTROL_EMULATE_DEPTH_COMPARE | RSX_SHADER_CONTROL_ROP_MULTISAMPLED | RSX_SHADER_CONTROL_ROP_OUTPUT_REMAP |
-													 RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING | (RSX_SHADER_CONTROL_META_GCM_FLAGS_MASK & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN))) == 0,
+													 RSX_SHADER_CONTROL_PROGRAMMABLE_BLENDING | (RSX_SHADER_CONTROL_META_GCM_FLAGS_MASK & ~(RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN | RSX_SHADER_CONTROL_VR_FRAG_ROWS)))) == 0,
 	"VR fork: a VR shader control bit collides with an upstream shader control bit");
 static_assert((RSX_SHADER_CONTROL_DLSS_MOTION & (RSX_SHADER_CONTROL_VR_MULTIVIEW | RSX_SHADER_CONTROL_VR_EXACT_DEPTH | RSX_SHADER_CONTROL_VR_DEPTH_REMAP | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN |
 				  CELL_GCM_SHADER_CONTROL_DEPTH_EXPORT | CELL_GCM_SHADER_CONTROL_32_BITS_EXPORTS | RSX_SHADER_CONTROL_USED_REGS_MASK | RSX_SHADER_CONTROL_USES_KIL |
@@ -354,6 +355,7 @@ namespace rsx::vr
 	static bool s_exact_depth = false;
 	static bool s_depth_remap = false;
 	static bool s_depth_remap_screen = false;
+	static bool s_frag_rows = false; // profile fragment_camera_rows: this vertex program has a rule
 	static bool s_depth_remap_game_view = false;
 	static std::unordered_map<u64, u8> s_program_bits_by_fingerprint;
 
@@ -443,6 +445,7 @@ namespace rsx::vr
 		ctrl = s_exact_depth ? (ctrl | RSX_SHADER_CONTROL_VR_EXACT_DEPTH) : (ctrl & ~RSX_SHADER_CONTROL_VR_EXACT_DEPTH);
 		ctrl = s_depth_remap ? (ctrl | RSX_SHADER_CONTROL_VR_DEPTH_REMAP) : (ctrl & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP);
 		ctrl = s_depth_remap_screen || s_depth_remap_game_view ? (ctrl | RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) : (ctrl & ~RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN);
+		ctrl = s_frag_rows && multiview_active() ? (ctrl | RSX_SHADER_CONTROL_VR_FRAG_ROWS) : (ctrl & ~RSX_SHADER_CONTROL_VR_FRAG_ROWS);
 	}
 
 	bool depth_remap_active()
@@ -604,7 +607,7 @@ namespace rsx::vr
 	{
 		// Only for a profile that lists programs (Gran Turismo 5's menu cards, Asura's Wrath's shadow mask).
 		u8 bits = 0;
-		if (exact_depth_programs_listed() || depth_remap_programs_listed())
+		if (exact_depth_programs_listed() || depth_remap_programs_listed() || fragment_camera_rows_listed())
 		{
 			const auto& ucode = program.data;
 			u64 fingerprint = 0xcbf29ce484222325ull ^ ucode.size();
@@ -615,7 +618,8 @@ namespace rsx::vr
 			const auto decide = [&]()
 			{
 				const u64 hash = program_hash_util::vertex_program_utils::get_vertex_program_ucode_hash(program);
-				return static_cast<u8>((exact_depth_program(hash) ? 1 : 0) | (depth_remap_program(hash) ? 2 : 0) | (depth_remap_screen_program(hash) ? 4 : 0) | (depth_remap_game_view_program(hash) ? 8 : 0));
+				return static_cast<u8>((exact_depth_program(hash) ? 1 : 0) | (depth_remap_program(hash) ? 2 : 0) | (depth_remap_screen_program(hash) ? 4 : 0) | (depth_remap_game_view_program(hash) ? 8 : 0) |
+					(fragment_camera_rows_program(hash) ? 16 : 0));
 			};
 			if (const auto found = s_program_bits_by_fingerprint.find(fingerprint); found != s_program_bits_by_fingerprint.end())
 			{
@@ -654,7 +658,9 @@ namespace rsx::vr
 		}
 		const bool screen = (bits & 4) != 0;
 		const bool game_view = (bits & 8) != 0;
-		const bool changed = exact != s_exact_depth || remap != s_depth_remap || screen != s_depth_remap_screen || game_view != s_depth_remap_game_view;
+		const bool frag_rows = (bits & 16) != 0;
+		const bool changed = exact != s_exact_depth || remap != s_depth_remap || screen != s_depth_remap_screen || game_view != s_depth_remap_game_view || frag_rows != s_frag_rows;
+		s_frag_rows = frag_rows;
 		s_exact_depth = exact;
 		s_depth_remap = remap;
 		s_depth_remap_screen = screen;

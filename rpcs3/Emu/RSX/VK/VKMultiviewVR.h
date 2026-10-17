@@ -16,6 +16,8 @@
 #include <string_view>
 #include <vector>
 
+struct RSXFragmentProgram; // VR fork: profile fragment_camera_rows (vr_insert_depth_remap_fragment_input)
+
 enum class FUNCTION; // Emu/RSX/Program/ShaderParam.h
 
 namespace glsl
@@ -28,9 +30,20 @@ namespace vk
 	// The depth remap's vec4s after a draw's constants (and its varyings from location 17): 5 for profile
 	// depth_remap_programs (the matrix, then the ray scales and the target's size), 6 for depth_remap_screen (then the
 	// tile's rectangle). Five as before depth_remap_screen for the first: a sixth broke MotorStorm's menus and intro.
-	inline u32 vr_depth_remap_vec4s(u32 ctrl)
+	inline u32 vr_depth_remap_matrix_vec4s(u32 ctrl)
 	{
 		return (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP_SCREEN) ? 6 : (ctrl & RSX_SHADER_CONTROL_VR_DEPTH_REMAP) ? 5 : 0;
+	}
+	// Profile fragment_camera_rows: three more after the depth remap's (the eye's world-to-texture rows), with their own
+	// varyings from location 26.
+	inline u32 vr_frag_rows_vec4s(u32 ctrl)
+	{
+		return (ctrl & RSX_SHADER_CONTROL_VR_FRAG_ROWS) ? 3 : 0;
+	}
+	// The whole per-eye block after a draw's constants (DLSS's follows it).
+	inline u32 vr_depth_remap_vec4s(u32 ctrl)
+	{
+		return vr_depth_remap_matrix_vec4s(ctrl) + vr_frag_rows_vec4s(ctrl);
 	}
 
 	class command_buffer;
@@ -144,7 +157,7 @@ namespace vk
 	void vr_insert_depth_remap_vertex_output(std::ostream& OS, u32 ctrl);
 	void vr_insert_depth_remap_vertex_end(std::ostream& OS, u32 ctrl, u32 constant_slots);
 	// Also the DLSS test's motion input and output (after the mrt_count colour outputs).
-	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count);
+	void vr_insert_depth_remap_fragment_input(std::ostream& OS, u32 ctrl, u32 mrt_count, const RSXFragmentProgram& prog);
 	// Shader interpreter pipelines: a viewport and scissor per view in multiview; the DLSS test's motion attachment
 	// left alone (the interpreter does not write it).
 	void vr_interpreter_pipeline_state(pipeline_props& props, VkPipelineViewportStateCreateInfo& vp);

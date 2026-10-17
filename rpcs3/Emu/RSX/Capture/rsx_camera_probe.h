@@ -466,6 +466,19 @@ namespace rsx::vr
 		// blurred copy by fc[0]; the CoC it scales includes a blur growing from the screen centre,
 		// which in the headset's wider view covered the floor and the top of the view.
 		std::vector<fragment_constant_override> fragment_constant_overrides;
+		// "fragment_camera_rows": [{ "program": "<vertex hash>", "fragment": "<fragment hash>", "rows": [x, y, w] }]: three
+		// fragment constants (as the shader reads them) that hold a world-to-texture projection made with the game's camera:
+		// the x, y and w rows, as in u = dot(p, x) / dot(p, w). The pass samples a target drawn per eye (Uncharted's water
+		// reflection projects the reflected ray into the half-resolution scene c31e0000), so each eye gets them remapped
+		// onto its own view: S x the eye's camera rows, S the game's clip-to-texture mapping solved from the game's rows and
+		// the draw's own camera block (which must be world to clip). Fork shader control RSX_SHADER_CONTROL_VR_FRAG_ROWS.
+		struct fragment_camera_rows_rule
+		{
+			u64 program = 0;
+			u64 fragment = 0;
+			std::array<u32, 3> rows{};
+		};
+		std::vector<fragment_camera_rows_rule> fragment_camera_rows;
 		// HUD-box draws in fixed mode keep the game's depth (z scaled by w'/w): the box
 		// changes w with the head pose, which reordered Shadow of the Colossus's depth-tested
 		// menu layers. Off by default: it broke ICO's HUD box.
@@ -868,6 +881,8 @@ namespace rsx::vr
 	bool profile_option_enabled(const std::string& option);
 	// The home menu shows a setting only for games whose profile has a rule tagged with it.
 	bool profile_has_option(const title_profile& profile, std::string_view option);
+	// Profile fragment_camera_rows: the rule for a vertex and / or fragment ucode hash (0 = any), or null.
+	const title_profile::fragment_camera_rows_rule* fragment_camera_rows_rule(u64 vertex_ucode_hash, u64 fragment_ucode_hash);
 	// The highest max_fps among the title's profiles (0 = no maximum), for the settings
 	// dialog, which cannot tell which game of a collection will run.
 	u32 title_max_fps(std::string_view title_id);

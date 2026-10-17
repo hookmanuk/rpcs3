@@ -159,7 +159,7 @@ void VKFragmentDecompilerThread::insertInputs(std::stringstream & OS)
 		vk::get_varying_register_location
 	);
 	vk::vr_insert_exact_depth_fragment_input(OS, m_prog.ctrl); // VR fork: exact depth
-	vk::vr_insert_depth_remap_fragment_input(OS, m_prog.ctrl, m_prog.mrt_buffers_count); // VR fork: depth remap (DLSS test: motion)
+	vk::vr_insert_depth_remap_fragment_input(OS, m_prog.ctrl, m_prog.mrt_buffers_count, m_prog); // VR fork: depth remap, fragment camera rows (DLSS test: motion)
 }
 
 void VKFragmentDecompilerThread::insertOutputs(std::stringstream & OS)

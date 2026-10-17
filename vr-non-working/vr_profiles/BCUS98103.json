@@ -8,6 +8,9 @@
   "vblanks_per_frame": 2,
   "video_vblank_rate": 60,
   "boosted_targets": [{ "size": "2432x1216", "depth_only": true, "scale": 2.0 }],
+  "fragment_camera_rows": [
+    { "program": "292d56e8bfecaf63", "fragment": "59c0ac681f999e51", "rows": [69, 73, 72] }
+  ],
   "fragment_constant_overrides": [
     { "program": "fc15ec0752d20290", "fragment": "135614811b7e2009", "constant": 19, "inverse_fit_words": { "x": "0x7cdd88", "y": "0x7cdd8c", "fov_deg": 46.7, "aspect": 1.7778 } }
   ],

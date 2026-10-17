@@ -1348,6 +1348,7 @@ bool VKGSRender::bind_vr_eye_constants(f32 eye_sign, u64 source_offset, usz sour
 	const bool classified_world = !keep_game_camera && rsx::vr::camera_probe::get().apply_render_eye(scratch.data(), reloc, reloc_size,
 														   m_framebuffer_layout.width, m_framebuffer_layout.height, eye_sign);
 	vr_write_depth_remap(scratch.data() + size, remap_size, true, eye_sign);
+	vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
 	lap(1);
 
 	const u64 alignment = m_device->gpu().get_limits().minUniformBufferOffsetAlignment;
@@ -3842,7 +3843,131 @@ void VKGSRender::vr_write_depth_remap(void* dst, usz size, bool eye, f32 eye_sig
 		m[5][2] = m_vr_screen_tile[2] >= 0.99f ? 1e9f : m_vr_screen_tile[2];
 		m[5][3] = m_vr_screen_tile[3] >= 0.99f ? 1e9f : m_vr_screen_tile[3];
 	}
-	std::memcpy(dst, m, std::min(size, sizeof(m)));
+	// The depth remap's own vec4s; profile fragment_camera_rows' follow them, zero until vr_write_frag_rows writes an eye's
+	// (zero rows: the fragment program keeps the game's own).
+	const usz matrix_bytes = vk::vr_depth_remap_matrix_vec4s(current_vertex_program.ctrl) * 16;
+	std::memcpy(dst, m, std::min({size, matrix_bytes, sizeof(m)}));
+	if (size > matrix_bytes)
+	{
+		std::memset(static_cast<u8*>(dst) + matrix_bytes, 0, size - matrix_bytes);
+	}
+}
+
+void VKGSRender::vr_write_frag_rows(const u8* eye_constants, std::span<const u16> constant_ids, u8* block)
+{
+	const u32 ctrl = current_vertex_program.ctrl;
+	const auto* profile = rsx::vr::camera_probe::get().profile();
+	if (!vk::vr_frag_rows_vec4s(ctrl) || !m_fragment_prog || !profile || profile->camera_blocks.empty())
+	{
+		return;
+	}
+	const usz fp_hash = current_fragment_program.ucode_hash ? current_fragment_program.ucode_hash :
+		program_hash_util::fragment_program_utils::get_fragment_program_ucode_hash(current_fragment_program);
+	const auto* rule = rsx::vr::fragment_camera_rows_rule(vr_vertex_program_hash(), fp_hash);
+	if (!rule)
+	{
+		return;
+	}
+	// The game's three rows, from the fragment program's inline constants (as write_fragment_constants_to_buffer reads them).
+	f64 F[3][4];
+	for (u32 i = 0; i < 3; ++i)
+	{
+		if (rule->rows[i] >= m_fragment_prog->constant_offsets.size())
+		{
+			return;
+		}
+		const u32* data = reinterpret_cast<const u32*>(static_cast<const char*>(current_fragment_program.get_data()) + m_fragment_prog->constant_offsets[rule->rows[i]]);
+		for (u32 j = 0; j < 4; ++j)
+		{
+			const u32 v = data[j];
+			F[i][j] = std::bit_cast<f32>(((v >> 8) & 0xff00ff) | ((v << 8) & 0xff00ff00));
+		}
+	}
+	// The draw's camera block: the profile's first, its clip x, y and w rows over (x, y, z, 1), for the game (the guest's
+	// constants) and for this eye (its transformed constants).
+	const u32 base = profile->camera_blocks[0];
+	const auto slot_of = [&](u32 index) -> s32
+	{
+		if (constant_ids.empty())
+		{
+			return index < 468 ? static_cast<s32>(index) : -1;
+		}
+		const auto it = std::find(constant_ids.begin(), constant_ids.end(), static_cast<u16>(index));
+		return it == constant_ids.end() ? -1 : static_cast<s32>(it - constant_ids.begin());
+	};
+	f64 G[3][4], E[3][4];
+	const auto& guest = rsx::method_registers.transform_constants;
+	for (u32 r = 0; r < 4; ++r)
+	{
+		const s32 slot = slot_of(base + r);
+		if (slot < 0)
+		{
+			return;
+		}
+		const f32* g = reinterpret_cast<const f32*>(guest[base + r]);
+		const f32* e = reinterpret_cast<const f32*>(eye_constants + slot * 16);
+		for (u32 c = 0; c < 4; ++c)
+		{
+			// Column vectors: constant r is clip row r. Row vectors: constant r holds the clip coordinates' input r.
+			const u32 row = profile->column_vectors ? r : c, col = profile->column_vectors ? c : r;
+			const s32 out = row == 0 ? 0 : row == 1 ? 1 : row == 3 ? 2 : -1;
+			if (out >= 0)
+			{
+				G[out][col] = g[c];
+				E[out][col] = e[c];
+			}
+		}
+	}
+	// What the eye transform did to the camera block: E = T x G + d (T linear on the clip x, y, w rows, d added to their
+	// translations: the eye's offset). The rows were made with the game's camera (possibly another frame's): F = S x G_F,
+	// S the clip-to-texture mapping (u w, v w, w), estimated as F x G^-1 on the linear parts. The eye's rows are
+	// S x (T x G_F + d) = (S T S^-1) x F, translations + S x d.
+	const auto inverse3 = [](const f64 (&m)[3][4], f64 (&inv)[3][3]) -> bool
+	{
+		const f64 det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+		if (!(std::fabs(det) > 1e-12))
+			return false;
+		inv[0][0] = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / det;
+		inv[0][1] = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det;
+		inv[0][2] = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det;
+		inv[1][0] = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) / det;
+		inv[1][1] = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det;
+		inv[1][2] = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) / det;
+		inv[2][0] = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) / det;
+		inv[2][1] = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) / det;
+		inv[2][2] = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det;
+		return true;
+	};
+	f64 Ginv[3][3], Finv[3][3];
+	if (!inverse3(G, Ginv) || !inverse3(F, Finv))
+	{
+		return;
+	}
+	f64 S[3][3], Sinv[3][3], T[3][3], d[3];
+	for (u32 i = 0; i < 3; ++i)
+		for (u32 j = 0; j < 3; ++j)
+		{
+			S[i][j] = F[i][0] * Ginv[0][j] + F[i][1] * Ginv[1][j] + F[i][2] * Ginv[2][j];
+			T[i][j] = E[i][0] * Ginv[0][j] + E[i][1] * Ginv[1][j] + E[i][2] * Ginv[2][j];
+			Sinv[i][j] = G[i][0] * Finv[0][j] + G[i][1] * Finv[1][j] + G[i][2] * Finv[2][j];
+		}
+	for (u32 i = 0; i < 3; ++i)
+		d[i] = E[i][3] - (T[i][0] * G[0][3] + T[i][1] * G[1][3] + T[i][2] * G[2][3]);
+	f64 M[3][3], ST[3][3];
+	for (u32 i = 0; i < 3; ++i)
+		for (u32 j = 0; j < 3; ++j)
+			ST[i][j] = S[i][0] * T[0][j] + S[i][1] * T[1][j] + S[i][2] * T[2][j];
+	for (u32 i = 0; i < 3; ++i)
+		for (u32 j = 0; j < 3; ++j)
+			M[i][j] = ST[i][0] * Sinv[0][j] + ST[i][1] * Sinv[1][j] + ST[i][2] * Sinv[2][j];
+	f32 out[3][4];
+	for (u32 i = 0; i < 3; ++i)
+	{
+		for (u32 j = 0; j < 4; ++j)
+			out[i][j] = static_cast<f32>(M[i][0] * F[0][j] + M[i][1] * F[1][j] + M[i][2] * F[2][j]);
+		out[i][3] += static_cast<f32>(S[i][0] * d[0] + S[i][1] * d[1] + S[i][2] * d[2]);
+	}
+	std::memcpy(block + vk::vr_depth_remap_matrix_vec4s(ctrl) * 16, out, sizeof(out));
 }
 
 void VKGSRender::vr_read_screen_tile()
@@ -4917,10 +5042,12 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 		// the projection becoming known, must not leave the eyes apart) both are redone from the game's constants.
 		classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 		vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
+		vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
 		bool left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 		probe.clear_box_mapped();
 		const bool right_world = probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
 		vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
+		vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size);
 		bool right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		if (right_world != classified_world)
 		{
@@ -4934,11 +5061,13 @@ bool VKGSRender::bind_vr_eye_constants_pair(usz source_size)
 			probe.clear_box_mapped();
 			classified_world = probe.apply_render_eye(scratch.data(), reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, -1.f);
 			vr_write_depth_remap(scratch.data() + size, remap_size, true, -1.f);
+			vr_write_frag_rows(scratch.data(), constant_ids, scratch.data() + size);
 			left_box = vr_box_scissor_rect(m_vr_mv_scissor[0]);
 			probe.clear_box_mapped();
 			fill_guest(scratch.data() + stride);
 			probe.apply_render_eye(scratch.data() + stride, reloc, reloc_size, m_framebuffer_layout.width, m_framebuffer_layout.height, 1.f);
 			vr_write_depth_remap(scratch.data() + stride + size, remap_size, true, 1.f);
+			vr_write_frag_rows(scratch.data() + stride, constant_ids, scratch.data() + stride + size);
 			right_box = vr_box_scissor_rect(m_vr_mv_scissor[1]);
 		}
 		if (!left_box)
