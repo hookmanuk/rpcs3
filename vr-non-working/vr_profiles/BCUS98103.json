@@ -8,6 +8,7 @@
   "vblanks_per_frame": 2,
   "video_vblank_rate": 60,
   "boosted_targets": [{ "size": "2432x1216", "depth_only": true, "scale": 2.0 }],
+  "scaled_camera_blocks": true,
   "fragment_camera_rows": [
     { "program": "292d56e8bfecaf63", "fragment": "59c0ac681f999e51", "rows": [69, 73, 72], "from_camera": true }
   ],

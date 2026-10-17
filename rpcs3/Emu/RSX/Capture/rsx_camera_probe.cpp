@@ -1055,6 +1055,10 @@ namespace rsx::vr
 		{
 			profile->camera_slots_read_directly = direct == "true";
 		}
+		if (std::string scaled; read(root, "scaled_camera_blocks", scaled, false))
+		{
+			profile->scaled_camera_blocks = scaled == "true";
+		}
 		if (std::string cache; read(root, "camera_block_cache", cache, false))
 		{
 			profile->camera_block_cache = cache == "true";
@@ -1824,7 +1828,7 @@ namespace rsx::vr
 			}
 		}
 
-		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim", "boosted_targets", "fragment_camera_rows"});
+		check_keys(root, "", {"schema", "title_id", "app_version", "name", "matrix_layout", "camera_blocks", "output_aspect_tolerance", "camera_target_aspect", "camera_position", "stereo", "screen_space", "reference_screen_width", "game_refresh_rate_f32", "game_frame_time_f32", "game_frame_time_sq_f32", "game_frame_time_cube_f32", "game_frame_ms_u32", "game_frame_ms_f32", "game_fps_u32", "game_vblank_frames_f32", "max_fps", "default_fps", "vblanks_per_frame", "video_vblank_rate", "zcull_approximate", "zcull_relaxed_sync", "display_rect", "hidden_draws", "keep_rendered_display_buffers", "hud_depth", "reproject_older_frames", "clip_space_scene_draws", "require_rigid_camera", "nonrigid_camera_blocks", "row_vector_blocks", "column_vector_blocks", "either_layout_blocks", "linked_camera_blocks", "camera_palette", "require_camera_aspect", "reject_camera_aspect", "camera_slots_read_directly", "camera_block_cache", "spu_async_compile", "game_rate_measured", "vblank_steps", "display_area_sizes", "clear_view_targets", "view_y_down", "texture_redirects", "game_camera_programs", "depth_remap_programs", "depth_remap_volume_programs", "depth_remap_ray_texcoord", "depth_remap_xyw", "depth_remap_uv", "depth_remap_packed_unit", "dlss_jitter", "dlss_pair_nearest", "depth_remap_screen", "reduced_scale_frames", "game_camera_target_widths", "game_camera_aspects", "current_frame_copies", "occlusion_depth_readback", "skip_readback_sections", "late_readback_sections", "late_readback_lengths", "min_scalable_dimension", "image_pool_mb", "car_draw_limit", "shared_frame_targets", "small_draw_cull", "offaspect_player_views", "resolution_scaled_constants", "fragment_constant_overrides", "orthographic_stereo", "frame_rate_draws", "native_rate_when", "culling_scale_f32", "option_f32", "inverse_camera_programs", "head_aim", "boosted_targets", "fragment_camera_rows", "scaled_camera_blocks"});
 		check_keys(head_aim, " in head_aim", {"button", "full_stick_deg", "min_stick", "deadzone_deg", "return_deg_per_s", "manual_stick", "mode", "gain", "direct"});
 		check_keys(orthographic_stereo, " in orthographic_stereo", {"angle", "convergence", "convergence_z"});
 		check_keys(camera_position, " in camera_position", {"slot", "eye_baseline"});
@@ -3991,6 +3995,7 @@ namespace rsx::vr
 		}
 		if (view_draw && m_vr_view)
 		{
+			m_vr_solve_scaled = profile.scaled_camera_blocks;
 			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units, !sprite_block && !remap_volume);
 			if (slot && !m_vr_proj_pinned && m_vr_proj_valid)
 			{
@@ -5680,6 +5685,56 @@ namespace rsx::vr
 		m_vr_proj_valid = true;
 	}
 
+	bool camera_probe::solve_scaled_projection(f32* const rows[4]) const
+	{
+		// M = D x L x P, D a per-axis scale of the object, L rigid: the clip x, y and w columns are orthogonal in the metric
+		// diag(d) = D^-2, so d is the null vector of the products' rows (c_i * c_j over the object axes). Taken from the two
+		// best-determined rows (an upright object under a level camera leaves rows near 0: its scale along the view axes
+		// cannot be told from the projection), the third must agree and all d share a sign; then the projection is |c0| / |c3|
+		// and |c1| / |c3| in that metric. Otherwise false: sheared, or not determined.
+		constexpr u32 cols[3] = {0, 1, 3};
+		f64 cn[3];
+		for (u32 i = 0; i < 3; ++i)
+			cn[i] = std::sqrt(f64{rows[0][cols[i]]} * rows[0][cols[i]] + f64{rows[1][cols[i]]} * rows[1][cols[i]] + f64{rows[2][cols[i]]} * rows[2][cols[i]]);
+		if (!(cn[0] > 0.) || !(cn[1] > 0.) || !(cn[2] > 0.))
+		{
+			return false;
+		}
+		constexpr u32 pairs[3][2] = {{0, 1}, {0, 2}, {1, 2}};
+		f64 m[3][3], rel[3];
+		for (u32 e = 0; e < 3; ++e)
+		{
+			const f64 scale = cn[pairs[e][0]] * cn[pairs[e][1]];
+			for (u32 r = 0; r < 3; ++r)
+				m[e][r] = f64{rows[r][cols[pairs[e][0]]]} * rows[r][cols[pairs[e][1]]] / scale;
+			rel[e] = std::sqrt(m[e][0] * m[e][0] + m[e][1] * m[e][1] + m[e][2] * m[e][2]);
+		}
+		// the weakest row is the one checked
+		const u32 k = rel[0] <= rel[1] && rel[0] <= rel[2] ? 0 : rel[1] <= rel[2] ? 1 : 2;
+		const f64* u = m[k == 0 ? 1 : 0];
+		const f64* v = m[k == 2 ? 1 : 2];
+		const f64 un = rel[k == 0 ? 1 : 0], vn = rel[k == 2 ? 1 : 2];
+		const f64 d[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+		const f64 dn = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+		if (un < 1e-3 || vn < 1e-3 || dn < 1e-2 * un * vn || !(d[0] * d[1] > 0.) || !(d[0] * d[2] > 0.) ||
+			std::fabs(m[k][0] * d[0] + m[k][1] * d[1] + m[k][2] * d[2]) > 1e-4 * dn)
+		{
+			return false;
+		}
+		f64 q[3] = {};
+		for (u32 i = 0; i < 3; ++i)
+			for (u32 r = 0; r < 3; ++r)
+				q[i] += std::fabs(d[r]) * rows[r][cols[i]] * rows[r][cols[i]];
+		if (!(q[0] > 0.) || !(q[1] > 0.) || !(q[2] > 0.))
+		{
+			return false;
+		}
+		m_vr_proj_x = static_cast<f32>(std::sqrt(q[0] / q[2]));
+		m_vr_proj_y = static_cast<f32>(std::sqrt(q[1] / q[2]));
+		m_vr_proj_valid = true;
+		return true;
+	}
+
 	void camera_probe::apply_vr_rotation(f32* const rows[4], const std::array<f32, 9>& R, const std::array<f32, 3>& head, bool refresh_projection) const
 	{
 		// Row-vector camera block M (clip = v * M). For M = L * P with L affine and
@@ -5713,6 +5768,12 @@ namespace rsx::vr
 		{
 			set_vr_projection(n0 / n3, n1 / n3);
 			m_proj_refreshed = true;
+		}
+		else if (refresh_projection && m_vr_solve_scaled && !m_vr_proj_pinned && solve_scaled_projection(rows))
+		{
+			// Profile scaled_camera_blocks: a camera block with a per-axis scale (Uncharted's scenery: ~740 of a frame's
+			// draws) carries this frame's projection too; the dominant one below is last frame's, and the game's culling
+			// widening changes it every frame the head moves: scaled scenery drew with another projection and juddered.
 		}
 		else if (!m_vr_proj_pinned && m_vr_proj_dominant[0] > 0.f && m_vr_proj_valid && std::fabs(m_vr_proj_x - m_vr_proj_dominant[0]) <= 0.02f * m_vr_proj_dominant[0] &&
 			std::fabs(m_vr_proj_y - m_vr_proj_dominant[1]) <= 0.02f * m_vr_proj_dominant[1])

@@ -185,6 +185,10 @@ namespace rsx::vr
 		// are unchanged from that eye's previous plain scene-camera draw (SEGA Rally: ~95% of its 2-4k draws a frame).
 		// Dev: RPCS3_VR_BLOCK_CACHE=0/1 forces it off/on.
 		bool camera_block_cache = false;
+		// "scaled_camera_blocks": true: a non-rigid camera block scaled per object axis gets the projection solved from it
+		// (this frame's) instead of last frame's dominant one. For games whose projection changes as the head moves
+		// (Uncharted's culling widening: scaled scenery juddered).
+		bool scaled_camera_blocks = false;
 		// "spu_async_compile": true: an SPU that reaches code nobody compiled yet runs it interpreted while it compiles on a
 		// worker thread (Emu/Cell/SPUAsyncCompile.cpp), instead of stopping for the compile. Gran Turismo 5 froze on a fresh
 		// install (empty SPU cache) without it: a job queue's start was lost in that pause. Dev: RPCS3_SPU_ASYNC=0/1.
@@ -1302,6 +1306,9 @@ namespace rsx::vr
 		mutable u32 m_vr_proj_pin_frame = 1;
 		mutable bool m_vr_proj_pinned = false;
 		void set_vr_projection(f32 x, f32 y) const;
+		// A camera block scaled per object axis: its projection, into m_vr_proj_x / y (false: sheared or no camera).
+		bool solve_scaled_projection(f32* const rows[4]) const;
+		mutable bool m_vr_solve_scaled = false;
 		// The projection of the last camera draw into a view target that refreshed it (the scene camera), for the depth
 		// remap's ray scale: m_vr_proj_* follow whichever camera drew last (shadow-map, culling and volume cameras too).
 		mutable f32 m_scene_proj_x = 0.f;
