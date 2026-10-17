@@ -1285,6 +1285,17 @@ namespace rsx::vr
 		// (set_vr_projection); a non-rigid block takes last frame's dominant one (apply_vr_rotation): both deterministic.
 		mutable std::vector<std::pair<std::array<f32, 2>, u32>> m_vr_proj_frame;
 		mutable std::array<f32, 2> m_vr_proj_dominant{};
+		// The projection each game block used this frame (keyed by a hash of its 16 words): its later draws use the same.
+		// Open addressing, entries of older frames are free (m_vr_proj_pin_frame counts frames).
+		struct vr_proj_pin
+		{
+			u64 key = 0;
+			u32 frame = 0;
+			f32 x = 0.f, y = 0.f;
+		};
+		mutable std::array<vr_proj_pin, 8192> m_vr_proj_pins{};
+		mutable u32 m_vr_proj_pin_frame = 1;
+		mutable bool m_vr_proj_pinned = false;
 		void set_vr_projection(f32 x, f32 y) const;
 		// The projection of the last camera draw into a view target that refreshed it (the scene camera), for the depth
 		// remap's ray scale: m_vr_proj_* follow whichever camera drew last (shadow-map, culling and volume cameras too).

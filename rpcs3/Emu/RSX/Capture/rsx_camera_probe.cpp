@@ -3962,10 +3962,41 @@ namespace rsx::vr
 		                          std::find(profile.depth_remap_volume_programs.begin(), profile.depth_remap_volume_programs.end(), m_draw_program) !=
 		                              profile.depth_remap_volume_programs.end();
 		m_proj_refreshed = false;
+		// The same game block twice in a frame (Uncharted draws every object's depth pass, then its normal pass with depth
+		// EQUAL) must come out the same: a non-rigid block takes the projection the first draw of that block used this frame,
+		// not whichever the previous draw measured (the game's culling widening gives a frame several camera projections;
+		// whole scaffolding beams kept the normal buffer's clear value, grey).
+		u64 input_hash = 14695981039346656037ull;
+		for (u32 r = 0; r < 4; ++r)
+			for (u32 c = 0; c < 4; ++c)
+				input_hash = (input_hash ^ std::bit_cast<u32>(game_block[r][c])) * 1099511628211ull;
+		input_hash |= 1; // 0 marks a free slot
+		vr_proj_pin* slot = nullptr;
+		for (u32 i = 0; i < 8; ++i)
+		{
+			vr_proj_pin& e = m_vr_proj_pins[(input_hash + i) % m_vr_proj_pins.size()];
+			if (e.frame != m_vr_proj_pin_frame || e.key == input_hash)
+			{
+				slot = &e;
+				break;
+			}
+		}
+		m_vr_proj_pinned = slot && slot->frame == m_vr_proj_pin_frame;
+		if (m_vr_proj_pinned)
+		{
+			m_vr_proj_x = slot->x;
+			m_vr_proj_y = slot->y;
+			m_vr_proj_valid = true;
+		}
 		if (view_draw && m_vr_view)
 		{
 			apply_vr_rotation(rows, m_vr_rot, at_infinity ? std::array<f32, 3>{} : m_vr_head_units, !sprite_block && !remap_volume);
+			if (slot && !m_vr_proj_pinned && m_vr_proj_valid)
+			{
+				*slot = {input_hash, m_vr_proj_pin_frame, m_vr_proj_x, m_vr_proj_y};
+			}
 		}
+		m_vr_proj_pinned = false;
 		if (output_aspect_match && m_proj_refreshed)
 		{
 			m_scene_proj_x = m_vr_proj_x;
@@ -4464,6 +4495,7 @@ namespace rsx::vr
 			m_vr_proj_dominant = it->first;
 		}
 		m_vr_proj_frame.clear();
+		m_vr_proj_pin_frame++;
 
 		// Head aim: keep the pose as computed, then turn it by the head aim's offset (the previous frame's until this
 		// frame's first camera draw updates it). Without head_aim in the profile nothing changes.
@@ -5681,7 +5713,7 @@ namespace rsx::vr
 			set_vr_projection(n0 / n3, n1 / n3);
 			m_proj_refreshed = true;
 		}
-		else if (m_vr_proj_dominant[0] > 0.f && m_vr_proj_valid && std::fabs(m_vr_proj_x - m_vr_proj_dominant[0]) <= 0.02f * m_vr_proj_dominant[0] &&
+		else if (!m_vr_proj_pinned && m_vr_proj_dominant[0] > 0.f && m_vr_proj_valid && std::fabs(m_vr_proj_x - m_vr_proj_dominant[0]) <= 0.02f * m_vr_proj_dominant[0] &&
 			std::fabs(m_vr_proj_y - m_vr_proj_dominant[1]) <= 0.02f * m_vr_proj_dominant[1])
 		{
 			// Not rigid (or not a camera that sets it), and the last measured projection is the scene camera's family (within
